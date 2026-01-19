@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.11,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "radrs"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dynamic = ["version"]
+dependencies = ["numpy>=1.20", "xarray>=2024.1"]
+
+[project.optional-dependencies]
+zarr = ["zarr>=3"]
+test = ["pytest", "pytest-asyncio", "pytest-benchmark", "xradar"]
+
+[tool.maturin]
+python-source = "python"
+features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "network: marks tests that require network access (deselect with '-m \"not network\"')",
+    "benchmark: performance benchmarks (deselect with '-m \"not benchmark\"')",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "arm-pyart>=2.2.0",
+    "pytest>=9.0.2",
+    "pytest-benchmark>=4.0.0",
+    "xradar>=0.11.0",
+]

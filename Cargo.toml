@@ -1,0 +1,53 @@
+[package]
+name = "radrs"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "radrs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Python bindings
+pyo3 = { version = "0.23", features = ["extension-module"] }
+numpy = "0.23"
+
+# NEXRAD parsing (disable render to avoid piet-coregraphics conflict)
+nexrad = { path = "../nexrad/nexrad", default-features = false, features = ["model", "decode", "data", "parallel-decode", "parallel-decompress"] }
+nexrad-data = { path = "../nexrad/nexrad-data", features = ["parallel-decode", "parallel-decompress"] }
+nexrad-decode = { path = "../nexrad/nexrad-decode" }
+nexrad-model = { path = "../nexrad/nexrad-model" }
+
+# S3 access
+object_store = { version = "0.11", features = ["aws"] }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"] }
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Parallelism
+rayon = "1.10"
+
+# Date/time handling
+chrono = "0.4"
+
+# Logging
+tracing = "0.1"
+
+# URL parsing
+url = "2"
+
+# Futures
+futures = "0.3"
+
+# Gzip decompression
+flate2 = "1.1"
+
+[features]
+default = []
+zarr = []   # Stub - enable when zarrs dependency is added
+cache = []  # Stub - enable when icechunk dependency is added
