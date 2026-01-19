@@ -9,7 +9,7 @@ Example
 >>> import radrs.xradar as rxr
 >>>
 >>> # Exactly like xradar.io.open_nexradlevel2_datatree
->>> dt = rxr.open_datatree("s3://noaa-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000000_V06")
+>>> dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000000_V06")
 >>> dt = rxr.open_datatree("/path/to/local/file.ar2v")
 >>> dt = rxr.open_datatree(file_bytes)  # From bytes
 >>>

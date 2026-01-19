@@ -45,7 +45,7 @@ class ArchiveStream:
         self.poll_interval = poll_interval
         self.seen = set()  # Only contains successfully processed volumes
         # Use the archive bucket with complete volumes
-        self.bucket = "noaa-nexrad-level2"
+        self.bucket = "unidata-nexrad-level2"
         self._radrs = __import__('radrs')
         # Pattern to match NEXRAD Level 2 volume files (e.g., KTLX20240315_000000_V06)
         self._volume_pattern = re.compile(r'_V\d+$')

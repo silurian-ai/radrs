@@ -10,7 +10,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::ffi::CString;
 
-const NEXRAD_BUCKET: &str = "noaa-nexrad-level2";
+const NEXRAD_BUCKET: &str = "unidata-nexrad-level2";
 
 /// List available volumes for a site and date
 pub async fn list_volumes(site: &str, date: NaiveDate) -> Result<Vec<String>> {
@@ -132,7 +132,7 @@ class VolumeIterator:
                 self._current_index += 1
 
                 # Build HTTPS URL (public bucket)
-                https_url = f"https://noaa-nexrad-level2.s3.amazonaws.com/{self._current_date.year}/{self._current_date.month:02d}/{self._current_date.day:02d}/{self.site}/{volume}"
+                https_url = f"https://unidata-nexrad-level2.s3.amazonaws.com/{self._current_date.year}/{self._current_date.month:02d}/{self._current_date.day:02d}/{self.site}/{volume}"
 
                 try:
                     with urllib.request.urlopen(https_url) as response:
@@ -188,4 +188,3 @@ pub async fn iter_volumes(
     // Internal implementation would go here
     unimplemented!("Use iter_volumes_py for Python interface")
 }
-

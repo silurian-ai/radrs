@@ -5,7 +5,7 @@ use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
 use object_store::ObjectStore;
 
-const ARCHIVE_BUCKET: &str = "noaa-nexrad-level2";
+const ARCHIVE_BUCKET: &str = "unidata-nexrad-level2";
 
 /// Fetch a file from the NEXRAD archive
 pub async fn fetch_archive_file(
