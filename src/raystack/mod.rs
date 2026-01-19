@@ -7,7 +7,7 @@ mod convert;
 mod fold;
 mod parse;
 
-pub use convert::{from_datatree_py, to_datatree_py};
+pub use convert::{from_xradar_datatree_py, to_xradar_datatree_py};
 pub use fold::{fold_ranges, fold_ranges_into};
 pub use parse::{parse_optimized, parse_py, RaystackData, SweepInfo};
 pub(crate) use parse::raystack_to_python;
@@ -21,8 +21,8 @@ pub fn register_module(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
     raystack_module.add_function(wrap_pyfunction!(parse::parse_py, &raystack_module)?)?;
     raystack_module.add_function(wrap_pyfunction!(parse::open_raystack_datatree_py, &raystack_module)?)?;
     raystack_module.add_function(wrap_pyfunction!(parse::open_raystack_datatree_async_py, &raystack_module)?)?;
-    raystack_module.add_function(wrap_pyfunction!(convert::from_datatree_py, &raystack_module)?)?;
-    raystack_module.add_function(wrap_pyfunction!(convert::to_datatree_py, &raystack_module)?)?;
+    raystack_module.add_function(wrap_pyfunction!(convert::from_xradar_datatree_py, &raystack_module)?)?;
+    raystack_module.add_function(wrap_pyfunction!(convert::to_xradar_datatree_py, &raystack_module)?)?;
     raystack_module.add_function(wrap_pyfunction!(convert::to_raystack_datatree_py, &raystack_module)?)?;
 
     parent_module.add_submodule(&raystack_module)?;

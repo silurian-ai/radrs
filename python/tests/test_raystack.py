@@ -249,29 +249,29 @@ def test_parse_accepts_gzip_bytes(test_file_bytes):
         )
 
 
-class TestFromDatatree:
-    """Tests for from_datatree function."""
+class TestFromXradarDatatree:
+    """Tests for from_xradar_datatree function."""
 
-    def test_from_datatree_returns_dict(self, test_file_path):
-        """Test that from_datatree returns a dict."""
+    def test_from_xradar_datatree_returns_dict(self, test_file_path):
+        """Test that from_xradar_datatree returns a dict."""
         import radrs.xradar as rxr
         import radrs.raystack as rrs
 
         dt = rxr.open_datatree(test_file_path)
-        rs = rrs.from_datatree(dt)
+        rs = rrs.from_xradar_datatree(dt)
 
         assert isinstance(rs, dict)
         assert "vcps" in rs
         assert "sweeps" in rs
         assert "returns" in rs
 
-    def test_from_datatree_sweep_idx_alignment(self, test_file_path):
+    def test_from_xradar_datatree_sweep_idx_alignment(self, test_file_path):
         """Test that sweep_idx aligns with sweeps metadata from DataTree."""
         import radrs.xradar as rxr
         import radrs.raystack as rrs
 
         dt = rxr.open_datatree(test_file_path)
-        rs = rrs.from_datatree(dt)
+        rs = rrs.from_xradar_datatree(dt)
 
         sweeps = rs["sweeps"]
         sweep_idx = rs["returns"]["sweep_idx"]
@@ -281,8 +281,8 @@ class TestFromDatatree:
         assert unique_idx.max() == len(sweeps) - 1, \
             f"sweep_idx max ({unique_idx.max()}) should equal len(sweeps)-1 ({len(sweeps)-1})"
 
-    def test_from_datatree_with_xradar_datatree(self, test_file_path):
-        """Test from_datatree handles xradar DataTree with non-sweep nodes."""
+    def test_from_xradar_datatree_with_xradar_datatree(self, test_file_path):
+        """Test from_xradar_datatree handles xradar DataTree with non-sweep nodes."""
         try:
             import xradar as xd
         except ImportError:
@@ -299,7 +299,7 @@ class TestFromDatatree:
         assert len(non_sweep) > 0, "Expected xradar to have non-sweep nodes"
 
         # Convert to raystack
-        rs = rrs.from_datatree(xrad_dt)
+        rs = rrs.from_xradar_datatree(xrad_dt)
 
         # sweep_idx should still align correctly
         sweeps = rs["sweeps"]
@@ -313,26 +313,26 @@ class TestFromDatatree:
             "sweep_idx max should match sweeps count (not include non-sweep nodes)"
 
 
-class TestToDatatree:
-    """Tests for to_datatree function."""
+class TestToXradarDatatree:
+    """Tests for to_xradar_datatree function."""
 
-    def test_to_datatree_returns_datatree(self, test_file_bytes):
-        """Test that to_datatree returns a DataTree."""
+    def test_to_xradar_datatree_returns_datatree(self, test_file_bytes):
+        """Test that to_xradar_datatree returns a DataTree."""
         import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
-        dt = rrs.to_datatree(rs)
+        dt = rrs.to_xradar_datatree(rs)
 
         assert hasattr(dt, "children")
         sweep_keys = [k for k in dt.children.keys() if k.startswith("sweep_")]
         assert len(sweep_keys) > 0
 
-    def test_to_datatree_preserves_moments(self, test_file_bytes):
-        """Test that to_datatree preserves moment data."""
+    def test_to_xradar_datatree_preserves_moments(self, test_file_bytes):
+        """Test that to_xradar_datatree preserves moment data."""
         import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
-        dt = rrs.to_datatree(rs)
+        dt = rrs.to_xradar_datatree(rs)
 
         sweep_0 = dt["sweep_0"]
         ds = sweep_0.dataset
@@ -387,8 +387,8 @@ class TestRoundtrip:
         import radrs.raystack as rrs
 
         dt1 = rxr.open_datatree(test_file_path)
-        rs = rrs.from_datatree(dt1)
-        dt2 = rrs.to_datatree(rs)
+        rs = rrs.from_xradar_datatree(dt1)
+        dt2 = rrs.to_xradar_datatree(rs)
 
         sweeps1 = [k for k in dt1.children.keys() if k.startswith("sweep_")]
         sweeps2 = [k for k in dt2.children.keys() if k.startswith("sweep_")]
@@ -401,8 +401,8 @@ class TestRoundtrip:
         import radrs.raystack as rrs
 
         dt1 = rxr.open_datatree(test_file_path)
-        rs = rrs.from_datatree(dt1)
-        dt2 = rrs.to_datatree(rs)
+        rs = rrs.from_xradar_datatree(dt1)
+        dt2 = rrs.to_xradar_datatree(rs)
 
         for key in dt1.children:
             if not key.startswith("sweep_"):
@@ -421,8 +421,8 @@ class TestRoundtrip:
         import radrs.raystack as rrs
 
         dt1 = rxr.open_datatree(test_file_path)
-        rs = rrs.from_datatree(dt1)
-        dt2 = rrs.to_datatree(rs)
+        rs = rrs.from_xradar_datatree(dt1)
+        dt2 = rrs.to_xradar_datatree(rs)
 
         for key in dt1.children:
             if not key.startswith("sweep_"):
@@ -453,8 +453,8 @@ class TestRoundtrip:
 
         dt1 = rxr.open_datatree(test_file_path)
         # Use large fold_size to minimize folding (preserve more exact values)
-        rs = rrs.from_datatree(dt1, fold_size=2048)
-        dt2 = rrs.to_datatree(rs)
+        rs = rrs.from_xradar_datatree(dt1, fold_size=2048)
+        dt2 = rrs.to_xradar_datatree(rs)
 
         moments_to_check = ["DBZH", "RHOHV", "ZDR"]
 
@@ -492,8 +492,8 @@ class TestRoundtrip:
                 assert nan_mismatch_pct < 1.0, \
                     f"{key}/{moment}: NaN positions differ by {nan_mismatch_pct:.1f}%"
 
-    def test_parse_vs_from_datatree_consistency(self, test_file_path, test_file_bytes):
-        """Test that parse and from_datatree produce consistent structure/coords."""
+    def test_parse_vs_from_xradar_datatree_consistency(self, test_file_path, test_file_bytes):
+        """Test that parse and from_xradar_datatree produce consistent structure/coords."""
         import radrs.xradar as rxr
         import radrs.raystack as rrs
 
@@ -502,7 +502,7 @@ class TestRoundtrip:
 
         # Via DataTree
         dt = rxr.open_datatree(test_file_path)
-        rs2 = rrs.from_datatree(dt, fold_size=128)
+        rs2 = rrs.from_xradar_datatree(dt, fold_size=128)
 
         # Should have same structure
         assert len(rs1["sweeps"]) == len(rs2["sweeps"])
@@ -513,7 +513,7 @@ class TestRoundtrip:
             rs1["returns"]["azimuth"],
             rs2["returns"]["azimuth"],
             rtol=1e-5,
-            err_msg="azimuth differs between parse and from_datatree"
+            err_msg="azimuth differs between parse and from_xradar_datatree"
         )
 
 

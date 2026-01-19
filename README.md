@@ -70,9 +70,11 @@ print(rs["returns"]["DBZH"].shape)  # (n_returns, 128)
 | Function | Description |
 |----------|-------------|
 | `parse(data, fold_size)` | Parse bytes directly to raystack dict (fastest) |
-| `from_datatree(dt, fold_size)` | Convert xradar-style DataTree to raystack dict |
-| `to_datatree(rs)` | Convert raystack dict to xradar-style DataTree |
-| `open_datatree(source, fold_size)` | Open file as raystack-style DataTree (flat layout) |
+| `from_xradar_datatree(dt, fold_size)` | Convert xradar-style DataTree to raystack dict |
+| `to_xradar_datatree(rs)` | Convert raystack dict to xradar-style DataTree |
+| `to_raystack_datatree(rs)` | Convert raystack dict to raystack-style DataTree |
+| `open_datatree(source, fold_size)` | Open file/URL/bytes as raystack-style DataTree (flat layout) |
+| `open_datatree_async(source, fold_size)` | Async version of open_datatree |
 
 ### radrs.qc
 
@@ -93,39 +95,17 @@ DataTree('root')
 │   └── ...
 ```
 
-### Raystack (ML-optimized)
+### Raystack DataTree (flat layout)
 
-```python
-{
-    "vcps": {"pattern_number": 215},
-    "sweeps": [
-        {"elevation_number": 1, "elevation_angle": 0.5, "n_radials": 720, "start_index": 0},
-        ...
-    ],
-    "returns": {
-        "azimuth": ndarray(n_returns,),
-        "elevation": ndarray(n_returns,),
-        "time": ndarray(n_returns,),
-        "sweep_idx": ndarray(n_returns,),
-        "DBZH": ndarray(n_returns, fold_size),
-        "VRADH": ndarray(n_returns, fold_size),
-        ...
-    }
-}
 ```
-
-## Performance
-
-Benchmarks on Apple M2, single NEXRAD volume (~12 MB):
-
-| Operation | radrs | xradar | Speedup |
-|-----------|-------|--------|---------|
-| Parse only | 0.22s | 3.25s | 14.6x |
-| S3 fetch + parse (warm) | 1.3s | 3.0s | 2.3x |
-| Sequential 3 files | 4.2s | 7.5s | 1.8x |
-| With prefetch=5 | 7.4s | - | 3.9x vs no prefetch |
-
-Network latency dominates S3 operations; the prefetch pipeline overlaps I/O with parsing.
+DataTree('root')
+├── DataTree('vcps')
+│   └── Dataset: pattern_number, ...
+├── DataTree('sweeps')
+│   └── Dataset: elevation_number, elevation_angle, n_radials, start_index, ...
+└── DataTree('returns')
+    └── Dataset: azimuth, elevation, time, sweep_idx, DBZH, VRADH, ... (n_returns, fold_size)
+```
 
 ## Development
 

@@ -18,7 +18,7 @@ Example
 >>> # Convert DataTree to raystack format
 >>> import radrs.xradar as rxr
 >>> dt = rxr.open_datatree(file_path)
->>> rs = rrs.from_datatree(dt, fold_size=128)
+>>> rs = rrs.from_xradar_datatree(dt, fold_size=128)
 >>>
 >>> # Write raystack to Zarr via xarray
 >>> rrs.to_raystack_datatree(rs).to_zarr("output.zarr")
@@ -35,12 +35,12 @@ if _raystack is None:
         """Parse NEXRAD data to raystack format."""
         raise NotImplementedError("radrs.raystack module not available")
 
-    def from_datatree(datatree, fold_size=None):
-        """Convert DataTree to raystack format."""
+    def from_xradar_datatree(datatree, fold_size=None):
+        """Convert xradar DataTree to raystack format."""
         raise NotImplementedError("radrs.raystack module not available")
 
-    def to_datatree(raystack):
-        """Convert raystack back to DataTree."""
+    def to_xradar_datatree(raystack):
+        """Convert raystack back to xradar DataTree."""
         raise NotImplementedError("radrs.raystack module not available")
 
     def to_raystack_datatree(raystack):
@@ -57,16 +57,16 @@ if _raystack is None:
 
 else:
     parse = _raystack.parse
-    from_datatree = _raystack.from_datatree
-    to_datatree = _raystack.to_datatree
+    from_xradar_datatree = _raystack.from_xradar_datatree
+    to_xradar_datatree = _raystack.to_xradar_datatree
     to_raystack_datatree = _raystack.to_raystack_datatree
     open_datatree = _raystack.open_datatree
     open_datatree_async = _raystack.open_datatree_async
 
 __all__ = [
     "parse",
-    "from_datatree",
-    "to_datatree",
+    "from_xradar_datatree",
+    "to_xradar_datatree",
     "to_raystack_datatree",
     "open_datatree",
     "open_datatree_async",

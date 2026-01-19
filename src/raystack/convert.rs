@@ -6,10 +6,10 @@ use numpy::IntoPyArray;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict};
 
-/// Convert xarray DataTree to Raystack format
+/// Convert xarray DataTree (xradar) to Raystack format
 #[pyfunction]
-#[pyo3(name = "from_datatree", signature = (datatree, fold_size = None))]
-pub fn from_datatree_py(
+#[pyo3(name = "from_xradar_datatree", signature = (datatree, fold_size = None))]
+pub fn from_xradar_datatree_py(
     py: Python<'_>,
     datatree: &Bound<'_, PyAny>,
     fold_size: Option<usize>,
@@ -19,10 +19,13 @@ pub fn from_datatree_py(
     raystack_to_python(py, raystack, None)
 }
 
-/// Convert Raystack to xarray DataTree
+/// Convert Raystack to xarray DataTree (xradar layout)
 #[pyfunction]
-#[pyo3(name = "to_datatree")]
-pub fn to_datatree_py(py: Python<'_>, raystack_dict: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
+#[pyo3(name = "to_xradar_datatree")]
+pub fn to_xradar_datatree_py(
+    py: Python<'_>,
+    raystack_dict: &Bound<'_, PyDict>,
+) -> PyResult<Py<PyAny>> {
     raystack_dict_to_datatree(py, raystack_dict)
 }
 
