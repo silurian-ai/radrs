@@ -45,6 +45,9 @@ struct SweepMeta {
     elevation_number: u8,
     elevation_angle: f32,
     n_radials: usize,
+    max_gates: usize,      // Max gate count across all moments in this sweep
+    range_first_km: f64,   // First gate range for sweep grid (km)
+    gate_interval_km: f64, // Gate interval for sweep grid (km)
 }
 
 /// Volume metadata from first pass
@@ -162,8 +165,8 @@ pub fn parse_optimized(data: &[u8], fold_size: usize) -> Result<RaystackData> {
     // Allocate output
     let mut raystack = RaystackData::with_capacity(&meta, fold_size);
 
-    // Second pass: fill data
-    fill_raystack_data(&scan, &mut raystack);
+    // Second pass: fill data (pass sweep metadata for max_gates per sweep)
+    fill_raystack_data(&scan, &mut raystack, &meta.sweeps);
 
     Ok(raystack)
 }
@@ -182,10 +185,40 @@ fn collect_metadata(scan: &Scan) -> VolumeMeta {
 
         let first_radial = &radials[0];
 
+        // Find max gate count across all moments in this sweep.
+        // Use that moment's range metadata to define the sweep grid (matches xradar behavior).
+        let mut max_gates = 0usize;
+        let mut range_first_km = 0.0f64;
+        let mut gate_interval_km = 0.0f64;
+
+        let mut update_grid = |moment: Option<&nexrad_model::data::MomentData>| {
+            if let Some(m) = moment {
+                let gates = m.gate_count() as usize;
+                if gates > max_gates {
+                    max_gates = gates;
+                    range_first_km = m.first_gate_range_km();
+                    gate_interval_km = m.gate_interval_km();
+                }
+            }
+        };
+
+        for radial in radials {
+            update_grid(radial.reflectivity());
+            update_grid(radial.velocity());
+            update_grid(radial.spectrum_width());
+            update_grid(radial.differential_reflectivity());
+            update_grid(radial.differential_phase());
+            update_grid(radial.correlation_coefficient());
+            update_grid(radial.specific_differential_phase());
+        }
+
         sweeps.push(SweepMeta {
             elevation_number: sweep.elevation_number(),
             elevation_angle: first_radial.elevation_angle_degrees(),
             n_radials,
+            max_gates,
+            range_first_km,
+            gate_interval_km,
         });
 
         total_radials += n_radials;
@@ -199,29 +232,106 @@ fn collect_metadata(scan: &Scan) -> VolumeMeta {
 }
 
 /// Second pass: fill preallocated buffers
-fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData) {
+fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[SweepMeta]) {
     let fold_size = raystack.fold_size;
     let mut radial_idx = 0;
+    let mut meta_idx = 0;
+    let mut sweep_counter: u32 = 0;
 
-    for (sweep_idx, sweep) in scan.sweeps().iter().enumerate() {
-        for radial in sweep.radials() {
+    for sweep in scan.sweeps().iter() {
+        let radials = sweep.radials();
+        if radials.is_empty() {
+            continue;
+        }
+
+        // Get sweep grid metadata (computed in first pass)
+        let sweep_info = sweep_meta[meta_idx];
+        meta_idx += 1;
+
+        for radial in radials {
             // Fill coordinates
             raystack.azimuth[radial_idx] = radial.azimuth_angle_degrees();
             raystack.elevation[radial_idx] = radial.elevation_angle_degrees();
             raystack.time[radial_idx] = radial.collection_timestamp();
-            raystack.sweep_idx[radial_idx] = sweep_idx as u32;
+            // Use sweep_counter to stay aligned with sweep_meta (which skips empty sweeps)
+            raystack.sweep_idx[radial_idx] = sweep_counter;
 
-            // Fill moments with folding
-            fill_moment(raystack, radial_idx, MOMENT_DBZH, radial.reflectivity(), fold_size);
-            fill_moment(raystack, radial_idx, MOMENT_VRADH, radial.velocity(), fold_size);
-            fill_moment(raystack, radial_idx, MOMENT_WRADH, radial.spectrum_width(), fold_size);
-            fill_moment(raystack, radial_idx, MOMENT_ZDR, radial.differential_reflectivity(), fold_size);
-            fill_moment(raystack, radial_idx, MOMENT_PHIDP, radial.differential_phase(), fold_size);
-            fill_moment(raystack, radial_idx, MOMENT_RHOHV, radial.correlation_coefficient(), fold_size);
-            fill_moment(raystack, radial_idx, MOMENT_KDP, radial.specific_differential_phase(), fold_size);
+            // Fill moments with folding, using sweep grid metadata for physical alignment
+            fill_moment(
+                raystack,
+                radial_idx,
+                MOMENT_DBZH,
+                radial.reflectivity(),
+                fold_size,
+                sweep_info.max_gates,
+                sweep_info.range_first_km,
+                sweep_info.gate_interval_km,
+            );
+            fill_moment(
+                raystack,
+                radial_idx,
+                MOMENT_VRADH,
+                radial.velocity(),
+                fold_size,
+                sweep_info.max_gates,
+                sweep_info.range_first_km,
+                sweep_info.gate_interval_km,
+            );
+            fill_moment(
+                raystack,
+                radial_idx,
+                MOMENT_WRADH,
+                radial.spectrum_width(),
+                fold_size,
+                sweep_info.max_gates,
+                sweep_info.range_first_km,
+                sweep_info.gate_interval_km,
+            );
+            fill_moment(
+                raystack,
+                radial_idx,
+                MOMENT_ZDR,
+                radial.differential_reflectivity(),
+                fold_size,
+                sweep_info.max_gates,
+                sweep_info.range_first_km,
+                sweep_info.gate_interval_km,
+            );
+            fill_moment(
+                raystack,
+                radial_idx,
+                MOMENT_PHIDP,
+                radial.differential_phase(),
+                fold_size,
+                sweep_info.max_gates,
+                sweep_info.range_first_km,
+                sweep_info.gate_interval_km,
+            );
+            fill_moment(
+                raystack,
+                radial_idx,
+                MOMENT_RHOHV,
+                radial.correlation_coefficient(),
+                fold_size,
+                sweep_info.max_gates,
+                sweep_info.range_first_km,
+                sweep_info.gate_interval_km,
+            );
+            fill_moment(
+                raystack,
+                radial_idx,
+                MOMENT_KDP,
+                radial.specific_differential_phase(),
+                fold_size,
+                sweep_info.max_gates,
+                sweep_info.range_first_km,
+                sweep_info.gate_interval_km,
+            );
 
             radial_idx += 1;
         }
+
+        sweep_counter += 1;
     }
 }
 
@@ -233,58 +343,159 @@ fn fill_moment(
     moment_idx: usize,
     moment: Option<&nexrad_model::data::MomentData>,
     fold_size: usize,
+    sweep_gates: usize,
+    sweep_first_km: f64,
+    sweep_gate_interval_km: f64,
 ) {
     let dest = raystack.moment_slice_mut(moment_idx, radial_idx);
 
     if let Some(m) = moment {
         let values = m.values();
         // Convert to f32 and fold into destination
-        fold_moment_values_into(&values, dest, fold_size);
+        // Use sweep grid metadata for physical range alignment
+        fold_moment_values_into(
+            &values,
+            dest,
+            fold_size,
+            sweep_gates,
+            m.first_gate_range_km(),
+            m.gate_interval_km(),
+            sweep_first_km,
+            sweep_gate_interval_km,
+        );
     }
     // If None, dest is already filled with NaN from initialization
 }
 
 /// Fold moment values directly into destination buffer
+///
+/// Uses `max_gates` as the common range grid size for all moments in the radial.
+/// This ensures that moments with different native gate counts are mapped to
+/// the same physical ranges when folded (matching xradar's behavior).
 #[inline]
 fn fold_moment_values_into(
     values: &[MomentValue],
     dest: &mut [f32],
     fold_size: usize,
+    sweep_gates: usize,
+    moment_first_km: f64,
+    moment_gate_interval_km: f64,
+    sweep_first_km: f64,
+    sweep_gate_interval_km: f64,
 ) {
     let n_gates = values.len();
-    if n_gates == 0 {
+    if n_gates == 0 || sweep_gates == 0 || fold_size == 0 {
         return; // dest already NaN
     }
 
-    if n_gates <= fold_size {
-        // No folding needed, just copy
-        for (i, v) in values.iter().enumerate() {
-            dest[i] = match v {
+    if moment_gate_interval_km <= 0.0 || sweep_gate_interval_km <= 0.0 {
+        return;
+    }
+
+    let same_grid = (moment_first_km - sweep_first_km).abs() < 1e-6
+        && (moment_gate_interval_km - sweep_gate_interval_km).abs() < 1e-6;
+
+    if same_grid {
+        if sweep_gates <= fold_size {
+            // No folding needed, just copy (padding with NaN beyond n_gates)
+            for i in 0..fold_size.min(n_gates) {
+                dest[i] = match values[i] {
+                    MomentValue::Value(x) => x,
+                    _ => f32::NAN,
+                };
+            }
+            // Rest of dest stays NaN from initialization
+        } else {
+            // Fold: average values into buckets based on sweep_gates (common range grid)
+            let bucket_size = sweep_gates as f32 / fold_size as f32;
+
+            for i in 0..fold_size {
+                let start = (i as f32 * bucket_size) as usize;
+                let end = ((i + 1) as f32 * bucket_size) as usize;
+                let end = end.min(sweep_gates);
+
+                let mut sum = 0.0f32;
+                let mut count = 0u32;
+
+                // Only process gates that exist in this moment's data
+                // Gates beyond n_gates are treated as NaN (don't contribute)
+                for j in start..end.min(n_gates) {
+                    if let MomentValue::Value(x) = values[j] {
+                        sum += x;
+                        count += 1;
+                    }
+                }
+
+                dest[i] = if count > 0 {
+                    sum / count as f32
+                } else {
+                    f32::NAN
+                };
+            }
+        }
+        return;
+    }
+
+    if sweep_gates <= fold_size {
+        // Map moment gates to sweep grid indices by physical range
+        let mut sum = vec![0.0f32; sweep_gates];
+        let mut count = vec![0u32; sweep_gates];
+
+        for (gate_idx, value) in values.iter().enumerate() {
+            let val = match value {
                 MomentValue::Value(x) => *x,
-                _ => f32::NAN,
+                _ => continue,
             };
+
+            let range_km = moment_first_km + gate_idx as f64 * moment_gate_interval_km;
+            let sweep_pos = (range_km - sweep_first_km) / sweep_gate_interval_km;
+            if sweep_pos < 0.0 || sweep_pos >= sweep_gates as f64 {
+                continue;
+            }
+            let idx = sweep_pos.round() as isize;
+            if idx < 0 || idx >= sweep_gates as isize {
+                continue;
+            }
+            let uidx = idx as usize;
+            sum[uidx] += val;
+            count[uidx] += 1;
+        }
+
+        for i in 0..sweep_gates {
+            if count[i] > 0 {
+                dest[i] = sum[i] / count[i] as f32;
+            }
         }
     } else {
-        // Fold: average values into buckets
-        let bucket_size = n_gates as f32 / fold_size as f32;
+        // Fold using physical range mapping into sweep grid buckets
+        let mut sum = vec![0.0f32; fold_size];
+        let mut count = vec![0u32; fold_size];
+        let bucket_size = sweep_gates as f64 / fold_size as f64;
 
-        for i in 0..fold_size {
-            let start = (i as f32 * bucket_size) as usize;
-            let end = ((i + 1) as f32 * bucket_size) as usize;
-            let end = end.min(n_gates);
+        for (gate_idx, value) in values.iter().enumerate() {
+            let val = match value {
+                MomentValue::Value(x) => *x,
+                _ => continue,
+            };
 
-            let mut sum = 0.0f32;
-            let mut count = 0u32;
-
-            for j in start..end {
-                if let MomentValue::Value(x) = values[j] {
-                    sum += x;
-                    count += 1;
-                }
+            let range_km = moment_first_km + gate_idx as f64 * moment_gate_interval_km;
+            let sweep_pos = (range_km - sweep_first_km) / sweep_gate_interval_km;
+            if sweep_pos < 0.0 || sweep_pos >= sweep_gates as f64 {
+                continue;
+            }
+            let bucket = (sweep_pos / bucket_size).floor() as isize;
+            if bucket < 0 || bucket >= fold_size as isize {
+                continue;
             }
 
-            dest[i] = if count > 0 {
-                sum / count as f32
+            let ubucket = bucket as usize;
+            sum[ubucket] += val;
+            count[ubucket] += 1;
+        }
+
+        for i in 0..fold_size {
+            dest[i] = if count[i] > 0 {
+                sum[i] / count[i] as f32
             } else {
                 f32::NAN
             };
@@ -371,3 +582,137 @@ pub fn raystack_to_python(
     Ok(result.into())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fold_moment_values_into_same_grid_no_fold() {
+        let values = vec![
+            MomentValue::Value(1.0),
+            MomentValue::BelowThreshold,
+            MomentValue::Value(3.0),
+            MomentValue::RangeFolded,
+        ];
+        let mut dest = vec![f32::NAN; 6];
+        // sweep_gates = 4, fold_size = 6, same grid
+        fold_moment_values_into(
+            &values,
+            &mut dest,
+            6,
+            4,
+            0.5,
+            0.25,
+            0.5,
+            0.25,
+        );
+
+        assert_eq!(dest[0], 1.0);
+        assert!(dest[1].is_nan());
+        assert_eq!(dest[2], 3.0);
+        assert!(dest[3].is_nan());
+        assert!(dest[4].is_nan());
+        assert!(dest[5].is_nan());
+    }
+
+    #[test]
+    fn test_fold_moment_values_into_same_grid_bucket_avg() {
+        // 6 values folded into 3 buckets (size 2)
+        // Bucket 0: [1.0, missing] -> 1.0
+        // Bucket 1: [3.0, missing] -> 3.0
+        // Bucket 2: [5.0, 7.0] -> 6.0
+        let values = vec![
+            MomentValue::Value(1.0),
+            MomentValue::BelowThreshold,
+            MomentValue::Value(3.0),
+            MomentValue::RangeFolded,
+            MomentValue::Value(5.0),
+            MomentValue::Value(7.0),
+        ];
+        let mut dest = vec![f32::NAN; 3];
+        // sweep_gates = 6, fold_size = 3, same grid
+        fold_moment_values_into(
+            &values,
+            &mut dest,
+            3,
+            6,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+        );
+
+        assert!((dest[0] - 1.0).abs() < 0.01);
+        assert!((dest[1] - 3.0).abs() < 0.01);
+        assert!((dest[2] - 6.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_fold_moment_values_into_empty() {
+        let values: Vec<MomentValue> = vec![];
+        let mut dest = vec![f32::NAN; 4];
+        fold_moment_values_into(
+            &values,
+            &mut dest,
+            4,
+            4,
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+        );
+
+        assert!(dest.iter().all(|v| v.is_nan()));
+    }
+
+    #[test]
+    fn test_fold_moment_values_into_offset_grid_no_fold() {
+        // Sweep grid: 0.5, 1.0, 1.5, 2.0 (km), fold_size >= sweep_gates
+        // Moment gates at 1.0, 2.0 should land at indices 1 and 3.
+        let values = vec![MomentValue::Value(10.0), MomentValue::Value(20.0)];
+        let mut dest = vec![f32::NAN; 6];
+        fold_moment_values_into(
+            &values,
+            &mut dest,
+            6,
+            4,
+            1.0,
+            1.0,
+            0.5,
+            0.5,
+        );
+
+        assert!(dest[0].is_nan());
+        assert_eq!(dest[1], 10.0);
+        assert!(dest[2].is_nan());
+        assert_eq!(dest[3], 20.0);
+    }
+
+    #[test]
+    fn test_fold_moment_values_into_offset_grid_folded() {
+        // Sweep grid length 8, fold to 4 buckets (size 2)
+        // Moment gates at ranges 1,3,5 (km) map to sweep indices 1,3,5
+        // Buckets: [0-2)->10, [2-4)->20, [4-6)->30, [6-8)->NaN
+        let values = vec![
+            MomentValue::Value(10.0),
+            MomentValue::Value(20.0),
+            MomentValue::Value(30.0),
+        ];
+        let mut dest = vec![f32::NAN; 4];
+        fold_moment_values_into(
+            &values,
+            &mut dest,
+            4,
+            8,
+            1.0,
+            2.0,
+            0.0,
+            1.0,
+        );
+
+        assert!((dest[0] - 10.0).abs() < 0.01);
+        assert!((dest[1] - 20.0).abs() < 0.01);
+        assert!((dest[2] - 30.0).abs() < 0.01);
+        assert!(dest[3].is_nan());
+    }
+}
