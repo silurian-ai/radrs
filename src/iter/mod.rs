@@ -14,6 +14,7 @@ use pyo3::prelude::*;
 pub fn register_functions(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
     parent_module.add_function(wrap_pyfunction!(volumes::list_volumes_py, parent_module)?)?;
     parent_module.add_function(wrap_pyfunction!(volumes::iter_volumes_py, parent_module)?)?;
+    parent_module.add_function(wrap_pyfunction!(volumes::iter_volumes_async_py, parent_module)?)?;
     parent_module.add_function(wrap_pyfunction!(realtime::stream_archive_py, parent_module)?)?;
     parent_module.add_function(wrap_pyfunction!(realtime::stream_realtime_py, parent_module)?)?;
     Ok(())

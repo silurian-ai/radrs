@@ -1,11 +1,14 @@
 //! DataTree conversion for xradar compatibility
 
 use crate::error::{RadrsError, Result};
+use crate::fetch::{fetch_s3_url, RUNTIME};
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentValue, Radial, Scan, Sweep};
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyBytes, PyDict};
+use pyo3_async_runtimes::tokio::future_into_py;
+use pyo3::PyErr;
 use std::collections::HashMap;
 use std::fs;
 
@@ -29,7 +32,7 @@ const MOMENT_NAMES: [(&str, &str); 7] = [
 /// xarray.DataTree with sweeps as children
 #[pyfunction]
 #[pyo3(name = "open_datatree")]
-pub fn open_datatree_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+pub fn open_datatree_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     // Handle different input types
     let data = if source.is_instance_of::<PyBytes>() {
         // Bytes input
@@ -40,64 +43,89 @@ pub fn open_datatree_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<P
 
         if path_str.starts_with("s3://") {
             // S3 URL - use async fetch
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(fetch_s3_file(&path_str))?
+            RUNTIME.block_on(fetch_s3_url(&path_str))?
         } else {
             // Local file path
             fs::read(&path_str).map_err(RadrsError::Io)?
         }
     };
 
-    // Parse NEXRAD data
-    let scan = parse_nexrad_data(&data)?;
+    // Parse NEXRAD data without holding the GIL
+    let scan = py.detach(|| parse_nexrad_data(data))?;
 
     // Convert to DataTree
     scan_to_datatree(py, &scan)
 }
 
+/// Open a NEXRAD Level 2 file asynchronously and return an xarray DataTree.
+#[pyfunction]
+#[pyo3(name = "open_datatree_async")]
+pub fn open_datatree_async_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    let source = source.as_borrowed().to_owned().unbind();
+
+    let awaitable = future_into_py(py, async move {
+        let data = fetch_source_bytes_async(source).await?;
+
+        let scan = tokio::task::spawn_blocking(move || parse_nexrad_data(data))
+            .await
+            .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
+
+        Python::attach(|py| scan_to_datatree(py, &scan)).map_err(Into::into)
+    })?;
+
+    Ok(awaitable.into())
+}
+
 /// Open a NEXRAD file from path, URL, or bytes
-pub fn open_datatree(source: &[u8]) -> Result<Scan> {
+pub fn open_datatree(source: Vec<u8>) -> Result<Scan> {
     parse_nexrad_data(source)
 }
 
 /// Parse raw NEXRAD data into a Scan
-fn parse_nexrad_data(data: &[u8]) -> Result<Scan> {
-    let volume = VolumeFile::new(data.to_vec());
+fn parse_nexrad_data(data: Vec<u8>) -> Result<Scan> {
+    let volume = VolumeFile::new(data);
     let scan = volume.scan()?;
     Ok(scan)
 }
 
-/// Fetch a file from S3
-async fn fetch_s3_file(url: &str) -> Result<Vec<u8>> {
-    use object_store::aws::AmazonS3Builder;
-    use object_store::path::Path as ObjectPath;
-    use object_store::ObjectStore;
+async fn fetch_source_bytes_async(source: Py<PyAny>) -> Result<Vec<u8>> {
+    enum Source {
+        Bytes(Vec<u8>),
+        Path(String),
+    }
 
-    // Parse S3 URL: s3://bucket/path/to/file
-    let url = url.strip_prefix("s3://").ok_or_else(|| {
-        RadrsError::InvalidUrl(format!("Invalid S3 URL: {}", url))
+    let source = Python::attach(|py| -> Result<Source> {
+        let obj = source.bind(py);
+        if obj.is_instance_of::<PyBytes>() {
+            let bytes = obj
+                .extract::<Vec<u8>>()
+                .map_err(|e: PyErr| RadrsError::Python(e.to_string()))?;
+            Ok(Source::Bytes(bytes))
+        } else {
+            let path = obj
+                .extract::<String>()
+                .map_err(|e: PyErr| RadrsError::Python(e.to_string()))?;
+            Ok(Source::Path(path))
+        }
     })?;
 
-    let (bucket, key) = url.split_once('/').ok_or_else(|| {
-        RadrsError::InvalidUrl(format!("Invalid S3 URL format: s3://{}", url))
-    })?;
-
-    // Build S3 client with anonymous access (NEXRAD data is public)
-    let store = AmazonS3Builder::new()
-        .with_bucket_name(bucket)
-        .with_region("us-east-1")
-        .with_skip_signature(true)
-        .build()?;
-
-    let path = ObjectPath::from(key);
-    let result = store.get(&path).await?;
-    let bytes = result.bytes().await?;
-
-    Ok(bytes.to_vec())
+    match source {
+        Source::Bytes(bytes) => Ok(bytes),
+        Source::Path(path) => {
+            if path.starts_with("s3://") {
+                fetch_s3_url(&path).await
+            } else {
+                tokio::task::spawn_blocking(move || fs::read(&path))
+                    .await
+                    .map_err(|e| RadrsError::Python(format!("File read task failed: {}", e)))?
+                    .map_err(RadrsError::Io)
+            }
+        }
+    }
 }
 
 /// Convert a Scan to an xarray DataTree
-fn scan_to_datatree(py: Python<'_>, scan: &Scan) -> PyResult<PyObject> {
+pub(crate) fn scan_to_datatree(py: Python<'_>, scan: &Scan) -> PyResult<Py<PyAny>> {
     // Import xarray
     let xr = py.import("xarray")?;
     let np = py.import("numpy")?;
@@ -126,7 +154,7 @@ fn scan_to_datatree(py: Python<'_>, scan: &Scan) -> PyResult<PyObject> {
     let datatree_class = xr.getattr("DataTree")?;
     let datatree = datatree_class.call_method1("from_dict", (tree_dict,))?;
 
-    Ok(datatree.into())
+    Ok(datatree.unbind())
 }
 
 /// Convert a Sweep to an xarray Dataset

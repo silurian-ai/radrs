@@ -24,32 +24,23 @@ Example
 ...     process(dt)
 """
 
-from radrs.radrs import (
-    list_volumes,
-    iter_volumes,
-    stream_realtime,
-    stream_archive,
-)
 
-# Import submodules
-from radrs import xradar
-from radrs import raystack
-from radrs import qc
+from radrs import _radrs
+from radrs import qc, raystack, xradar
 
-# Optional cache function
-try:
-    from radrs.radrs import open_cache
-except ImportError:
-    def open_cache(path: str):
-        """Open a cache store (requires cache feature)."""
-        raise NotImplementedError("Cache feature not enabled. Rebuild with --features cache")
+list_volumes = _radrs.list_volumes
+iter_volumes = _radrs.iter_volumes
+iter_volumes_async = _radrs.iter_volumes_async
+stream_realtime = _radrs.stream_realtime
+stream_archive = _radrs.stream_archive
+
 
 __all__ = [
     "list_volumes",
     "iter_volumes",
+    "iter_volumes_async",
     "stream_realtime",
     "stream_archive",
-    "open_cache",
     "xradar",
     "raystack",
     "qc",

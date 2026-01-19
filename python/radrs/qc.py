@@ -26,24 +26,21 @@ Example
 
 # Import from the Rust extension
 try:
-    from radrs.radrs.qc import (
-        rhohv_threshold,
-        sun_spike,
-    )
+    from radrs._radrs import qc as _qc
 except ImportError:
-    # Fallback import path
-    try:
-        from radrs.radrs import qc as _qc
-        rhohv_threshold = _qc.rhohv_threshold
-        sun_spike = _qc.sun_spike
-    except (ImportError, AttributeError):
-        def rhohv_threshold(rhohv, threshold=None):
-            """Apply RHOHV threshold mask."""
-            raise NotImplementedError("radrs.qc module not available")
+    _qc = None
 
-        def sun_spike(dbzh, fill_threshold=None, corr_threshold=None):
-            """Detect sun spikes in reflectivity data."""
-            raise NotImplementedError("radrs.qc module not available")
+if _qc is None:
+    def rhohv_threshold(rhohv, threshold=None):
+        """Apply RHOHV threshold mask."""
+        raise NotImplementedError("radrs.qc module not available")
+
+    def sun_spike(dbzh, fill_threshold=None, corr_threshold=None):
+        """Detect sun spikes in reflectivity data."""
+        raise NotImplementedError("radrs.qc module not available")
+else:
+    rhohv_threshold = _qc.rhohv_threshold
+    sun_spike = _qc.sun_spike
 
 __all__ = [
     "rhohv_threshold",

@@ -3,15 +3,19 @@
 //! Uses two-pass parsing with preallocation for minimal allocations.
 //! Supports parallel BZ2 decompression via rayon.
 
-use crate::error::Result;
+use crate::error::{RadrsError, Result};
+use crate::fetch::{fetch_s3_url, RUNTIME};
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentValue, Scan};
 use numpy::ndarray::Array2;
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{IntoPyDict, PyBytes, PyDict};
+use pyo3::PyErr;
+use pyo3_async_runtimes::tokio::future_into_py;
 use std::borrow::Cow;
 use std::io::Read;
+use std::fs;
 
 /// Default fold size for raystack format
 pub const DEFAULT_FOLD_SIZE: usize = 128;
@@ -511,13 +515,279 @@ pub fn parse_py(
     data: &[u8],
     fold_size: Option<usize>,
     qc: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
 
     // Release GIL during parsing
-    let raystack = py.allow_threads(|| parse_optimized(data, fold_size))?;
+    let raystack = py.detach(|| parse_optimized(data, fold_size))?;
 
     raystack_to_python(py, raystack, qc)
+}
+
+/// Open a NEXRAD Level 2 file and return raystack DataTree
+#[pyfunction]
+#[pyo3(name = "open_datatree", signature = (source, fold_size = None, qc = None))]
+pub fn open_raystack_datatree_py(
+    py: Python<'_>,
+    source: &Bound<'_, PyAny>,
+    fold_size: Option<usize>,
+    qc: Option<Vec<String>>,
+) -> PyResult<Py<PyAny>> {
+    let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
+
+    let data = if source.is_instance_of::<PyBytes>() {
+        source.extract::<Vec<u8>>()?
+    } else {
+        let path_str: String = source.extract()?;
+        if path_str.starts_with("s3://") {
+            RUNTIME.block_on(fetch_s3_url(&path_str))?
+        } else {
+            fs::read(&path_str).map_err(RadrsError::Io)?
+        }
+    };
+
+    let raystack = py.detach(|| parse_optimized(&data, fold_size))?;
+    raystack_data_to_raystack_datatree(py, raystack, qc)
+}
+
+/// Open a NEXRAD Level 2 file asynchronously and return raystack DataTree
+#[pyfunction]
+#[pyo3(name = "open_datatree_async", signature = (source, fold_size = None, qc = None))]
+pub fn open_raystack_datatree_async_py(
+    py: Python<'_>,
+    source: &Bound<'_, PyAny>,
+    fold_size: Option<usize>,
+    qc: Option<Vec<String>>,
+) -> PyResult<Py<PyAny>> {
+    let source = source.as_borrowed().to_owned().unbind();
+    let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
+
+    let awaitable = future_into_py(py, async move {
+        let data = fetch_source_bytes_async(source).await?;
+
+        let raystack = tokio::task::spawn_blocking(move || parse_optimized(&data, fold_size))
+            .await
+            .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
+
+        Python::attach(|py| raystack_data_to_raystack_datatree(py, raystack, qc))
+            .map_err(Into::into)
+    })?;
+
+    Ok(awaitable.into())
+}
+
+async fn fetch_source_bytes_async(source: Py<PyAny>) -> Result<Vec<u8>> {
+    enum Source {
+        Bytes(Vec<u8>),
+        Path(String),
+    }
+
+    let source = Python::attach(|py| -> Result<Source> {
+        let obj = source.bind(py);
+        if obj.is_instance_of::<PyBytes>() {
+            let bytes = obj
+                .extract::<Vec<u8>>()
+                .map_err(|e: PyErr| RadrsError::Python(e.to_string()))?;
+            Ok(Source::Bytes(bytes))
+        } else {
+            let path = obj
+                .extract::<String>()
+                .map_err(|e: PyErr| RadrsError::Python(e.to_string()))?;
+            Ok(Source::Path(path))
+        }
+    })?;
+
+    match source {
+        Source::Bytes(bytes) => Ok(bytes),
+        Source::Path(path) => {
+            if path.starts_with("s3://") {
+                fetch_s3_url(&path).await
+            } else {
+                tokio::task::spawn_blocking(move || fs::read(&path))
+                    .await
+                    .map_err(|e| RadrsError::Python(format!("File read task failed: {}", e)))?
+                    .map_err(RadrsError::Io)
+            }
+        }
+    }
+}
+
+fn raystack_data_to_raystack_datatree(
+    py: Python<'_>,
+    raystack: RaystackData,
+    _qc: Option<Vec<String>>,
+) -> PyResult<Py<PyAny>> {
+    let xr = py.import("xarray")?;
+    let np = py.import("numpy")?;
+
+    let n_returns = raystack.n_radials;
+    let fold_size = raystack.fold_size;
+
+    let vcp_time = raystack.time.iter().copied().min().unwrap_or(0);
+
+    let mut sweep_times: Vec<i64> = Vec::with_capacity(raystack.sweeps.len());
+    let mut sweep_time_per_return = vec![vcp_time; n_returns];
+
+    for sweep in &raystack.sweeps {
+        let start = sweep.start_index;
+        let sweep_time = raystack.time.get(start).copied().unwrap_or(vcp_time);
+        sweep_times.push(sweep_time);
+        let end = (start + sweep.n_radials).min(n_returns);
+        for idx in start..end {
+            sweep_time_per_return[idx] = sweep_time;
+        }
+    }
+
+    let vcp_time_arr = np.call_method1("array", (&vec![vcp_time],))?;
+    let vcp_time_dt = vcp_time_arr.call_method1("astype", ("datetime64[ms]",))?;
+
+    let sweep_time_arr = np.call_method1("array", (&sweep_times,))?;
+    let sweep_time_dt = sweep_time_arr.call_method1("astype", ("datetime64[ms]",))?;
+
+    let return_time_arr = raystack.time.into_pyarray(py);
+    let return_time_dt = np.call_method1("array", (&return_time_arr,))?;
+    let return_time_dt = return_time_dt.call_method1("astype", ("datetime64[ms]",))?;
+
+    let sweep_time_per_return_arr = sweep_time_per_return.into_pyarray(py);
+    let sweep_time_per_return_dt = np.call_method1("array", (&sweep_time_per_return_arr,))?;
+    let sweep_time_per_return_dt = sweep_time_per_return_dt.call_method1("astype", ("datetime64[ms]",))?;
+
+    // vcps dataset
+    let vcps_coords = PyDict::new(py);
+    vcps_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt))?;
+
+    let vcps_vars = PyDict::new(py);
+    vcps_vars.set_item(
+        "pattern_number",
+        (("vcp_time",), vec![u32::from(raystack.pattern_number)]),
+    )?;
+
+    let vcps_ds = xr.call_method(
+        "Dataset",
+        (),
+        Some(
+            &[
+                ("data_vars", vcps_vars.as_any()),
+                ("coords", vcps_coords.as_any()),
+            ]
+            .into_py_dict(py)?,
+        ),
+    )?;
+
+    // sweeps dataset
+    let mut elevation_numbers: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut elevation_angles: Vec<f32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut n_radials_list: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut start_indices: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
+
+    for sweep in &raystack.sweeps {
+        elevation_numbers.push(u32::from(sweep.elevation_number));
+        elevation_angles.push(sweep.elevation_angle);
+        n_radials_list.push(sweep.n_radials as u32);
+        start_indices.push(sweep.start_index as u32);
+    }
+
+    let sweeps_coords = PyDict::new(py);
+    sweeps_coords.set_item("sweep_time", (("sweep_time",), sweep_time_dt))?;
+    sweeps_coords.set_item(
+        "vcp_time",
+        (("sweep_time",), vec![vcp_time; raystack.sweeps.len()]),
+    )?;
+
+    let sweeps_vars = PyDict::new(py);
+    sweeps_vars.set_item("sweep_number", (("sweep_time",), elevation_numbers))?;
+    sweeps_vars.set_item("sweep_fixed_angle", (("sweep_time",), elevation_angles))?;
+    sweeps_vars.set_item("n_radials", (("sweep_time",), n_radials_list))?;
+    sweeps_vars.set_item("start_index", (("sweep_time",), start_indices))?;
+
+    let sweeps_ds = xr.call_method(
+        "Dataset",
+        (),
+        Some(
+            &[
+                ("data_vars", sweeps_vars.as_any()),
+                ("coords", sweeps_coords.as_any()),
+            ]
+            .into_py_dict(py)?,
+        ),
+    )?;
+
+    // returns dataset
+    let returns_coords = PyDict::new(py);
+    returns_coords.set_item("return_time", (("return_time",), return_time_dt))?;
+    returns_coords.set_item(
+        "sweep_time",
+        (("return_time",), sweep_time_per_return_dt),
+    )?;
+    returns_coords.set_item(
+        "vcp_time",
+        (("return_time",), vec![vcp_time; n_returns]),
+    )?;
+    returns_coords.set_item(
+        "range",
+        (("range",), (0..fold_size).collect::<Vec<usize>>()),
+    )?;
+    returns_coords.set_item(
+        "azimuth",
+        (("return_time",), raystack.azimuth.into_pyarray(py)),
+    )?;
+    returns_coords.set_item(
+        "elevation",
+        (("return_time",), raystack.elevation.into_pyarray(py)),
+    )?;
+    returns_coords.set_item(
+        "sweep_idx",
+        (("return_time",), raystack.sweep_idx.into_pyarray(py)),
+    )?;
+
+    let returns_vars = PyDict::new(py);
+    let add_moment = |name: &str, data: Vec<f32>, vars: &Bound<'_, PyDict>| -> PyResult<()> {
+        if n_returns > 0 {
+            let arr = Array2::from_shape_vec((n_returns, fold_size), data)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            vars.set_item(name, (("return_time", "range"), arr.into_pyarray(py)))?;
+        }
+        Ok(())
+    };
+
+    add_moment("DBZH", raystack.dbzh, &returns_vars)?;
+    add_moment("VRADH", raystack.vradh, &returns_vars)?;
+    add_moment("WRADH", raystack.wradh, &returns_vars)?;
+    add_moment("ZDR", raystack.zdr, &returns_vars)?;
+    add_moment("PHIDP", raystack.phidp, &returns_vars)?;
+    add_moment("RHOHV", raystack.rhohv, &returns_vars)?;
+    add_moment("KDP", raystack.kdp, &returns_vars)?;
+
+    let returns_ds = xr.call_method(
+        "Dataset",
+        (),
+        Some(
+            &[
+                ("data_vars", returns_vars.as_any()),
+                ("coords", returns_coords.as_any()),
+            ]
+            .into_py_dict(py)?,
+        ),
+    )?;
+
+    let root_attrs = PyDict::new(py);
+    root_attrs.set_item("Conventions", "CF-1.8")?;
+    root_attrs.set_item("instrument_type", "radar")?;
+    root_attrs.set_item("volume_coverage_pattern", raystack.pattern_number)?;
+
+    let root_ds = xr.call_method1("Dataset", (PyDict::new(py),))?;
+    root_ds.setattr("attrs", root_attrs)?;
+
+    let tree_dict = PyDict::new(py);
+    tree_dict.set_item("/", root_ds)?;
+    tree_dict.set_item("vcps", vcps_ds)?;
+    tree_dict.set_item("sweeps", sweeps_ds)?;
+    tree_dict.set_item("returns", returns_ds)?;
+
+    let datatree_class = xr.getattr("DataTree")?;
+    let datatree = datatree_class.call_method1("from_dict", (tree_dict,))?;
+
+    Ok(datatree.into())
 }
 
 /// Convert RaystackData to Python dict with numpy arrays
@@ -525,7 +795,7 @@ pub fn raystack_to_python(
     py: Python<'_>,
     raystack: RaystackData,
     _qc: Option<Vec<String>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let result = PyDict::new(py);
 
     // VCPs dict

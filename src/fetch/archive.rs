@@ -1,11 +1,10 @@
 //! Archive data access from S3
 
 use crate::error::{RadrsError, Result};
-use object_store::aws::AmazonS3Builder;
+use crate::fetch::{store_for_bucket, ARCHIVE_STORE, FETCH_SEMAPHORE};
 use object_store::path::Path as ObjectPath;
 use object_store::ObjectStore;
-
-const ARCHIVE_BUCKET: &str = "unidata-nexrad-level2";
+use std::sync::Arc;
 
 /// Fetch a file from the NEXRAD archive
 pub async fn fetch_archive_file(
@@ -15,19 +14,10 @@ pub async fn fetch_archive_file(
     day: u32,
     filename: &str,
 ) -> Result<Vec<u8>> {
-    let store = AmazonS3Builder::new()
-        .with_bucket_name(ARCHIVE_BUCKET)
-        .with_region("us-east-1")
-        .with_skip_signature(true)
-        .build()?;
-
     let path = format!("{}/{:02}/{:02}/{}/{}", year, month, day, site, filename);
     let object_path = ObjectPath::from(path);
 
-    let result = store.get(&object_path).await?;
-    let bytes = result.bytes().await?;
-
-    Ok(bytes.to_vec())
+    fetch_object_bytes(&ARCHIVE_STORE, &object_path).await
 }
 
 /// Parse an S3 URL and fetch the file
@@ -41,15 +31,17 @@ pub async fn fetch_s3_url(url: &str) -> Result<Vec<u8>> {
         RadrsError::InvalidUrl(format!("Invalid S3 URL format: s3://{}", url))
     })?;
 
-    let store = AmazonS3Builder::new()
-        .with_bucket_name(bucket)
-        .with_region("us-east-1")
-        .with_skip_signature(true)
-        .build()?;
-
+    let store = store_for_bucket(bucket)?;
     let path = ObjectPath::from(key);
-    let result = store.get(&path).await?;
-    let bytes = result.bytes().await?;
+    fetch_object_bytes(&store, &path).await
+}
 
+async fn fetch_object_bytes(
+    store: &Arc<dyn ObjectStore>,
+    path: &ObjectPath,
+) -> Result<Vec<u8>> {
+    let _permit = FETCH_SEMAPHORE.acquire().await.expect("semaphore closed");
+    let result = store.get(path).await?;
+    let bytes = result.bytes().await?;
     Ok(bytes.to_vec())
 }

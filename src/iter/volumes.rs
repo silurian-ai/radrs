@@ -1,25 +1,22 @@
 //! Volume iteration over S3 archive
 
 use crate::error::{RadrsError, Result};
+use crate::fetch::{fetch_archive_file, ARCHIVE_STORE, RUNTIME};
+use crate::raystack;
+use crate::xradar;
 use chrono::{Datelike, NaiveDate};
 use futures::stream::StreamExt;
-use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
 use object_store::ObjectStore;
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
-use std::ffi::CString;
-
-const NEXRAD_BUCKET: &str = "unidata-nexrad-level2";
+use pyo3_async_runtimes::tokio::future_into_py;
+use std::collections::VecDeque;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 
 /// List available volumes for a site and date
 pub async fn list_volumes(site: &str, date: NaiveDate) -> Result<Vec<String>> {
-    let store = AmazonS3Builder::new()
-        .with_bucket_name(NEXRAD_BUCKET)
-        .with_region("us-east-1")
-        .with_skip_signature(true)
-        .build()?;
-
     let prefix = format!(
         "{}/{:02}/{:02}/{}/",
         date.format("%Y"),
@@ -31,7 +28,7 @@ pub async fn list_volumes(site: &str, date: NaiveDate) -> Result<Vec<String>> {
     let prefix_path = ObjectPath::from(prefix);
 
     let mut volumes = Vec::new();
-    let mut list_stream = store.list(Some(&prefix_path));
+    let mut list_stream = ARCHIVE_STORE.list(Some(&prefix_path));
 
     while let Some(result) = list_stream.next().await {
         match result {
@@ -64,24 +61,198 @@ pub fn list_volumes_py(_py: Python<'_>, site: &str, date: &str) -> PyResult<Vec<
     let date = NaiveDate::parse_from_str(date, "%Y-%m-%d")
         .map_err(|e| RadrsError::Parse(format!("Invalid date format: {}", e)))?;
 
-    let rt = tokio::runtime::Runtime::new()?;
-    let volumes = rt.block_on(list_volumes(site, date))?;
+    let volumes = RUNTIME.block_on(list_volumes(site, date))?;
 
     Ok(volumes)
 }
 
-/// Iterate over volumes for a site and date range
+/// Sync iterator with prefetch support.
+/// Uses the same VolumeIterState as the async iterator, driven via block_on.
+#[pyclass]
+struct VolumeIterator {
+    state: Arc<std::sync::Mutex<VolumeIterState>>,
+    schema: String,
+    fold_size: usize,
+    _qc_enabled: bool,
+}
+
+#[pymethods]
+impl VolumeIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        // Get next bytes from prefetch pipeline (blocking)
+        let data: Option<Vec<u8>> = py.detach(|| {
+            let state = self.state.clone();
+            RUNTIME.block_on(async move {
+                let mut guard = state.lock().expect("state lock poisoned");
+                guard.next_bytes().await
+            })
+        })?;
+
+        let Some(data) = data else {
+            return Err(pyo3::exceptions::PyStopIteration::new_err(()));
+        };
+
+        if self.schema == "raystack" {
+            return raystack::parse_py(py, &data, Some(self.fold_size), None);
+        }
+
+        let scan = py.detach(|| xradar::open_datatree(data))?;
+        xradar::datatree::scan_to_datatree(py, &scan)
+    }
+}
+
+struct VolumeIterState {
+    site: String,
+    current_date: NaiveDate,
+    end_date: NaiveDate,
+    volumes: Vec<String>,
+    index: usize,
+    prefetch: usize,
+    in_flight: VecDeque<JoinHandle<Result<Vec<u8>>>>,
+}
+
+impl VolumeIterState {
+    async fn next_volume_id(&mut self) -> Result<Option<(NaiveDate, String)>> {
+        loop {
+            if self.current_date > self.end_date {
+                return Ok(None);
+            }
+
+            if !self.volumes.is_empty() && self.index >= self.volumes.len() {
+                self.current_date = self.current_date.succ_opt().unwrap_or(self.current_date);
+                self.volumes.clear();
+                self.index = 0;
+                continue;
+            }
+
+            if self.volumes.is_empty() {
+                self.volumes = list_volumes(&self.site, self.current_date).await?;
+                self.index = 0;
+
+                if self.volumes.is_empty() {
+                    self.current_date = self.current_date.succ_opt().unwrap_or(self.current_date);
+                    continue;
+                }
+            }
+
+            if self.index < self.volumes.len() {
+                let volume = self.volumes[self.index].clone();
+                self.index += 1;
+                return Ok(Some((self.current_date, volume)));
+            }
+        }
+    }
+
+    async fn fill_prefetch(&mut self) -> Result<()> {
+        while self.in_flight.len() < self.prefetch {
+            let Some((date, volume)) = self.next_volume_id().await? else {
+                break;
+            };
+
+            let site = self.site.clone();
+            let handle = tokio::spawn(async move {
+                fetch_archive_file(&site, date.year(), date.month(), date.day(), &volume).await
+            });
+            self.in_flight.push_back(handle);
+        }
+
+        Ok(())
+    }
+
+    async fn next_bytes(&mut self) -> Result<Option<Vec<u8>>> {
+        if self.in_flight.is_empty() {
+            self.fill_prefetch().await?;
+        }
+
+        while let Some(handle) = self.in_flight.pop_front() {
+            let result = handle
+                .await
+                .map_err(|e| RadrsError::Python(format!("Fetch task failed: {}", e)))?;
+            match result {
+                Ok(bytes) => {
+                    self.fill_prefetch().await?;
+                    return Ok(Some(bytes));
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to fetch volume: {}", e);
+                    self.fill_prefetch().await?;
+                    continue;
+                }
+            }
+        }
+
+        Ok(None)
+    }
+}
+
+#[pyclass]
+struct VolumeIteratorAsync {
+    state: Arc<Mutex<VolumeIterState>>,
+    schema: String,
+    fold_size: usize,
+    _qc_enabled: bool,
+}
+
+#[pymethods]
+impl VolumeIteratorAsync {
+    fn __aiter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __anext__(slf: PyRef<'_, Self>, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let state = slf.state.clone();
+        let schema = slf.schema.clone();
+        let fold_size = slf.fold_size;
+        let _qc_enabled = slf._qc_enabled;
+
+        let awaitable = future_into_py(py, async move {
+            let bytes = {
+                let mut guard = state.lock().await;
+                guard.next_bytes().await?
+            };
+
+            let Some(data) = bytes else {
+                return Err(pyo3::exceptions::PyStopAsyncIteration::new_err(()));
+            };
+
+            if schema == "raystack" {
+                let raystack = tokio::task::spawn_blocking(move || {
+                    raystack::parse_optimized(&data, fold_size)
+                })
+                .await
+                .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
+
+                return Python::attach(|py| raystack::raystack_to_python(py, raystack, None))
+                    .map_err(Into::into);
+            }
+
+            let scan = tokio::task::spawn_blocking(move || xradar::open_datatree(data))
+                .await
+                .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
+
+            Python::attach(|py| xradar::datatree::scan_to_datatree(py, &scan)).map_err(Into::into)
+        })?;
+
+        Ok(awaitable.into())
+    }
+}
+
+/// Iterate over volumes for a site and date range (with prefetch support).
 #[pyfunction]
-#[pyo3(name = "iter_volumes", signature = (site, start, end = None, schema = None, qc = None, fold_size = None))]
+#[pyo3(name = "iter_volumes", signature = (site, start, end = None, schema = None, qc = None, fold_size = None, prefetch = None))]
 pub fn iter_volumes_py(
-    py: Python<'_>,
     site: &str,
     start: &str,
     end: Option<&str>,
     schema: Option<&str>,
     qc: Option<bool>,
     fold_size: Option<usize>,
-) -> PyResult<PyObject> {
+    prefetch: Option<usize>,
+) -> PyResult<Py<PyAny>> {
     let start_date = NaiveDate::parse_from_str(start, "%Y-%m-%d")
         .map_err(|e| RadrsError::Parse(format!("Invalid start date: {}", e)))?;
     let end_date = end
@@ -93,90 +264,79 @@ pub fn iter_volumes_py(
     let schema = schema.unwrap_or("xradar").to_string();
     let fold_size = fold_size.unwrap_or(128);
     let qc_enabled = qc.unwrap_or(false);
+    let prefetch = prefetch.unwrap_or(3).max(1);
 
-    // Create an iterator class in Python
-    let iterator_code = r#"
-from datetime import timedelta
+    let state = VolumeIterState {
+        site: site.to_string(),
+        current_date: start_date,
+        end_date,
+        volumes: Vec::new(),
+        index: 0,
+        prefetch,
+        in_flight: VecDeque::new(),
+    };
 
-class VolumeIterator:
-    def __init__(self, site, start_date, end_date, schema, fold_size, qc_enabled):
-        self.site = site
-        self.start_date = start_date
-        self.end_date = end_date
-        self.schema = schema
-        self.fold_size = fold_size
-        self.qc_enabled = qc_enabled
-        self._volumes = None
-        self._current_date = start_date
-        self._current_index = 0
-        self._radrs = __import__('radrs')
+    let iterator = VolumeIterator {
+        state: Arc::new(std::sync::Mutex::new(state)),
+        schema,
+        fold_size,
+        _qc_enabled: qc_enabled,
+    };
 
-    def __iter__(self):
-        return self
+    Python::attach(|py| {
+        let obj = Py::new(py, iterator)?;
+        let bound = obj.into_pyobject(py).unwrap();
+        Ok(bound.into_any().unbind())
+    })
+}
 
-    def __next__(self):
-        import urllib.request
+/// Iterate over volumes asynchronously (prefetching enabled).
+#[pyfunction]
+#[pyo3(name = "iter_volumes_async", signature = (site, start, end = None, schema = None, qc = None, fold_size = None, prefetch = None))]
+pub fn iter_volumes_async_py(
+    site: &str,
+    start: &str,
+    end: Option<&str>,
+    schema: Option<&str>,
+    qc: Option<bool>,
+    fold_size: Option<usize>,
+    prefetch: Option<usize>,
+) -> PyResult<Py<PyAny>> {
+    let start_date = NaiveDate::parse_from_str(start, "%Y-%m-%d")
+        .map_err(|e| RadrsError::Parse(format!("Invalid start date: {}", e)))?;
+    let end_date = end
+        .map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|e| RadrsError::Parse(format!("Invalid end date: {}", e)))?
+        .unwrap_or(start_date);
 
-        while self._current_date <= self.end_date:
-            # Get volumes for current date if not loaded
-            if self._volumes is None:
-                self._volumes = self._radrs.list_volumes(
-                    self.site,
-                    self._current_date.strftime('%Y-%m-%d')
-                )
-                self._current_index = 0
+    let schema = schema.unwrap_or("xradar").to_string();
+    let fold_size = fold_size.unwrap_or(128);
+    let qc_enabled = qc.unwrap_or(false);
+    let prefetch = prefetch.unwrap_or(5).max(1);
 
-            # Check if we have more volumes for current date
-            if self._current_index < len(self._volumes):
-                volume = self._volumes[self._current_index]
-                self._current_index += 1
+    let state = VolumeIterState {
+        site: site.to_string(),
+        current_date: start_date,
+        end_date,
+        volumes: Vec::new(),
+        index: 0,
+        prefetch,
+        in_flight: VecDeque::new(),
+    };
 
-                # Build HTTPS URL (public bucket)
-                https_url = f"https://unidata-nexrad-level2.s3.amazonaws.com/{self._current_date.year}/{self._current_date.month:02d}/{self._current_date.day:02d}/{self.site}/{volume}"
+    let iterator = VolumeIteratorAsync {
+        state: Arc::new(Mutex::new(state)),
+        schema,
+        fold_size,
+        _qc_enabled: qc_enabled,
+    };
 
-                try:
-                    with urllib.request.urlopen(https_url) as response:
-                        data = response.read()
-
-                    if self.schema == "raystack":
-                        return self._radrs.raystack.parse(
-                            data,
-                            fold_size=self.fold_size
-                        )
-                    else:
-                        return self._radrs.xradar.open_datatree(data)
-                except Exception as e:
-                    # Skip failed volumes
-                    continue
-
-            # Move to next date
-            self._current_date += timedelta(days=1)
-            self._volumes = None
-
-        raise StopIteration
-
-VolumeIterator
-"#;
-
-    let globals = PyDict::new(py);
-    let code = CString::new(iterator_code).unwrap();
-    py.run(code.as_c_str(), Some(&globals), None)?;
-
-    let iterator_class = globals.get_item("VolumeIterator")?.ok_or_else(|| {
-        pyo3::exceptions::PyRuntimeError::new_err("Failed to create VolumeIterator class")
-    })?;
-
-    let datetime = py.import("datetime")?;
-    let start_dt = datetime
-        .getattr("date")?
-        .call1((start_date.year(), start_date.month(), start_date.day()))?;
-    let end_dt = datetime
-        .getattr("date")?
-        .call1((end_date.year(), end_date.month(), end_date.day()))?;
-
-    let iterator = iterator_class.call1((site, start_dt, end_dt, &schema, fold_size, qc_enabled))?;
-
-    Ok(iterator.into())
+    Python::attach(|py| {
+        let obj = Py::new(py, iterator)?;
+        let bound = obj.into_pyobject(py).unwrap();
+        Ok(bound.into_any().unbind())
+    })
 }
 
 /// Iterate over volumes (internal async version)

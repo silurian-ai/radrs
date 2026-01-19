@@ -19,15 +19,20 @@ Example
 
 # Import from the Rust extension
 try:
-    from radrs.radrs.xradar import open_datatree
+    from radrs._radrs import xradar as _xradar
 except ImportError:
-    # Fallback import path
-    try:
-        from radrs.radrs import xradar as _xradar
-        open_datatree = _xradar.open_datatree
-    except (ImportError, AttributeError):
-        def open_datatree(source):
-            """Open a NEXRAD Level 2 file as xarray DataTree."""
-            raise NotImplementedError("radrs.xradar module not available")
+    _xradar = None
 
-__all__ = ["open_datatree"]
+if _xradar is None:
+    def open_datatree(source):
+        """Open a NEXRAD Level 2 file as xarray DataTree."""
+        raise NotImplementedError("radrs.xradar module not available")
+
+    async def open_datatree_async(source):
+        """Open a NEXRAD Level 2 file as xarray DataTree (async)."""
+        raise NotImplementedError("radrs.xradar module not available")
+else:
+    open_datatree = _xradar.open_datatree
+    open_datatree_async = _xradar.open_datatree_async
+
+__all__ = ["open_datatree", "open_datatree_async"]

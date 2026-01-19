@@ -1,12 +1,11 @@
 //! Realtime data access from S3
 
 use crate::error::Result;
+use crate::fetch::{store_for_bucket, FETCH_SEMAPHORE};
 use futures::stream::StreamExt;
-use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
 use object_store::ObjectStore;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 const REALTIME_BUCKET: &str = "unidata-nexrad-level2-chunks";
 
@@ -23,13 +22,7 @@ pub async fn poll_realtime_chunks(
     site: &str,
     seen: &mut HashSet<String>,
 ) -> Result<Vec<(String, Vec<u8>)>> {
-    let store: Arc<dyn ObjectStore> = Arc::new(
-        AmazonS3Builder::new()
-            .with_bucket_name(REALTIME_BUCKET)
-            .with_region("us-east-1")
-            .with_skip_signature(true)
-            .build()?,
-    );
+    let store = store_for_bucket(REALTIME_BUCKET)?;
 
     let prefix = ObjectPath::from(format!("{}/", site));
     let mut list_stream = store.list(Some(&prefix));
@@ -44,6 +37,7 @@ pub async fn poll_realtime_chunks(
 
                 // Fetch the chunk data
                 let object_path = ObjectPath::from(path.clone());
+                let _permit = FETCH_SEMAPHORE.acquire().await.expect("semaphore closed");
                 if let Ok(result) = store.get(&object_path).await {
                     if let Ok(bytes) = result.bytes().await {
                         new_chunks.push((path, bytes.to_vec()));

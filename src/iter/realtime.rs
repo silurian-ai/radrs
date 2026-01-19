@@ -28,7 +28,7 @@ use std::ffi::CString;
 /// Async generator yielding xarray DataTree objects
 #[pyfunction]
 #[pyo3(name = "stream_archive", signature = (site, poll_interval = None))]
-pub fn stream_archive_py(py: Python<'_>, site: &str, poll_interval: Option<u64>) -> PyResult<PyObject> {
+pub fn stream_archive_py(py: Python<'_>, site: &str, poll_interval: Option<u64>) -> PyResult<Py<PyAny>> {
     let poll_interval = poll_interval.unwrap_or(30);
 
     // Create an async generator class in Python that polls for complete volumes
@@ -131,7 +131,7 @@ ArchiveStream
 /// For now, use `stream_archive` which polls for complete volumes with ~5 min delay.
 #[pyfunction]
 #[pyo3(name = "stream_realtime")]
-pub fn stream_realtime_py(_py: Python<'_>, _site: &str) -> PyResult<PyObject> {
+pub fn stream_realtime_py(_py: Python<'_>, _site: &str) -> PyResult<Py<PyAny>> {
     Err(pyo3::exceptions::PyNotImplementedError::new_err(
         "Realtime chunk streaming not yet implemented. \
          Use radrs.stream_archive() for archive polling with ~5 min delay, \

@@ -218,35 +218,35 @@ class TestParse:
 
         dt_time = np.concatenate(times)
         rs_time = rs["returns"]["time"]
-
         assert len(dt_time) == len(rs_time)
         np.testing.assert_array_equal(rs_time, dt_time)
 
-    def test_parse_accepts_gzip_bytes(self, test_file_bytes):
-        """Test that parse handles gzipped NEXRAD input bytes."""
-        import gzip
-        import radrs.raystack as rrs
 
-        raw_rs = rrs.parse(test_file_bytes)
-        gz_bytes = gzip.compress(test_file_bytes)
-        gz_rs = rrs.parse(gz_bytes)
+def test_parse_accepts_gzip_bytes(test_file_bytes):
+    """Test that parse handles gzipped NEXRAD input bytes."""
+    import gzip
+    import radrs.raystack as rrs
 
-        assert raw_rs["vcps"]["pattern_number"] == gz_rs["vcps"]["pattern_number"]
-        assert len(raw_rs["sweeps"]) == len(gz_rs["sweeps"])
+    raw_rs = rrs.parse(test_file_bytes)
+    gz_bytes = gzip.compress(test_file_bytes)
+    gz_rs = rrs.parse(gz_bytes)
 
-        # Spot-check coordinate and moment data for equality
+    assert raw_rs["vcps"]["pattern_number"] == gz_rs["vcps"]["pattern_number"]
+    assert len(raw_rs["sweeps"]) == len(gz_rs["sweeps"])
+
+    # Spot-check coordinate and moment data for equality
+    np.testing.assert_allclose(
+        raw_rs["returns"]["azimuth"][:50],
+        gz_rs["returns"]["azimuth"][:50],
+        rtol=1e-5,
+    )
+    if "DBZH" in raw_rs["returns"] and "DBZH" in gz_rs["returns"]:
         np.testing.assert_allclose(
-            raw_rs["returns"]["azimuth"][:50],
-            gz_rs["returns"]["azimuth"][:50],
+            raw_rs["returns"]["DBZH"][:10],
+            gz_rs["returns"]["DBZH"][:10],
             rtol=1e-5,
+            equal_nan=True,
         )
-        if "DBZH" in raw_rs["returns"] and "DBZH" in gz_rs["returns"]:
-            np.testing.assert_allclose(
-                raw_rs["returns"]["DBZH"][:10],
-                gz_rs["returns"]["DBZH"][:10],
-                rtol=1e-5,
-                equal_nan=True,
-            )
 
 
 class TestFromDatatree:
@@ -341,6 +341,41 @@ class TestToDatatree:
         moment_vars = ["DBZH", "VRADH", "RHOHV", "ZDR"]
         found_vars = [v for v in moment_vars if v in ds]
         assert len(found_vars) > 0
+
+
+class TestRaystackDatatree:
+    """Tests for raystack-style DataTree conversion."""
+
+    def test_to_raystack_datatree_has_nodes(self, test_file_bytes):
+        """Test that to_raystack_datatree yields vcps/sweeps/returns nodes."""
+        import radrs.raystack as rrs
+
+        rs = rrs.parse(test_file_bytes)
+        dt = rrs.to_raystack_datatree(rs)
+
+        assert hasattr(dt, "children")
+        assert "vcps" in dt.children
+        assert "sweeps" in dt.children
+        assert "returns" in dt.children
+
+    def test_open_datatree_returns_raystack(self, test_file_path):
+        """Test that open_datatree returns raystack DataTree."""
+        import radrs.raystack as rrs
+
+        dt = rrs.open_datatree(test_file_path)
+        assert "returns" in dt.children
+        assert "vcps" in dt.children
+        assert "sweeps" in dt.children
+
+    @pytest.mark.asyncio
+    async def test_open_datatree_async_returns_raystack(self, test_file_path):
+        """Test that open_datatree_async returns raystack DataTree."""
+        import radrs.raystack as rrs
+
+        dt = await rrs.open_datatree_async(test_file_path)
+        assert "returns" in dt.children
+        assert "vcps" in dt.children
+        assert "sweeps" in dt.children
 
 
 class TestRoundtrip:

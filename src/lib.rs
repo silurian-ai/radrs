@@ -25,7 +25,6 @@
 //!     process(dt)
 //! ```
 
-pub mod cache;
 pub mod error;
 pub mod fetch;
 pub mod iter;
@@ -38,7 +37,7 @@ use pyo3::prelude::*;
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn radrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _radrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register submodules
     xradar::register_module(m)?;
     raystack::register_module(m)?;
@@ -46,9 +45,6 @@ fn radrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Register top-level iterator functions
     iter::register_functions(m)?;
-
-    // Register cache functions (if feature enabled)
-    cache::register_functions(m)?;
 
     Ok(())
 }

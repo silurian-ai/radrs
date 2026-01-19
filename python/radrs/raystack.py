@@ -20,63 +20,54 @@ Example
 >>> dt = rxr.open_datatree(file_path)
 >>> rs = rrs.from_datatree(dt, fold_size=128)
 >>>
->>> # Write raystack to Zarr
->>> rrs.to_zarr(rs, "output.zarr")
+>>> # Write raystack to Zarr via xarray
+>>> rrs.to_raystack_datatree(rs).to_zarr("output.zarr")
 """
 
 # Import from the Rust extension
 try:
-    from radrs.radrs.raystack import (
-        parse,
-        from_datatree,
-        to_datatree,
-    )
+    from radrs._radrs import raystack as _raystack
 except ImportError:
-    # Fallback import path
-    try:
-        from radrs.radrs import raystack as _raystack
-        parse = _raystack.parse
-        from_datatree = _raystack.from_datatree
-        to_datatree = _raystack.to_datatree
-    except (ImportError, AttributeError):
-        def parse(data, fold_size=None, qc=None):
-            """Parse NEXRAD data to raystack format."""
-            raise NotImplementedError("radrs.raystack module not available")
+    _raystack = None
 
-        def from_datatree(datatree, fold_size=None):
-            """Convert DataTree to raystack format."""
-            raise NotImplementedError("radrs.raystack module not available")
+if _raystack is None:
+    def parse(data, fold_size=None, qc=None):
+        """Parse NEXRAD data to raystack format."""
+        raise NotImplementedError("radrs.raystack module not available")
 
-        def to_datatree(raystack):
-            """Convert raystack back to DataTree."""
-            raise NotImplementedError("radrs.raystack module not available")
+    def from_datatree(datatree, fold_size=None):
+        """Convert DataTree to raystack format."""
+        raise NotImplementedError("radrs.raystack module not available")
 
-# Optional zarr functions
-try:
-    from radrs.radrs.raystack import to_zarr, open_zarr
-except ImportError:
-    try:
-        from radrs.radrs import raystack as _raystack
-        to_zarr = getattr(_raystack, 'to_zarr', None)
-        open_zarr = getattr(_raystack, 'open_zarr', None)
-    except (ImportError, AttributeError):
-        to_zarr = None
-        open_zarr = None
+    def to_datatree(raystack):
+        """Convert raystack back to DataTree."""
+        raise NotImplementedError("radrs.raystack module not available")
 
-    if to_zarr is None:
-        def to_zarr(raystack, path, mode=None):
-            """Write raystack to Zarr (requires zarr feature)."""
-            raise NotImplementedError("Zarr feature not enabled")
+    def to_raystack_datatree(raystack):
+        """Convert raystack dict to raystack DataTree."""
+        raise NotImplementedError("radrs.raystack module not available")
 
-    if open_zarr is None:
-        def open_zarr(path, mode=None):
-            """Open Zarr store (requires zarr feature)."""
-            raise NotImplementedError("Zarr feature not enabled")
+    def open_datatree(source, fold_size=None, qc=None):
+        """Open NEXRAD data and return raystack DataTree."""
+        raise NotImplementedError("radrs.raystack module not available")
+
+    async def open_datatree_async(source, fold_size=None, qc=None):
+        """Open NEXRAD data and return raystack DataTree (async)."""
+        raise NotImplementedError("radrs.raystack module not available")
+
+else:
+    parse = _raystack.parse
+    from_datatree = _raystack.from_datatree
+    to_datatree = _raystack.to_datatree
+    to_raystack_datatree = _raystack.to_raystack_datatree
+    open_datatree = _raystack.open_datatree
+    open_datatree_async = _raystack.open_datatree_async
 
 __all__ = [
     "parse",
     "from_datatree",
     "to_datatree",
-    "to_zarr",
-    "open_zarr",
+    "to_raystack_datatree",
+    "open_datatree",
+    "open_datatree_async",
 ]
