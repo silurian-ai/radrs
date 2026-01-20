@@ -16,7 +16,7 @@ pub fn from_xradar_datatree_py(
 ) -> PyResult<Py<PyAny>> {
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
     let raystack = datatree_to_raystack(py, datatree, fold_size)?;
-    raystack_to_python(py, raystack, None)
+    raystack_to_python(py, raystack, &[])
 }
 
 /// Convert Raystack to xarray DataTree (xradar layout)

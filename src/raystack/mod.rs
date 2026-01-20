@@ -9,8 +9,8 @@ mod parse;
 
 pub use convert::{from_xradar_datatree_py, to_xradar_datatree_py};
 pub use fold::{fold_ranges, fold_ranges_into};
-pub use parse::{parse_optimized, parse_py, RaystackData, SweepInfo};
-pub(crate) use parse::raystack_to_python;
+pub use parse::{parse_optimized, parse_py, QcOp, RaystackData, SweepInfo};
+pub(crate) use parse::{parse_qc_ops, raystack_to_python};
 
 use pyo3::prelude::*;
 
@@ -26,13 +26,5 @@ pub fn register_module(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
     raystack_module.add_function(wrap_pyfunction!(convert::to_raystack_datatree_py, &raystack_module)?)?;
 
     parent_module.add_submodule(&raystack_module)?;
-
-    // Set the module path correctly for imports
-    parent_module
-        .py()
-        .import("sys")?
-        .getattr("modules")?
-        .set_item("radrs.raystack", raystack_module)?;
-
     Ok(())
 }

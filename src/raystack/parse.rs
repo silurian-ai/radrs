@@ -5,12 +5,13 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::{fetch_s3_url, RUNTIME};
+use crate::qc;
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentValue, Scan};
 use numpy::ndarray::Array2;
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
-use pyo3::types::{IntoPyDict, PyBytes, PyDict};
+use pyo3::types::{IntoPyDict, PyBytes, PyDict, PyList};
 use pyo3::PyErr;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::borrow::Cow;
@@ -94,6 +95,17 @@ pub struct SweepInfo {
     pub start_index: usize,
 }
 
+#[derive(Clone)]
+pub enum QcOp {
+    RhohvThreshold { threshold: f32, vname: String },
+    SunSpike {
+        dbzh_threshold: f32,
+        fill_threshold: f32,
+        corr_threshold: f32,
+        vname: String,
+    },
+}
+
 impl RaystackData {
     /// Allocate with known sizes
     fn with_capacity(meta: &VolumeMeta, fold_size: usize) -> Self {
@@ -147,6 +159,150 @@ impl RaystackData {
             _ => unreachable!(),
         }
     }
+}
+
+pub(crate) fn parse_qc_ops(py: Python<'_>, qc: Option<&Bound<'_, PyAny>>) -> PyResult<Vec<QcOp>> {
+    let Some(qc_any) = qc else {
+        return Ok(Vec::new());
+    };
+
+    if qc_any.is_none() {
+        return Ok(Vec::new());
+    }
+
+    let items: Vec<Bound<'_, PyAny>> = if let Ok(list) = qc_any.cast::<PyList>() {
+        list.iter().map(|item| item.to_owned()).collect()
+    } else {
+        vec![qc_any.to_owned()]
+    };
+
+    let mut ops = Vec::new();
+    for item in items {
+        if let Ok(name) = item.extract::<String>() {
+            ops.push(qc_op_from_name(&name, None, py)?);
+            continue;
+        }
+
+        if let Ok(dict) = item.cast::<PyDict>() {
+            let name_any = dict
+                .get_item("name")?
+                .ok_or_else(|| {
+                    pyo3::exceptions::PyValueError::new_err("QC spec missing 'name'")
+                })?;
+            let name: String = name_any.extract()?;
+            ops.push(qc_op_from_name(&name, Some(&dict), py)?);
+            continue;
+        }
+
+        return Err(pyo3::exceptions::PyTypeError::new_err(
+            "qc must be a QC spec or list of specs",
+        ));
+    }
+
+    Ok(ops)
+}
+
+fn dict_f32(dict: &Bound<'_, PyDict>, key: &str, default: f32) -> PyResult<f32> {
+    if let Some(value) = dict.get_item(key)? {
+        if value.is_none() {
+            return Ok(default);
+        }
+        return value.extract();
+    }
+    Ok(default)
+}
+
+fn dict_string(dict: &Bound<'_, PyDict>, key: &str, default: &str) -> PyResult<String> {
+    if let Some(value) = dict.get_item(key)? {
+        if value.is_none() {
+            return Ok(default.to_string());
+        }
+        return value.extract();
+    }
+    Ok(default.to_string())
+}
+
+fn qc_op_from_name(
+    name: &str,
+    dict: Option<&Bound<'_, PyDict>>,
+    _py: Python<'_>,
+) -> PyResult<QcOp> {
+    match name {
+        "rhohv_threshold" => {
+            let threshold = if let Some(dict) = dict {
+                dict_f32(dict, "threshold", 0.8)?
+            } else {
+                0.8
+            };
+            let vname = if let Some(dict) = dict {
+                dict_string(dict, "vname", "rhohv_threshold_mask")?
+            } else {
+                "rhohv_threshold_mask".to_string()
+            };
+            Ok(QcOp::RhohvThreshold { threshold, vname })
+        }
+        "sun_spike" => {
+            let dbzh_threshold = if let Some(dict) = dict {
+                dict_f32(dict, "dbzh_threshold", 0.0)?
+            } else {
+                0.0
+            };
+            let fill_threshold = if let Some(dict) = dict {
+                dict_f32(dict, "fill_threshold", 0.9)?
+            } else {
+                0.9
+            };
+            let corr_threshold = if let Some(dict) = dict {
+                dict_f32(dict, "corr_threshold", 0.8)?
+            } else {
+                0.8
+            };
+            let vname = if let Some(dict) = dict {
+                dict_string(dict, "vname", "sun_spike_mask")?
+            } else {
+                "sun_spike_mask".to_string()
+            };
+            Ok(QcOp::SunSpike {
+                dbzh_threshold,
+                fill_threshold,
+                corr_threshold,
+                vname,
+            })
+        }
+        _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Unknown QC step: {}",
+            name
+        ))),
+    }
+}
+
+fn build_qc_masks(raystack: &RaystackData, qc_ops: &[QcOp]) -> Vec<(String, Vec<i8>)> {
+    let mut masks = Vec::new();
+    for op in qc_ops {
+        match op {
+            QcOp::RhohvThreshold { threshold, vname } => {
+                let mask = qc::rhohv_threshold(&raystack.rhohv, *threshold);
+                masks.push((vname.clone(), mask));
+            }
+            QcOp::SunSpike {
+                dbzh_threshold,
+                fill_threshold,
+                corr_threshold,
+                vname,
+            } => {
+                let mask = qc::sun_spike(
+                    &raystack.dbzh,
+                    raystack.n_radials,
+                    raystack.fold_size,
+                    *dbzh_threshold,
+                    *fill_threshold,
+                    *corr_threshold,
+                );
+                masks.push((vname.clone(), mask));
+            }
+        }
+    }
+    masks
 }
 
 /// Parse NEXRAD data directly to raystack format (optimized)
@@ -510,30 +666,32 @@ fn fold_moment_values_into(
 /// Parse NEXRAD data to raystack format (Python wrapper)
 #[pyfunction]
 #[pyo3(name = "parse", signature = (data, fold_size = None, qc = None))]
-pub fn parse_py(
-    py: Python<'_>,
+pub fn parse_py<'py>(
+    py: Python<'py>,
     data: &[u8],
     fold_size: Option<usize>,
-    qc: Option<Vec<String>>,
+    qc: Option<&Bound<'py, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
+    let qc_ops = parse_qc_ops(py, qc)?;
 
     // Release GIL during parsing
     let raystack = py.detach(|| parse_optimized(data, fold_size))?;
 
-    raystack_to_python(py, raystack, qc)
+    raystack_to_python(py, raystack, &qc_ops)
 }
 
 /// Open a NEXRAD Level 2 file and return raystack DataTree
 #[pyfunction]
 #[pyo3(name = "open_datatree", signature = (source, fold_size = None, qc = None))]
-pub fn open_raystack_datatree_py(
-    py: Python<'_>,
-    source: &Bound<'_, PyAny>,
+pub fn open_raystack_datatree_py<'py>(
+    py: Python<'py>,
+    source: &Bound<'py, PyAny>,
     fold_size: Option<usize>,
-    qc: Option<Vec<String>>,
+    qc: Option<&Bound<'py, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
+    let qc_ops = parse_qc_ops(py, qc)?;
 
     let data = if source.is_instance_of::<PyBytes>() {
         source.extract::<Vec<u8>>()?
@@ -547,20 +705,21 @@ pub fn open_raystack_datatree_py(
     };
 
     let raystack = py.detach(|| parse_optimized(&data, fold_size))?;
-    raystack_data_to_raystack_datatree(py, raystack, qc)
+    raystack_data_to_raystack_datatree(py, raystack, &qc_ops)
 }
 
 /// Open a NEXRAD Level 2 file asynchronously and return raystack DataTree
 #[pyfunction]
 #[pyo3(name = "open_datatree_async", signature = (source, fold_size = None, qc = None))]
-pub fn open_raystack_datatree_async_py(
-    py: Python<'_>,
-    source: &Bound<'_, PyAny>,
+pub fn open_raystack_datatree_async_py<'py>(
+    py: Python<'py>,
+    source: &Bound<'py, PyAny>,
     fold_size: Option<usize>,
-    qc: Option<Vec<String>>,
+    qc: Option<&Bound<'py, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
     let source = source.as_borrowed().to_owned().unbind();
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
+    let qc_ops = parse_qc_ops(py, qc)?;
 
     let awaitable = future_into_py(py, async move {
         let data = fetch_source_bytes_async(source).await?;
@@ -569,7 +728,7 @@ pub fn open_raystack_datatree_async_py(
             .await
             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
 
-        Python::attach(|py| raystack_data_to_raystack_datatree(py, raystack, qc))
+        Python::attach(|py| raystack_data_to_raystack_datatree(py, raystack, &qc_ops))
             .map_err(Into::into)
     })?;
 
@@ -615,13 +774,18 @@ async fn fetch_source_bytes_async(source: Py<PyAny>) -> Result<Vec<u8>> {
 fn raystack_data_to_raystack_datatree(
     py: Python<'_>,
     raystack: RaystackData,
-    _qc: Option<Vec<String>>,
+    qc_ops: &[QcOp],
 ) -> PyResult<Py<PyAny>> {
     let xr = py.import("xarray")?;
     let np = py.import("numpy")?;
 
     let n_returns = raystack.n_radials;
     let fold_size = raystack.fold_size;
+    let qc_masks = if !qc_ops.is_empty() && n_returns > 0 {
+        build_qc_masks(&raystack, qc_ops)
+    } else {
+        Vec::new()
+    };
 
     let vcp_time = raystack.time.iter().copied().min().unwrap_or(0);
 
@@ -758,6 +922,12 @@ fn raystack_data_to_raystack_datatree(
     add_moment("RHOHV", raystack.rhohv, &returns_vars)?;
     add_moment("KDP", raystack.kdp, &returns_vars)?;
 
+    for (name, mask) in qc_masks {
+        let arr = Array2::from_shape_vec((n_returns, fold_size), mask)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        returns_vars.set_item(name, (("return_time", "range"), arr.into_pyarray(py)))?;
+    }
+
     let returns_ds = xr.call_method(
         "Dataset",
         (),
@@ -794,7 +964,7 @@ fn raystack_data_to_raystack_datatree(
 pub fn raystack_to_python(
     py: Python<'_>,
     raystack: RaystackData,
-    _qc: Option<Vec<String>>,
+    qc_ops: &[QcOp],
 ) -> PyResult<Py<PyAny>> {
     let result = PyDict::new(py);
 
@@ -818,10 +988,14 @@ pub fn raystack_to_python(
         .collect();
     result.set_item("sweeps", sweeps_list)?;
 
-    // Returns dict with numpy arrays
-    let returns = PyDict::new(py);
     let n_radials = raystack.n_radials;
     let fold_size = raystack.fold_size;
+    let qc_masks = if !qc_ops.is_empty() && n_radials > 0 {
+        build_qc_masks(&raystack, qc_ops)
+    } else {
+        Vec::new()
+    };
+    let returns = PyDict::new(py);
 
     // Coordinate arrays (1D)
     returns.set_item("azimuth", raystack.azimuth.into_pyarray(py))?;
@@ -846,6 +1020,12 @@ pub fn raystack_to_python(
     add_moment("PHIDP", raystack.phidp, &returns)?;
     add_moment("RHOHV", raystack.rhohv, &returns)?;
     add_moment("KDP", raystack.kdp, &returns)?;
+
+    for (name, mask) in qc_masks {
+        let arr = Array2::from_shape_vec((n_radials, fold_size), mask)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        returns.set_item(name, arr.into_pyarray(py))?;
+    }
 
     result.set_item("returns", returns)?;
 

@@ -15,13 +15,5 @@ pub fn register_module(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
     xradar_module.add_function(wrap_pyfunction!(datatree::open_datatree_py, &xradar_module)?)?;
     xradar_module.add_function(wrap_pyfunction!(datatree::open_datatree_async_py, &xradar_module)?)?;
     parent_module.add_submodule(&xradar_module)?;
-
-    // Set the module path correctly for imports
-    parent_module
-        .py()
-        .import("sys")?
-        .getattr("modules")?
-        .set_item("radrs.xradar", xradar_module)?;
-
     Ok(())
 }

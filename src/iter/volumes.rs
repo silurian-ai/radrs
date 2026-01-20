@@ -2,7 +2,7 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::{fetch_archive_file, ARCHIVE_STORE, RUNTIME};
-use crate::raystack;
+use crate::raystack::{self, parse_qc_ops, QcOp};
 use crate::xradar;
 use chrono::{Datelike, NaiveDate};
 use futures::stream::StreamExt;
@@ -73,7 +73,7 @@ struct VolumeIterator {
     state: Arc<std::sync::Mutex<VolumeIterState>>,
     schema: String,
     fold_size: usize,
-    _qc_enabled: bool,
+    qc_ops: Vec<QcOp>,
 }
 
 #[pymethods]
@@ -97,7 +97,9 @@ impl VolumeIterator {
         };
 
         if self.schema == "raystack" {
-            return raystack::parse_py(py, &data, Some(self.fold_size), None);
+            let fold_size = self.fold_size;
+            let raystack = py.detach(|| raystack::parse_optimized(&data, fold_size))?;
+            return raystack::raystack_to_python(py, raystack, &self.qc_ops);
         }
 
         let scan = py.detach(|| xradar::open_datatree(data))?;
@@ -194,7 +196,7 @@ struct VolumeIteratorAsync {
     state: Arc<Mutex<VolumeIterState>>,
     schema: String,
     fold_size: usize,
-    _qc_enabled: bool,
+    qc_ops: Vec<QcOp>,
 }
 
 #[pymethods]
@@ -207,7 +209,7 @@ impl VolumeIteratorAsync {
         let state = slf.state.clone();
         let schema = slf.schema.clone();
         let fold_size = slf.fold_size;
-        let _qc_enabled = slf._qc_enabled;
+        let qc_ops = slf.qc_ops.clone();
 
         let awaitable = future_into_py(py, async move {
             let bytes = {
@@ -226,7 +228,7 @@ impl VolumeIteratorAsync {
                 .await
                 .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
 
-                return Python::attach(|py| raystack::raystack_to_python(py, raystack, None))
+                return Python::attach(|py| raystack::raystack_to_python(py, raystack, &qc_ops))
                     .map_err(Into::into);
             }
 
@@ -245,11 +247,12 @@ impl VolumeIteratorAsync {
 #[pyfunction]
 #[pyo3(name = "iter_volumes", signature = (site, start, end = None, schema = None, qc = None, fold_size = None, prefetch = None))]
 pub fn iter_volumes_py(
+    py: Python<'_>,
     site: &str,
     start: &str,
     end: Option<&str>,
     schema: Option<&str>,
-    qc: Option<bool>,
+    qc: Option<&Bound<'_, PyAny>>,
     fold_size: Option<usize>,
     prefetch: Option<usize>,
 ) -> PyResult<Py<PyAny>> {
@@ -263,7 +266,7 @@ pub fn iter_volumes_py(
 
     let schema = schema.unwrap_or("xradar").to_string();
     let fold_size = fold_size.unwrap_or(128);
-    let qc_enabled = qc.unwrap_or(false);
+    let qc_ops = parse_qc_ops(py, qc)?;
     let prefetch = prefetch.unwrap_or(3).max(1);
 
     let state = VolumeIterState {
@@ -280,25 +283,24 @@ pub fn iter_volumes_py(
         state: Arc::new(std::sync::Mutex::new(state)),
         schema,
         fold_size,
-        _qc_enabled: qc_enabled,
+        qc_ops,
     };
 
-    Python::attach(|py| {
-        let obj = Py::new(py, iterator)?;
-        let bound = obj.into_pyobject(py).unwrap();
-        Ok(bound.into_any().unbind())
-    })
+    let obj = Py::new(py, iterator)?;
+    let bound = obj.into_pyobject(py).unwrap();
+    Ok(bound.into_any().unbind())
 }
 
 /// Iterate over volumes asynchronously (prefetching enabled).
 #[pyfunction]
 #[pyo3(name = "iter_volumes_async", signature = (site, start, end = None, schema = None, qc = None, fold_size = None, prefetch = None))]
 pub fn iter_volumes_async_py(
+    py: Python<'_>,
     site: &str,
     start: &str,
     end: Option<&str>,
     schema: Option<&str>,
-    qc: Option<bool>,
+    qc: Option<&Bound<'_, PyAny>>,
     fold_size: Option<usize>,
     prefetch: Option<usize>,
 ) -> PyResult<Py<PyAny>> {
@@ -312,7 +314,7 @@ pub fn iter_volumes_async_py(
 
     let schema = schema.unwrap_or("xradar").to_string();
     let fold_size = fold_size.unwrap_or(128);
-    let qc_enabled = qc.unwrap_or(false);
+    let qc_ops = parse_qc_ops(py, qc)?;
     let prefetch = prefetch.unwrap_or(5).max(1);
 
     let state = VolumeIterState {
@@ -329,14 +331,12 @@ pub fn iter_volumes_async_py(
         state: Arc::new(Mutex::new(state)),
         schema,
         fold_size,
-        _qc_enabled: qc_enabled,
+        qc_ops,
     };
 
-    Python::attach(|py| {
-        let obj = Py::new(py, iterator)?;
-        let bound = obj.into_pyobject(py).unwrap();
-        Ok(bound.into_any().unbind())
-    })
+    let obj = Py::new(py, iterator)?;
+    let bound = obj.into_pyobject(py).unwrap();
+    Ok(bound.into_any().unbind())
 }
 
 /// Iterate over volumes (internal async version)

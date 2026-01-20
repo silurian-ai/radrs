@@ -19,13 +19,5 @@ pub fn register_module(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
     qc_module.add_function(wrap_pyfunction!(sun_spike::sun_spike_py, &qc_module)?)?;
 
     parent_module.add_submodule(&qc_module)?;
-
-    // Set the module path correctly for imports
-    parent_module
-        .py()
-        .import("sys")?
-        .getattr("modules")?
-        .set_item("radrs.qc", qc_module)?;
-
     Ok(())
 }

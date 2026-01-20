@@ -81,7 +81,9 @@ print(rs["returns"]["DBZH"].shape)  # (n_returns, 128)
 | Function | Description |
 |----------|-------------|
 | `rhohv_threshold(rhohv, threshold=0.8)` | Mask by correlation coefficient |
-| `sun_spike(dbzh, fill_threshold, corr_threshold)` | Detect sun spike contamination |
+| `sun_spike(dbzh, dbzh_threshold=0.0, fill_threshold=0.9, corr_threshold=0.8)` | Detect sun spike contamination |
+| `RhohvThreshold(threshold=0.8, vname="rhohv_threshold_mask")` | QC step for raystack parsing |
+| `SunSpike(dbzh_threshold=0.0, fill_threshold=0.9, corr_threshold=0.8, vname="sun_spike_mask")` | QC step for raystack parsing |
 
 ## Output Formats
 
@@ -105,6 +107,39 @@ DataTree('root')
 │   └── Dataset: elevation_number, elevation_angle, n_radials, start_index, ...
 └── DataTree('returns')
     └── Dataset: azimuth, elevation, time, sweep_idx, DBZH, VRADH, ... (n_returns, fold_size)
+```
+
+### Raystack dict (ML-optimized)
+
+```python
+{
+    "vcps": {"pattern_number": 215},
+    "sweeps": [
+        {"elevation_number": 1, "elevation_angle": 0.5, "n_radials": 720, "start_index": 0},
+        ...
+    ],
+    "returns": {
+        "azimuth": ndarray(n_returns,),
+        "elevation": ndarray(n_returns,),
+        "time": ndarray(n_returns,),
+        "sweep_idx": ndarray(n_returns,),
+        "DBZH": ndarray(n_returns, fold_size),
+        "VRADH": ndarray(n_returns, fold_size),
+        ...
+    }
+}
+```
+
+### QC masks
+
+Raystack parsing can inject QC masks into the returns dataset:
+
+```python
+import radrs.raystack as rrs
+import radrs.qc as qc
+
+rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(), qc.SunSpike()])
+mask = rs["returns"]["rhohv_threshold_mask"]  # int8, same shape as DBZH/RHOHV
 ```
 
 ## Development

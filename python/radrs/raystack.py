@@ -20,9 +20,15 @@ Example
 >>> dt = rxr.open_datatree(file_path)
 >>> rs = rrs.from_xradar_datatree(dt, fold_size=128)
 >>>
+>>> # Apply built-in QC during parse
+>>> import radrs.qc as qc
+>>> rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(threshold=0.8)])
+>>>
 >>> # Write raystack to Zarr via xarray
 >>> rrs.to_raystack_datatree(rs).to_zarr("output.zarr")
 """
+
+from radrs.qc import compile_qc_steps
 
 # Import from the Rust extension
 try:
@@ -56,12 +62,23 @@ if _raystack is None:
         raise NotImplementedError("radrs.raystack module not available")
 
 else:
-    parse = _raystack.parse
+    def parse(data, fold_size=None, qc=None):
+        qc_spec = compile_qc_steps(qc)
+        return _raystack.parse(data, fold_size=fold_size, qc=qc_spec)
+
     from_xradar_datatree = _raystack.from_xradar_datatree
     to_xradar_datatree = _raystack.to_xradar_datatree
     to_raystack_datatree = _raystack.to_raystack_datatree
-    open_datatree = _raystack.open_datatree
-    open_datatree_async = _raystack.open_datatree_async
+
+    def open_datatree(source, fold_size=None, qc=None):
+        qc_spec = compile_qc_steps(qc)
+        return _raystack.open_datatree(source, fold_size=fold_size, qc=qc_spec)
+
+    async def open_datatree_async(source, fold_size=None, qc=None):
+        qc_spec = compile_qc_steps(qc)
+        return await _raystack.open_datatree_async(
+            source, fold_size=fold_size, qc=qc_spec
+        )
 
 __all__ = [
     "parse",

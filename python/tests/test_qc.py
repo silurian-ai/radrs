@@ -1,107 +1,141 @@
-"""Tests for radrs.qc module."""
+"""Tests for QC integration in raystack parsing."""
 
-import pytest
 import numpy as np
 
-
-class TestRhohvThreshold:
-    """Tests for rhohv_threshold function."""
-
-    def test_rhohv_threshold_basic(self):
-        """Test basic RHOHV threshold functionality."""
-        import radrs.qc as qc
-
-        rhohv = np.array([
-            [0.5, 0.8, 0.9, 0.7],
-            [0.95, 0.6, 0.85, 0.3],
-        ], dtype=np.float32)
-
-        mask = qc.rhohv_threshold(rhohv, threshold=0.8)
-
-        assert mask.shape == rhohv.shape
-        assert mask.dtype == np.int8
-
-        # Check expected values
-        expected = np.array([
-            [0, 1, 1, 0],  # 0.5<0.8, 0.8>=0.8, 0.9>=0.8, 0.7<0.8
-            [1, 0, 1, 0],  # 0.95>=0.8, 0.6<0.8, 0.85>=0.8, 0.3<0.8
-        ], dtype=np.int8)
-
-        np.testing.assert_array_equal(mask, expected)
-
-    def test_rhohv_threshold_with_nan(self):
-        """Test RHOHV threshold with NaN values."""
-        import radrs.qc as qc
-
-        rhohv = np.array([
-            [0.9, np.nan, 0.7],
-            [np.nan, 0.85, np.nan],
-        ], dtype=np.float32)
-
-        mask = qc.rhohv_threshold(rhohv, threshold=0.8)
-
-        # NaN should become -1
-        assert mask[0, 1] == -1
-        assert mask[1, 0] == -1
-        assert mask[1, 2] == -1
-
-        # Valid values should be properly classified
-        assert mask[0, 0] == 1  # 0.9 >= 0.8
-        assert mask[0, 2] == 0  # 0.7 < 0.8
-        assert mask[1, 1] == 1  # 0.85 >= 0.8
-
-    def test_rhohv_threshold_default(self):
-        """Test RHOHV threshold with default value."""
-        import radrs.qc as qc
-
-        rhohv = np.array([[0.79, 0.80, 0.81]], dtype=np.float32)
-
-        mask = qc.rhohv_threshold(rhohv)  # Default threshold 0.8
-
-        assert mask[0, 0] == 0  # 0.79 < 0.8
-        assert mask[0, 1] == 1  # 0.80 >= 0.8
-        assert mask[0, 2] == 1  # 0.81 >= 0.8
+def _rhohv_threshold_mask(rhohv: np.ndarray, threshold: float) -> np.ndarray:
+    return np.where(
+        np.isnan(rhohv),
+        -1,
+        np.where(rhohv >= threshold, 1, 0),
+    ).astype(np.int8)
 
 
-class TestSunSpike:
-    """Tests for sun_spike function."""
+def _vectorized_correlation(masked_array_2d: np.ma.MaskedArray, reference_1d: np.ndarray) -> np.ndarray:
+    reference_2d = np.broadcast_to(reference_1d, masked_array_2d.shape)
+    reference_masked = np.ma.array(reference_2d, mask=masked_array_2d.mask)
 
-    def test_sun_spike_constant_values(self):
-        """Test sun spike detection with constant values (sun spike pattern)."""
-        import radrs.qc as qc
+    mean_data = np.ma.mean(masked_array_2d, axis=1, keepdims=True)
+    mean_ref = np.ma.mean(reference_masked, axis=1, keepdims=True)
 
-        # Create a sun spike pattern: constant high values across range
-        dbzh = np.full((1, 100), 30.0, dtype=np.float32)
+    dev_data = masked_array_2d - mean_data
+    dev_ref = reference_masked - mean_ref
 
-        mask = qc.sun_spike(dbzh, fill_threshold=0.9, corr_threshold=0.8)
+    numerator = np.ma.sum(dev_data * dev_ref, axis=1)
+    denominator = np.ma.sqrt(np.ma.sum(dev_data**2, axis=1) * np.ma.sum(dev_ref**2, axis=1))
 
-        assert mask.shape == dbzh.shape
-        # Constant signal should have high autocorrelation -> detected as sun spike
-        assert np.all(mask == 0)  # All marked as sun spike
+    correlations = np.ma.where(denominator != 0, numerator / denominator, np.nan)
+    valid_counts = np.ma.count(masked_array_2d, axis=1)
+    correlations = np.ma.where(valid_counts >= 3, correlations, np.nan)
 
-    def test_sun_spike_with_nan(self):
-        """Test sun spike detection with NaN values."""
-        import radrs.qc as qc
+    return correlations.filled(np.nan)
 
-        # Sparse data with many NaN values - low fill rate
-        dbzh = np.full((1, 100), np.nan, dtype=np.float32)
-        dbzh[0, :10] = 30.0  # Only 10% filled
 
-        mask = qc.sun_spike(dbzh, fill_threshold=0.9, corr_threshold=0.8)
+def _sun_spike_mask(
+    dbzh: np.ndarray,
+    dbzh_threshold: float = 0.0,
+    fill_threshold: float = 0.9,
+    correlation_threshold: float = 0.8,
+) -> np.ndarray:
+    dbzh_masked = np.ma.masked_invalid(dbzh)
+    mask_data = np.where(np.isnan(dbzh), -1, 1).astype(np.int8)
 
-        # Low fill rate -> NaN values should be -1, valid values should be 1
-        assert mask[0, 0] == 1  # Valid data
-        assert mask[0, 50] == -1  # NaN -> missing
+    filled_gates = dbzh_masked >= dbzh_threshold
+    valid_count = np.ma.count(dbzh_masked, axis=1)
+    filled_count = np.ma.sum(filled_gates, axis=1)
 
-    def test_sun_spike_random_data(self):
-        """Test sun spike detection with random data (not a sun spike)."""
-        import radrs.qc as qc
+    fill_fraction = np.zeros(len(valid_count), dtype=np.float32)
+    valid_mask = valid_count > 0
+    fill_fraction[valid_mask] = filled_count[valid_mask] / valid_count[valid_mask]
 
-        np.random.seed(42)
-        dbzh = np.random.randn(1, 100).astype(np.float32) * 10 + 20
+    candidate_mask = (fill_fraction >= fill_threshold) & (valid_count >= 3)
+    candidate_rays = np.where(candidate_mask)[0]
+    if len(candidate_rays) == 0:
+        return mask_data
 
-        mask = qc.sun_spike(dbzh, fill_threshold=0.9, corr_threshold=0.8)
+    range_indices = np.arange(dbzh.shape[1], dtype=np.float32)
+    correlations = _vectorized_correlation(dbzh_masked[candidate_rays], range_indices)
 
-        # Random data should have low autocorrelation -> not detected as sun spike
-        # Most values should be valid (1)
-        assert np.sum(mask == 1) > 50  # Most should be valid
+    sun_spike_mask = correlations >= correlation_threshold
+    sun_spike_rays = candidate_rays[sun_spike_mask]
+
+    for ray_idx in sun_spike_rays:
+        nan_locations = np.isnan(dbzh[ray_idx, :])
+        mask_data[ray_idx, :] = np.where(nan_locations, -1, 0)
+
+    return mask_data
+
+
+def test_parse_with_rhohv_qc_mask(test_file_bytes):
+    import radrs.qc as qc
+    import radrs.raystack as rrs
+
+    rs = rrs.parse(test_file_bytes, qc=[qc.RhohvThreshold()])
+    returns = rs["returns"]
+
+    assert "rhohv_threshold_mask" in returns
+    mask = returns["rhohv_threshold_mask"]
+    assert mask.dtype == np.int8
+
+    base = returns.get("RHOHV")
+    if base is None:
+        base = returns.get("DBZH")
+    assert mask.shape == base.shape
+    assert set(np.unique(mask)).issubset({-1, 0, 1})
+
+    if "RHOHV" in returns:
+        rhohv = returns["RHOHV"]
+        assert np.all(mask[np.isnan(rhohv)] == -1)
+
+
+def test_open_datatree_with_sun_spike_mask(test_file_path):
+    import radrs.qc as qc
+    import radrs.raystack as rrs
+
+    dt = rrs.open_datatree(test_file_path, qc=[qc.SunSpike()])
+    returns = dt["/returns"].dataset
+
+    assert "sun_spike_mask" in returns
+    mask = returns["sun_spike_mask"].values
+    assert mask.dtype == np.int8
+
+    dbzh = returns["DBZH"].values
+    assert mask.shape == dbzh.shape
+    assert np.all(mask[np.isnan(dbzh)] == -1)
+
+
+def test_rhohv_mask_matches_reference():
+    import radrs.qc as qc
+
+    rhohv = np.array(
+        [
+            [0.6, 0.9, 0.8, np.nan],
+            [0.95, 0.2, 0.85, 0.1],
+        ],
+        dtype=np.float32,
+    )
+
+    expected = _rhohv_threshold_mask(rhohv, threshold=0.8)
+    actual = qc.rhohv_threshold(rhohv, threshold=0.8)
+    assert np.array_equal(actual, expected)
+
+
+def test_sun_spike_mask_matches_reference():
+    import radrs.qc as qc
+
+    dbzh = np.array(
+        [
+            [0.0, 1.0, 2.0, 3.0, 4.0, 5.0],  # linear spike
+            [5.0, 5.0, 5.0, 5.0, 5.0, 5.0],  # constant
+            [np.nan, np.nan, 0.0, 0.0, 0.0, 0.0],  # NaNs preserved
+            [-1.0, -1.0, -1.0, -1.0, -1.0, -1.0],  # below threshold
+        ],
+        dtype=np.float32,
+    )
+
+    expected = _sun_spike_mask(
+        dbzh, dbzh_threshold=0.0, fill_threshold=0.9, correlation_threshold=0.8
+    )
+    actual = qc.sun_spike(
+        dbzh, dbzh_threshold=0.0, fill_threshold=0.9, corr_threshold=0.8
+    )
+    assert np.array_equal(actual, expected)

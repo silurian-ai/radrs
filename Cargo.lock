@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "nexrad"
-version = "0.1.0-rc1"
+version = "1.0.0-rc.2"
 dependencies = [
  "nexrad-data",
  "nexrad-decode",
@@ -939,7 +939,7 @@ dependencies = [
 
 [[package]]
 name = "nexrad-data"
-version = "0.2.0"
+version = "1.0.0-rc.2"
 dependencies = [
  "bzip2",
  "chrono",
@@ -949,14 +949,13 @@ dependencies = [
  "rayon",
  "reqwest 0.13.1",
  "thiserror 2.0.18",
- "tokio",
  "xml",
  "zerocopy",
 ]
 
 [[package]]
 name = "nexrad-decode"
-version = "0.1.1"
+version = "1.0.0-rc.1"
 dependencies = [
  "chrono",
  "hex",
@@ -970,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "nexrad-model"
-version = "0.1.0"
+version = "1.0.0-rc.1"
 dependencies = [
  "thiserror 2.0.18",
 ]
