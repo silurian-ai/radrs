@@ -9,20 +9,25 @@ pub(crate) fn velocity_texture(
     nyq: f32,
 ) -> Vec<f64> {
     let inv = std::f64::consts::PI / nyq as f64;
+    let total = n_rows * n_cols;
+    let mut x = vec![0.0f64; total];
+    let mut y = vec![0.0f64; total];
 
-    // Parallel cos/sin computation
-    let (x, y): (Vec<f64>, Vec<f64>) = vel
-        .par_iter()
-        .map(|&v| {
+    // Parallel cos/sin computation (write-in-place to keep deterministic ordering)
+    x.par_iter_mut()
+        .zip(y.par_iter_mut())
+        .zip(vel.par_iter())
+        .for_each(|((xv, yv), &v)| {
             let v = v as f64;
             if v.is_nan() {
-                (f64::NAN, f64::NAN)
+                *xv = f64::NAN;
+                *yv = f64::NAN;
             } else {
                 let im = v * inv;
-                (im.cos(), im.sin())
+                *xv = im.cos();
+                *yv = im.sin();
             }
-        })
-        .unzip();
+        });
 
     let xs = convolve_ones_symm_par(&x, n_rows, n_cols, wind_size);
     let ys = convolve_ones_symm_par(&y, n_rows, n_cols, wind_size);
@@ -57,21 +62,22 @@ fn convolve_ones_symm_par(
 ) -> Vec<f64> {
     let half = (window / 2) as isize;
     let win = window as isize;
+    let total = n_rows * n_cols;
 
-    (0..n_rows)
+    (0..total)
         .into_par_iter()
-        .flat_map_iter(|r| {
-            (0..n_cols).map(move |c| {
-                let mut sum = 0.0f64;
-                for dr in 0..win {
-                    let rr = symmetric_index(r as isize + dr - half, n_rows);
-                    for dc in 0..win {
-                        let cc = symmetric_index(c as isize + dc - half, n_cols);
-                        sum += data[rr * n_cols + cc];
-                    }
+        .map(|idx| {
+            let r = idx / n_cols;
+            let c = idx % n_cols;
+            let mut sum = 0.0f64;
+            for dr in 0..win {
+                let rr = symmetric_index(r as isize + dr - half, n_rows);
+                for dc in 0..win {
+                    let cc = symmetric_index(c as isize + dc - half, n_cols);
+                    sum += data[rr * n_cols + cc];
                 }
-                sum
-            })
+            }
+            sum
         })
         .collect()
 }
@@ -84,24 +90,25 @@ fn median_filter_symm_par(
 ) -> Vec<f64> {
     let half = (window / 2) as isize;
     let win = window as isize;
+    let total = n_rows * n_cols;
 
-    (0..n_rows)
+    (0..total)
         .into_par_iter()
-        .flat_map_iter(|r| {
-            (0..n_cols).map(move |c| {
-                let mut buf = Vec::with_capacity(window * window);
-                for dr in 0..win {
-                    let rr = reflect_index(r as isize + dr - half, n_rows);
-                    for dc in 0..win {
-                        let cc = reflect_index(c as isize + dc - half, n_cols);
-                        buf.push(data[rr * n_cols + cc]);
-                    }
+        .map(|idx| {
+            let r = idx / n_cols;
+            let c = idx % n_cols;
+            let mut buf = Vec::with_capacity(window * window);
+            for dr in 0..win {
+                let rr = reflect_index(r as isize + dr - half, n_rows);
+                for dc in 0..win {
+                    let cc = reflect_index(c as isize + dc - half, n_cols);
+                    buf.push(data[rr * n_cols + cc]);
                 }
-                // Use select_nth_unstable for O(n) median instead of O(n log n) sort
-                let mid = buf.len() / 2;
-                let (_, median, _) = buf.select_nth_unstable_by(mid, |a, b| nan_last_cmp(*a, *b));
-                *median
-            })
+            }
+            // Use select_nth_unstable for O(n) median instead of O(n log n) sort
+            let mid = buf.len() / 2;
+            let (_, median, _) = buf.select_nth_unstable_by(mid, |a, b| nan_last_cmp(*a, *b));
+            *median
         })
         .collect()
 }
