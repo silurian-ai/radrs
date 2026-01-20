@@ -12,11 +12,11 @@ crate-type = ["cdylib", "rlib"]
 pyo3 = { version = "0.27", features = ["extension-module"] }
 numpy = "0.27"
 
-# NEXRAD parsing (disable render to avoid piet-coregraphics conflict)
-nexrad = { path = "../nexrad/nexrad", default-features = false, features = ["model", "decode", "data", "parallel-decode", "parallel-decompress"] }
-nexrad-data = { path = "../nexrad/nexrad-data", features = ["parallel-decode", "parallel-decompress"] }
-nexrad-decode = { path = "../nexrad/nexrad-decode" }
-nexrad-model = { path = "../nexrad/nexrad-model" }
+# NEXRAD parsing (from fork with dual-pole fixes)
+nexrad = { git = "https://github.com/rejuvyesh/nexrad", branch = "jkg/dual-pole-parsing", default-features = false, features = ["model", "decode", "data", "parallel-decode", "parallel-decompress"] }
+nexrad-data = { git = "https://github.com/rejuvyesh/nexrad", branch = "jkg/dual-pole-parsing", features = ["parallel-decode", "parallel-decompress"] }
+nexrad-decode = { git = "https://github.com/rejuvyesh/nexrad", branch = "jkg/dual-pole-parsing" }
+nexrad-model = { git = "https://github.com/rejuvyesh/nexrad", branch = "jkg/dual-pole-parsing" }
 
 # S3 access
 object_store = { version = "0.11", features = ["aws"] }
