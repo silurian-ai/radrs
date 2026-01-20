@@ -34,10 +34,84 @@ pub mod raystack;
 pub mod xradar;
 
 use pyo3::prelude::*;
+use pyo3::types::PyMapping;
+use std::env;
+use std::sync::Once;
+
+static TRACING_INIT: Once = Once::new();
+
+/// Read RADRS_LOG env var from Python's os.environ (handles venv correctly)
+fn log_filter_from_env(py: Python<'_>) -> PyResult<Option<String>> {
+    let os = py.import("os")?;
+    let environ = os.getattr("environ")?;
+    let environ: &Bound<'_, PyMapping> = environ.cast()?;
+    let value = environ
+        .get_item("RADRS_LOG")
+        .ok()
+        .and_then(|v| v.extract().ok());
+    Ok(value)
+}
+
+/// Initialize tracing with optional filter directive (e.g., "radrs=debug,radrs::iter=trace")
+fn initialize_tracing(filter: Option<&str>) {
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    TRACING_INIT.call_once(|| {
+        let filter = filter
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "radrs=warn".to_string());
+
+        let subscriber = fmt::Subscriber::builder()
+            .with_env_filter(EnvFilter::new(filter))
+            .with_target(true)
+            .with_ansi(false) // No ANSI codes for cleaner output
+            .finish();
+
+        let _ = tracing::subscriber::set_global_default(subscriber);
+    });
+}
+
+/// Initialize logging (uses RADRS_LOG env var if set, otherwise defaults to warn level).
+///
+/// Call this explicitly to enable logging output from radrs.
+/// By default, no logging is performed for zero overhead.
+///
+/// Example:
+///     import radrs
+///     radrs.initialize_logs()  # Uses RADRS_LOG env var or defaults to warn
+///
+/// Or set env var before running:
+///     RADRS_LOG=radrs=debug python script.py
+#[pyfunction]
+fn initialize_logs(py: Python<'_>) -> PyResult<()> {
+    if env::var("RADRS_NO_LOGS").is_err() {
+        let filter = log_filter_from_env(py)?;
+        initialize_tracing(filter.as_deref());
+    }
+    Ok(())
+}
+
+/// Set log filter directive explicitly.
+///
+/// Example:
+///     import radrs
+///     radrs.set_log_filter("radrs=debug")  # Enable debug logging
+///     radrs.set_log_filter("radrs::iter=trace")  # Trace just the iterator module
+#[pyfunction]
+#[pyo3(signature = (filter=None))]
+fn set_log_filter(py: Python<'_>, filter: Option<String>) -> PyResult<()> {
+    let filter = filter.or_else(|| log_filter_from_env(py).ok().flatten());
+    initialize_tracing(filter.as_deref());
+    Ok(())
+}
 
 /// A Python module implemented in Rust.
 #[pymodule]
 fn _radrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Register logging functions (opt-in, no overhead by default)
+    m.add_function(wrap_pyfunction!(initialize_logs, m)?)?;
+    m.add_function(wrap_pyfunction!(set_log_filter, m)?)?;
+
     // Register submodules
     xradar::register_module(m)?;
     raystack::register_module(m)?;

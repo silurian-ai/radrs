@@ -35,8 +35,9 @@ rayon = "1.10"
 # Date/time handling
 chrono = "0.4"
 
-# Logging
+# Logging - opt-in via radrs.initialize_logs() or RADRS_LOG env var
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Globals
 once_cell = "1.19"

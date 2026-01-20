@@ -25,6 +25,8 @@ Example
 """
 
 
+import os
+
 from radrs import _radrs
 from radrs import qc, raystack, xradar
 
@@ -34,6 +36,13 @@ iter_volumes_async = _radrs.iter_volumes_async
 stream_realtime = _radrs.stream_realtime
 stream_archive = _radrs.stream_archive
 
+# Logging (opt-in, zero overhead by default)
+set_log_filter = _radrs.set_log_filter
+
+# Auto-initialize logging if RADRS_LOG env var is set
+if "RADRS_LOG" in os.environ:
+    _radrs.initialize_logs()
+
 
 __all__ = [
     "list_volumes",
@@ -41,6 +50,7 @@ __all__ = [
     "iter_volumes_async",
     "stream_realtime",
     "stream_archive",
+    "set_log_filter",
     "xradar",
     "raystack",
     "qc",
