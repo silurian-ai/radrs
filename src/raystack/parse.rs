@@ -65,6 +65,7 @@ struct VolumeMeta {
 /// Preallocated raystack data structure
 pub struct RaystackData {
     pub pattern_number: u16,
+    pub instrument_name: Option<String>,
     pub sweeps: Vec<SweepInfo>,
     pub n_radials: usize,
     pub fold_size: usize,
@@ -127,7 +128,7 @@ enum QcArray {
 
 impl RaystackData {
     /// Allocate with known sizes
-    fn with_capacity(meta: &VolumeMeta, fold_size: usize) -> Self {
+    fn with_capacity(meta: &VolumeMeta, fold_size: usize, instrument_name: Option<String>) -> Self {
         let n = meta.total_radials;
         let moment_len = n * fold_size;
 
@@ -145,6 +146,7 @@ impl RaystackData {
 
         Self {
             pattern_number: meta.pattern_number,
+            instrument_name,
             sweeps,
             n_radials: n,
             fold_size,
@@ -484,13 +486,17 @@ pub fn parse_optimized(data: &[u8], fold_size: usize) -> Result<RaystackData> {
 
     // Parse using nexrad-data (handles BZ2 decompression internally with parallel feature)
     let volume = VolumeFile::new(data.into_owned());
+
+    // Extract instrument_name (ICAO code) from volume header
+    let instrument_name = volume.header().and_then(|h| h.icao_of_radar());
+
     let scan = volume.scan()?;
 
     // First pass: collect metadata
     let meta = collect_metadata(&scan);
 
     // Allocate output
-    let mut raystack = RaystackData::with_capacity(&meta, fold_size);
+    let mut raystack = RaystackData::with_capacity(&meta, fold_size, instrument_name);
 
     // Second pass: fill data (pass sweep metadata for max_gates per sweep)
     fill_raystack_data(&scan, &mut raystack, &meta.sweeps);
@@ -948,6 +954,7 @@ fn raystack_data_to_raystack_datatree(
 
     let n_returns = raystack.n_radials;
     let fold_size = raystack.fold_size;
+    let instrument_name = raystack.instrument_name.clone();
     let qc_outputs = if !qc_ops.is_empty() && n_returns > 0 {
         build_qc_outputs(&raystack, qc_ops)
     } else {
@@ -986,6 +993,9 @@ fn raystack_data_to_raystack_datatree(
     // vcps dataset
     let vcps_coords = PyDict::new(py);
     vcps_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt))?;
+    if let Some(ref name) = instrument_name {
+        vcps_coords.set_item("instrument_name", (("vcp_time",), vec![name.as_str()]))?;
+    }
 
     let vcps_vars = PyDict::new(py);
     vcps_vars.set_item(
@@ -1024,6 +1034,12 @@ fn raystack_data_to_raystack_datatree(
         "vcp_time",
         (("sweep_time",), vec![vcp_time; raystack.sweeps.len()]),
     )?;
+    if let Some(ref name) = instrument_name {
+        sweeps_coords.set_item(
+            "instrument_name",
+            (("sweep_time",), vec![name.as_str(); raystack.sweeps.len()]),
+        )?;
+    }
 
     let sweeps_vars = PyDict::new(py);
     sweeps_vars.set_item("sweep_number", (("sweep_time",), elevation_numbers))?;
@@ -1054,6 +1070,12 @@ fn raystack_data_to_raystack_datatree(
         "vcp_time",
         (("return_time",), vec![vcp_time; n_returns]),
     )?;
+    if let Some(ref name) = instrument_name {
+        returns_coords.set_item(
+            "instrument_name",
+            (("return_time",), vec![name.as_str(); n_returns]),
+        )?;
+    }
     returns_coords.set_item(
         "range",
         (("range",), (0..fold_size).collect::<Vec<usize>>()),
@@ -1120,6 +1142,9 @@ fn raystack_data_to_raystack_datatree(
     root_attrs.set_item("Conventions", "CF-1.8")?;
     root_attrs.set_item("instrument_type", "radar")?;
     root_attrs.set_item("volume_coverage_pattern", raystack.pattern_number)?;
+    if let Some(ref name) = instrument_name {
+        root_attrs.set_item("instrument_name", name.as_str())?;
+    }
 
     let root_ds = xr.call_method1("Dataset", (PyDict::new(py),))?;
     root_ds.setattr("attrs", root_attrs)?;
@@ -1147,6 +1172,9 @@ pub fn raystack_to_python(
     // VCPs dict
     let vcps = PyDict::new(py);
     vcps.set_item("pattern_number", raystack.pattern_number)?;
+    if let Some(ref name) = raystack.instrument_name {
+        vcps.set_item("instrument_name", name.as_str())?;
+    }
     result.set_item("vcps", vcps)?;
 
     // Sweeps list

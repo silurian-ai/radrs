@@ -125,13 +125,17 @@ fn datatree_to_raystack(
 ) -> PyResult<RaystackData> {
     let np = py.import("numpy")?;
 
-    // Get VCP from root attributes
+    // Get VCP and instrument_name from root attributes
     let root_attrs = datatree.getattr("attrs")?;
     let pattern_number: u16 = root_attrs
         .get_item("volume_coverage_pattern")
         .ok()
         .and_then(|v| v.extract().ok())
         .unwrap_or(0);
+    let instrument_name: Option<String> = root_attrs
+        .get_item("instrument_name")
+        .ok()
+        .and_then(|v| v.extract().ok());
 
     // Get children (sweeps) - convert Frozen to dict
     let children = datatree.getattr("children")?;
@@ -145,6 +149,7 @@ fn datatree_to_raystack(
     if total_radials == 0 {
         return Ok(RaystackData {
             pattern_number,
+            instrument_name,
             sweeps: Vec::new(),
             n_radials: 0,
             fold_size,
@@ -166,6 +171,7 @@ fn datatree_to_raystack(
     let moment_len = total_radials * fold_size;
     let mut raystack = RaystackData {
         pattern_number,
+        instrument_name,
         sweeps: Vec::with_capacity(sweep_meta.len()),
         n_radials: total_radials,
         fold_size,
