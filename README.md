@@ -161,7 +161,7 @@ maturin develop --release
 uv run pytest python/tests/ -v
 
 # Benchmark S3 performance
-uv run pytest python/tests/test_benchmark_s3.py -v -s
+uv run python benchmarks/s3_benchmark.py
 ```
 
 ## Architecture
