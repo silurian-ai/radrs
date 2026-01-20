@@ -83,27 +83,47 @@ impl VolumeIterator {
     }
 
     fn __next__(&mut self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        // Get next bytes from prefetch pipeline (blocking)
-        let data: Option<Vec<u8>> = py.detach(|| {
-            let state = self.state.clone();
-            RUNTIME.block_on(async move {
-                let mut guard = state.lock().expect("state lock poisoned");
-                guard.next_bytes().await
-            })
-        })?;
+        // Loop until we get a valid file or run out of files
+        loop {
+            // Get next bytes from prefetch pipeline (blocking)
+            let data: Option<Vec<u8>> = py.detach(|| {
+                let state = self.state.clone();
+                RUNTIME.block_on(async move {
+                    let mut guard = state.lock().expect("state lock poisoned");
+                    guard.next_bytes().await
+                })
+            })?;
 
-        let Some(data) = data else {
-            return Err(pyo3::exceptions::PyStopIteration::new_err(()));
-        };
+            let Some(data) = data else {
+                return Err(pyo3::exceptions::PyStopIteration::new_err(()));
+            };
 
-        if self.schema == "raystack" {
-            let fold_size = self.fold_size;
-            let raystack = py.detach(|| raystack::parse_optimized(&data, fold_size))?;
-            return raystack::raystack_to_python(py, raystack, &self.qc_ops);
+            // Use if/else to make ownership clear - data is moved into exactly one branch
+            if self.schema == "raystack" {
+                let fold_size = self.fold_size;
+                let parse_result = py.detach(|| raystack::parse_optimized(&data, fold_size));
+                match parse_result {
+                    Ok(raystack) => {
+                        return raystack::raystack_to_python(py, raystack, &self.qc_ops);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to parse volume (raystack), skipping: {}", e);
+                        continue;
+                    }
+                }
+            } else {
+                let parse_result = py.detach(|| xradar::open_datatree(data));
+                match parse_result {
+                    Ok(scan) => {
+                        return xradar::datatree::scan_to_datatree(py, &scan);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to parse volume (xradar), skipping: {}", e);
+                        continue;
+                    }
+                }
+            }
         }
-
-        let scan = py.detach(|| xradar::open_datatree(data))?;
-        xradar::datatree::scan_to_datatree(py, &scan)
     }
 }
 
@@ -212,31 +232,57 @@ impl VolumeIteratorAsync {
         let qc_ops = slf.qc_ops.clone();
 
         let awaitable = future_into_py(py, async move {
-            let bytes = {
-                let mut guard = state.lock().await;
-                guard.next_bytes().await?
-            };
+            // Loop until we get a valid file or run out of files
+            loop {
+                let bytes = {
+                    let mut guard = state.lock().await;
+                    guard.next_bytes().await?
+                };
 
-            let Some(data) = bytes else {
-                return Err(pyo3::exceptions::PyStopAsyncIteration::new_err(()));
-            };
+                let Some(data) = bytes else {
+                    return Err(pyo3::exceptions::PyStopAsyncIteration::new_err(()));
+                };
 
-            if schema == "raystack" {
-                let raystack = tokio::task::spawn_blocking(move || {
-                    raystack::parse_optimized(&data, fold_size)
-                })
-                .await
-                .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
+                // Use else to make ownership clear to the compiler - data is moved into exactly one branch
+                if schema == "raystack" {
+                    let parse_result = tokio::task::spawn_blocking(move || {
+                        raystack::parse_optimized(&data, fold_size)
+                    })
+                    .await
+                    .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))?;
 
-                return Python::attach(|py| raystack::raystack_to_python(py, raystack, &qc_ops))
-                    .map_err(Into::into);
+                    match parse_result {
+                        Ok(raystack) => {
+                            return Python::attach(|py| {
+                                raystack::raystack_to_python(py, raystack, &qc_ops)
+                            })
+                            .map_err(Into::into);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to parse volume (raystack), skipping: {}", e);
+                            continue;
+                        }
+                    }
+                } else {
+                    let parse_result =
+                        tokio::task::spawn_blocking(move || xradar::open_datatree(data))
+                            .await
+                            .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))?;
+
+                    match parse_result {
+                        Ok(scan) => {
+                            return Python::attach(|py| {
+                                xradar::datatree::scan_to_datatree(py, &scan)
+                            })
+                            .map_err(Into::into);
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to parse volume (xradar), skipping: {}", e);
+                            continue;
+                        }
+                    }
+                }
             }
-
-            let scan = tokio::task::spawn_blocking(move || xradar::open_datatree(data))
-                .await
-                .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
-
-            Python::attach(|py| xradar::datatree::scan_to_datatree(py, &scan)).map_err(Into::into)
         })?;
 
         Ok(awaitable.into())
