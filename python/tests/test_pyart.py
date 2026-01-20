@@ -1,6 +1,7 @@
 """Py-ART compatibility tests for radrs raystack parsing."""
 
 import numpy as np
+import radrs.raystack as rrs
 import pytest
 
 
@@ -85,7 +86,6 @@ def _align_by_azimuth(
 def test_parse_vs_pyart_sweep_and_radial_counts(test_file_path, test_file_bytes):
     """Compare sweep/radial counts against Py-ART."""
     pyart, radar = _load_pyart_radar(test_file_path)
-    import radrs.raystack as rrs
 
     fold_size = _pyart_ngates(radar)
     rs = rrs.parse(test_file_bytes, fold_size=fold_size)
@@ -118,7 +118,6 @@ def test_parse_vs_pyart_sweep_and_radial_counts(test_file_path, test_file_bytes)
 def test_parse_vs_pyart_azimuth_alignment(test_file_path, test_file_bytes):
     """Ensure radrs azimuths align with Py-ART within tolerance."""
     pyart, radar = _load_pyart_radar(test_file_path)
-    import radrs.raystack as rrs
 
     fold_size = _pyart_ngates(radar)
     rs = rrs.parse(test_file_bytes, fold_size=fold_size)
@@ -160,7 +159,6 @@ def test_parse_vs_pyart_azimuth_alignment(test_file_path, test_file_bytes):
 def test_parse_vs_pyart_moment_values(test_file_path, test_file_bytes):
     """Compare radrs moment values to Py-ART for matched azimuths."""
     pyart, radar = _load_pyart_radar(test_file_path)
-    import radrs.raystack as rrs
 
     fold_size = _pyart_ngates(radar)
     rs = rrs.parse(test_file_bytes, fold_size=fold_size)
@@ -224,7 +222,6 @@ def test_parse_vs_pyart_moment_values(test_file_path, test_file_bytes):
 def test_parse_vs_pyart_dualpol_moment_values(test_file_path, test_file_bytes):
     """Compare radrs dual-pol moments to Py-ART."""
     pyart, radar = _load_pyart_radar(test_file_path)
-    import radrs.raystack as rrs
 
     fold_size = _pyart_ngates(radar)
     rs = rrs.parse(test_file_bytes, fold_size=fold_size)

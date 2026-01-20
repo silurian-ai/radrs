@@ -82,8 +82,10 @@ print(rs["returns"]["DBZH"].shape)  # (n_returns, 128)
 |----------|-------------|
 | `rhohv_threshold(rhohv, threshold=0.8)` | Mask by correlation coefficient |
 | `sun_spike(dbzh, dbzh_threshold=0.0, fill_threshold=0.9, corr_threshold=0.8)` | Detect sun spike contamination |
+| `vradh_winding_number(vradh, dbzh=None, nyquist=None, wind_size=3, velocity_texture_threshold=4.0, reflectivity_threshold=0.0, ...)` | VRADH winding number (dealias) |
 | `RhohvThreshold(threshold=0.8, vname="rhohv_threshold_mask")` | QC step for raystack parsing |
 | `SunSpike(dbzh_threshold=0.0, fill_threshold=0.9, corr_threshold=0.8, vname="sun_spike_mask")` | QC step for raystack parsing |
+| `VradhWindingNumber(..., vname="vradh_winding_number")` | QC step for raystack parsing |
 
 ## Output Formats
 
@@ -140,6 +142,10 @@ import radrs.qc as qc
 
 rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(), qc.SunSpike()])
 mask = rs["returns"]["rhohv_threshold_mask"]  # int8, same shape as DBZH/RHOHV
+
+# Winding number from VRADH dealiasing
+rs = rrs.parse(file_bytes, qc=[qc.VradhWindingNumber()])
+winding = rs["returns"]["vradh_winding_number"]  # float32, same shape as VRADH
 ```
 
 ## Development

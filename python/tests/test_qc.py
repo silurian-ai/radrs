@@ -1,6 +1,9 @@
 """Tests for QC integration in raystack parsing."""
 
 import numpy as np
+import radrs.qc as qc
+import radrs.raystack as rrs
+
 
 def _rhohv_threshold_mask(rhohv: np.ndarray, threshold: float) -> np.ndarray:
     return np.where(
@@ -66,8 +69,6 @@ def _sun_spike_mask(
 
 
 def test_parse_with_rhohv_qc_mask(test_file_bytes):
-    import radrs.qc as qc
-    import radrs.raystack as rrs
 
     rs = rrs.parse(test_file_bytes, qc=[qc.RhohvThreshold()])
     returns = rs["returns"]
@@ -88,8 +89,6 @@ def test_parse_with_rhohv_qc_mask(test_file_bytes):
 
 
 def test_open_datatree_with_sun_spike_mask(test_file_path):
-    import radrs.qc as qc
-    import radrs.raystack as rrs
 
     dt = rrs.open_datatree(test_file_path, qc=[qc.SunSpike()])
     returns = dt["/returns"].dataset
@@ -104,7 +103,6 @@ def test_open_datatree_with_sun_spike_mask(test_file_path):
 
 
 def test_rhohv_mask_matches_reference():
-    import radrs.qc as qc
 
     rhohv = np.array(
         [
@@ -120,7 +118,6 @@ def test_rhohv_mask_matches_reference():
 
 
 def test_sun_spike_mask_matches_reference():
-    import radrs.qc as qc
 
     dbzh = np.array(
         [

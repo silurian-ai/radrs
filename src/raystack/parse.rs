@@ -104,6 +104,25 @@ pub enum QcOp {
         corr_threshold: f32,
         vname: String,
     },
+    VradhWindingNumber {
+        nyquist: Option<f32>,
+        wind_size: usize,
+        velocity_texture_threshold: f32,
+        reflectivity_threshold: f32,
+        interval_splits: usize,
+        skip_between_rays: usize,
+        skip_along_ray: usize,
+        centered: bool,
+        rays_wrap_around: bool,
+        fill_value: Option<f32>,
+        fill_tolerance: f32,
+        vname: String,
+    },
+}
+
+enum QcArray {
+    Mask(Vec<i8>),
+    Float(Vec<f32>),
 }
 
 impl RaystackData {
@@ -222,6 +241,37 @@ fn dict_string(dict: &Bound<'_, PyDict>, key: &str, default: &str) -> PyResult<S
     Ok(default.to_string())
 }
 
+fn dict_usize(dict: &Bound<'_, PyDict>, key: &str, default: usize) -> PyResult<usize> {
+    if let Some(value) = dict.get_item(key)? {
+        if value.is_none() {
+            return Ok(default);
+        }
+        return value.extract();
+    }
+    Ok(default)
+}
+
+fn dict_bool(dict: &Bound<'_, PyDict>, key: &str, default: bool) -> PyResult<bool> {
+    if let Some(value) = dict.get_item(key)? {
+        if value.is_none() {
+            return Ok(default);
+        }
+        return value.extract();
+    }
+    Ok(default)
+}
+
+fn dict_opt_f32(dict: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<f32>> {
+    if let Some(value) = dict.get_item(key)? {
+        if value.is_none() {
+            return Ok(None);
+        }
+        let v: f32 = value.extract()?;
+        return Ok(Some(v));
+    }
+    Ok(None)
+}
+
 fn qc_op_from_name(
     name: &str,
     dict: Option<&Bound<'_, PyDict>>,
@@ -269,6 +319,82 @@ fn qc_op_from_name(
                 vname,
             })
         }
+        "vradh_winding_number" => {
+            let nyquist = if let Some(dict) = dict {
+                dict_opt_f32(dict, "nyquist")?
+            } else {
+                None
+            };
+            let wind_size = if let Some(dict) = dict {
+                dict_usize(dict, "wind_size", 3)?
+            } else {
+                3
+            };
+            let velocity_texture_threshold = if let Some(dict) = dict {
+                dict_f32(dict, "velocity_texture_threshold", 4.0)?
+            } else {
+                4.0
+            };
+            let reflectivity_threshold = if let Some(dict) = dict {
+                dict_f32(dict, "reflectivity_threshold", 0.0)?
+            } else {
+                0.0
+            };
+            let interval_splits = if let Some(dict) = dict {
+                dict_usize(dict, "interval_splits", 3)?
+            } else {
+                3
+            };
+            let skip_between_rays = if let Some(dict) = dict {
+                dict_usize(dict, "skip_between_rays", 100)?
+            } else {
+                100
+            };
+            let skip_along_ray = if let Some(dict) = dict {
+                dict_usize(dict, "skip_along_ray", 100)?
+            } else {
+                100
+            };
+            let centered = if let Some(dict) = dict {
+                dict_bool(dict, "centered", true)?
+            } else {
+                true
+            };
+            let rays_wrap_around = if let Some(dict) = dict {
+                dict_bool(dict, "rays_wrap_around", true)?
+            } else {
+                true
+            };
+            let fill_value = if let Some(dict) = dict {
+                dict_opt_f32(dict, "fill_value")?
+            } else {
+                Some(-64.5)
+            };
+            let fill_tolerance = if let Some(dict) = dict {
+                dict_f32(dict, "fill_tolerance", 1.0)?
+            } else {
+                1.0
+            };
+            let vname = if let Some(dict) = dict {
+                dict_string(dict, "vname", "vradh_winding_number")?
+            } else {
+                "vradh_winding_number".to_string()
+            };
+            Ok(QcOp::VradhWindingNumber {
+                nyquist,
+                wind_size,
+                velocity_texture_threshold,
+                reflectivity_threshold,
+                interval_splits,
+                skip_between_rays,
+                skip_along_ray,
+                centered,
+                rays_wrap_around,
+                fill_value,
+                fill_tolerance,
+                vname,
+            })
+        }
         _ => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Unknown QC step: {}",
             name
@@ -276,13 +402,13 @@ fn qc_op_from_name(
     }
 }
 
-fn build_qc_masks(raystack: &RaystackData, qc_ops: &[QcOp]) -> Vec<(String, Vec<i8>)> {
-    let mut masks = Vec::new();
+fn build_qc_outputs(raystack: &RaystackData, qc_ops: &[QcOp]) -> Vec<(String, QcArray)> {
+    let mut outputs = Vec::new();
     for op in qc_ops {
         match op {
             QcOp::RhohvThreshold { threshold, vname } => {
                 let mask = qc::rhohv_threshold(&raystack.rhohv, *threshold);
-                masks.push((vname.clone(), mask));
+                outputs.push((vname.clone(), QcArray::Mask(mask)));
             }
             QcOp::SunSpike {
                 dbzh_threshold,
@@ -298,11 +424,52 @@ fn build_qc_masks(raystack: &RaystackData, qc_ops: &[QcOp]) -> Vec<(String, Vec<
                     *fill_threshold,
                     *corr_threshold,
                 );
-                masks.push((vname.clone(), mask));
+                outputs.push((vname.clone(), QcArray::Mask(mask)));
+            }
+            QcOp::VradhWindingNumber {
+                nyquist,
+                wind_size,
+                velocity_texture_threshold,
+                reflectivity_threshold,
+                interval_splits,
+                skip_between_rays,
+                skip_along_ray,
+                centered,
+                rays_wrap_around,
+                fill_value,
+                fill_tolerance,
+                vname,
+            } => {
+                let mut out = vec![f32::NAN; raystack.n_radials * raystack.fold_size];
+                for sweep in &raystack.sweeps {
+                    let start = sweep.start_index;
+                    let n_radials = sweep.n_radials;
+                    let fold_size = raystack.fold_size;
+                    let slice_len = n_radials * fold_size;
+                    let offset = start * fold_size;
+                    let vradh = &raystack.vradh[offset..offset + slice_len];
+                    let dbzh = &raystack.dbzh[offset..offset + slice_len];
+                    let params = qc::VradhWindingParams {
+                        nyquist: *nyquist,
+                        wind_size: *wind_size,
+                        velocity_texture_threshold: *velocity_texture_threshold,
+                        reflectivity_threshold: *reflectivity_threshold,
+                        interval_splits: *interval_splits,
+                        skip_between_rays: *skip_between_rays,
+                        skip_along_ray: *skip_along_ray,
+                        centered: *centered,
+                        rays_wrap_around: *rays_wrap_around,
+                        fill_value: *fill_value,
+                        fill_tolerance: *fill_tolerance,
+                    };
+                    let sweep_out = qc::vradh_winding_number(vradh, Some(dbzh), n_radials, fold_size, params);
+                    out[offset..offset + slice_len].copy_from_slice(&sweep_out);
+                }
+                outputs.push((vname.clone(), QcArray::Float(out)));
             }
         }
     }
-    masks
+    outputs
 }
 
 /// Parse NEXRAD data directly to raystack format (optimized)
@@ -781,8 +948,8 @@ fn raystack_data_to_raystack_datatree(
 
     let n_returns = raystack.n_radials;
     let fold_size = raystack.fold_size;
-    let qc_masks = if !qc_ops.is_empty() && n_returns > 0 {
-        build_qc_masks(&raystack, qc_ops)
+    let qc_outputs = if !qc_ops.is_empty() && n_returns > 0 {
+        build_qc_outputs(&raystack, qc_ops)
     } else {
         Vec::new()
     };
@@ -922,10 +1089,19 @@ fn raystack_data_to_raystack_datatree(
     add_moment("RHOHV", raystack.rhohv, &returns_vars)?;
     add_moment("KDP", raystack.kdp, &returns_vars)?;
 
-    for (name, mask) in qc_masks {
-        let arr = Array2::from_shape_vec((n_returns, fold_size), mask)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        returns_vars.set_item(name, (("return_time", "range"), arr.into_pyarray(py)))?;
+    for (name, output) in qc_outputs {
+        match output {
+            QcArray::Mask(mask) => {
+                let arr = Array2::from_shape_vec((n_returns, fold_size), mask)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                returns_vars.set_item(name, (("return_time", "range"), arr.into_pyarray(py)))?;
+            }
+            QcArray::Float(data) => {
+                let arr = Array2::from_shape_vec((n_returns, fold_size), data)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                returns_vars.set_item(name, (("return_time", "range"), arr.into_pyarray(py)))?;
+            }
+        }
     }
 
     let returns_ds = xr.call_method(
@@ -990,8 +1166,8 @@ pub fn raystack_to_python(
 
     let n_radials = raystack.n_radials;
     let fold_size = raystack.fold_size;
-    let qc_masks = if !qc_ops.is_empty() && n_radials > 0 {
-        build_qc_masks(&raystack, qc_ops)
+    let qc_outputs = if !qc_ops.is_empty() && n_radials > 0 {
+        build_qc_outputs(&raystack, qc_ops)
     } else {
         Vec::new()
     };
@@ -1021,10 +1197,19 @@ pub fn raystack_to_python(
     add_moment("RHOHV", raystack.rhohv, &returns)?;
     add_moment("KDP", raystack.kdp, &returns)?;
 
-    for (name, mask) in qc_masks {
-        let arr = Array2::from_shape_vec((n_radials, fold_size), mask)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        returns.set_item(name, arr.into_pyarray(py))?;
+    for (name, output) in qc_outputs {
+        match output {
+            QcArray::Mask(mask) => {
+                let arr = Array2::from_shape_vec((n_radials, fold_size), mask)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                returns.set_item(name, arr.into_pyarray(py))?;
+            }
+            QcArray::Float(data) => {
+                let arr = Array2::from_shape_vec((n_radials, fold_size), data)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                returns.set_item(name, arr.into_pyarray(py))?;
+            }
+        }
     }
 
     result.set_item("returns", returns)?;

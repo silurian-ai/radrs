@@ -2,6 +2,7 @@
 
 import pytest
 import numpy as np
+import radrs.xradar as rxr
 
 
 class TestOpenDatatree:
@@ -9,7 +10,6 @@ class TestOpenDatatree:
 
     def test_open_datatree_from_path(self, test_file_path):
         """Test opening a NEXRAD file from path."""
-        import radrs.xradar as rxr
 
         dt = rxr.open_datatree(test_file_path)
 
@@ -22,7 +22,6 @@ class TestOpenDatatree:
 
     def test_open_datatree_from_bytes(self, test_file_bytes):
         """Test opening a NEXRAD file from bytes."""
-        import radrs.xradar as rxr
 
         dt = rxr.open_datatree(test_file_bytes)
 
@@ -33,7 +32,6 @@ class TestOpenDatatree:
 
     def test_datatree_has_moments(self, test_file_path):
         """Test that DataTree contains expected moment variables."""
-        import radrs.xradar as rxr
 
         dt = rxr.open_datatree(test_file_path)
 
@@ -48,7 +46,6 @@ class TestOpenDatatree:
 
     def test_datatree_has_coordinates(self, test_file_path):
         """Test that DataTree has expected coordinates."""
-        import radrs.xradar as rxr
 
         dt = rxr.open_datatree(test_file_path)
 
@@ -62,7 +59,6 @@ class TestOpenDatatree:
 
     def test_datatree_sweep_structure(self, test_file_path):
         """Test that each sweep has correct structure."""
-        import radrs.xradar as rxr
 
         dt = rxr.open_datatree(test_file_path)
 
@@ -84,7 +80,6 @@ class TestOpenDatatree:
 
     def test_datatree_root_attributes(self, test_file_path):
         """Test that root has expected attributes."""
-        import radrs.xradar as rxr
 
         dt = rxr.open_datatree(test_file_path)
 
@@ -94,7 +89,6 @@ class TestOpenDatatree:
 
     def test_datatree_azimuth_values(self, test_file_path):
         """Test that azimuth values are in valid range."""
-        import radrs.xradar as rxr
 
         dt = rxr.open_datatree(test_file_path)
 
@@ -110,7 +104,6 @@ class TestOpenDatatree:
 
     def test_datatree_elevation_values(self, test_file_path):
         """Test that elevation values are in valid range."""
-        import radrs.xradar as rxr
 
         dt = rxr.open_datatree(test_file_path)
 
@@ -155,7 +148,6 @@ class TestXradarCompatibility:
 
     def test_sweep_count_matches(self, test_file_path, xradar_datatree):
         """Test that sweep count matches xradar."""
-        import radrs.xradar as rxr
 
         rust_dt = rxr.open_datatree(test_file_path)
 
@@ -171,7 +163,6 @@ class TestXradarCompatibility:
         Note: Small differences (1-2 radials) may occur due to different handling
         of duplicate or incomplete radials between implementations.
         """
-        import radrs.xradar as rxr
 
         rust_dt = rxr.open_datatree(test_file_path)
 
@@ -197,7 +188,6 @@ class TestXradarCompatibility:
         counts differ), we verify that each azimuth in radrs has a matching
         azimuth in xradar within tolerance.
         """
-        import radrs.xradar as rxr
 
         rust_dt = rxr.open_datatree(test_file_path)
 
@@ -231,7 +221,6 @@ class TestXradarCompatibility:
         preserves the raw encoded values. So we only compare positions where
         radrs has finite values.
         """
-        import radrs.xradar as rxr
 
         rust_dt = rxr.open_datatree(test_file_path)
         moments_to_check = ["DBZH", "VRADH", "RHOHV"]
@@ -288,7 +277,6 @@ class TestPerformance:
     @pytest.mark.benchmark
     def test_open_datatree_benchmark(self, benchmark, test_file_bytes):
         """Benchmark open_datatree performance."""
-        import radrs.xradar as rxr
 
         result = benchmark(lambda: rxr.open_datatree(test_file_bytes))
         assert hasattr(result, "children")

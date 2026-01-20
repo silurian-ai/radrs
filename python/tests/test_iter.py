@@ -2,6 +2,7 @@
 
 import pytest
 from datetime import date
+import radrs
 
 
 class TestListVolumes:
@@ -15,7 +16,6 @@ class TestListVolumes:
         This test requires network access and verifies actual data is returned.
         Skip in CI with: pytest -m 'not network'
         """
-        import radrs
 
         # Use a known date with data (March 15, 2024 - a date with known KTLX data)
         volumes = radrs.list_volumes("KTLX", "2024-03-15")
@@ -41,7 +41,6 @@ class TestIterVolumes:
 
     def test_iter_volumes_returns_iterator(self):
         """Test that iter_volumes returns an iterator (interface check only)."""
-        import radrs
 
         iterator = radrs.iter_volumes("KTLX", start="2024-03-15", end="2024-03-15")
 
@@ -57,7 +56,6 @@ class TestIterVolumes:
         This test requires network access and verifies end-to-end functionality.
         Skip in CI with: pytest -m 'not network'
         """
-        import radrs
 
         iterator = radrs.iter_volumes("KTLX", start="2024-03-15", end="2024-03-15")
 
@@ -83,7 +81,6 @@ class TestStreamArchive:
 
     def test_stream_archive_returns_async_iterator(self):
         """Test that stream_archive returns an async iterator."""
-        import radrs
 
         stream = radrs.stream_archive("KTLX")
 
@@ -93,7 +90,6 @@ class TestStreamArchive:
 
     def test_stream_archive_with_poll_interval(self):
         """Test that stream_archive accepts poll_interval parameter."""
-        import radrs
 
         stream = radrs.stream_archive("KTLX", poll_interval=60)
 
@@ -105,7 +101,6 @@ class TestStreamRealtime:
 
     def test_stream_realtime_not_implemented(self):
         """Test that stream_realtime raises NotImplementedError."""
-        import radrs
 
         with pytest.raises(NotImplementedError):
             radrs.stream_realtime("KTLX")

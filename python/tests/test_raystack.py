@@ -2,6 +2,8 @@
 
 import pytest
 import numpy as np
+import radrs.raystack as rrs
+import radrs.xradar as rxr
 
 
 class TestParse:
@@ -9,7 +11,6 @@ class TestParse:
 
     def test_parse_returns_dict(self, test_file_bytes):
         """Test that parse returns a dict with expected keys."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
 
@@ -20,7 +21,6 @@ class TestParse:
 
     def test_parse_with_fold_size(self, test_file_bytes):
         """Test parse with custom fold size."""
-        import radrs.raystack as rrs
 
         for fold_size in [32, 64, 128, 256]:
             rs = rrs.parse(test_file_bytes, fold_size=fold_size)
@@ -33,7 +33,6 @@ class TestParse:
 
     def test_parse_has_coordinates(self, test_file_bytes):
         """Test that parsed data has coordinate arrays."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
         returns = rs["returns"]
@@ -51,7 +50,6 @@ class TestParse:
 
     def test_parse_has_moments(self, test_file_bytes):
         """Test that parsed data has moment arrays."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
         returns = rs["returns"]
@@ -63,7 +61,6 @@ class TestParse:
 
     def test_parse_sweep_idx_alignment(self, test_file_bytes):
         """Test that sweep_idx values align with sweeps metadata."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
 
@@ -84,7 +81,6 @@ class TestParse:
 
     def test_parse_sweeps_metadata(self, test_file_bytes):
         """Test that sweeps metadata is correctly extracted."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
 
@@ -101,7 +97,6 @@ class TestParse:
 
     def test_parse_sweep_start_index_consistency(self, test_file_bytes):
         """Test that sweep start_index values are contiguous and aligned."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
         sweeps = rs["sweeps"]
@@ -123,7 +118,6 @@ class TestParse:
 
     def test_parse_azimuth_range(self, test_file_bytes):
         """Test that azimuth values are in valid range."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
         azimuth = rs["returns"]["azimuth"]
@@ -134,7 +128,6 @@ class TestParse:
 
     def test_parse_time_monotonic_per_sweep(self, test_file_bytes):
         """Test that time is roughly monotonic within each sweep."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
         time = rs["returns"]["time"]
@@ -150,7 +143,6 @@ class TestParse:
 
     def test_parse_dualpol_even_odd_nan_balance(self, test_file_bytes):
         """Ensure dual-pol moments don't show alternating NaN patterns."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes, fold_size=2048)
         returns = rs["returns"]
@@ -185,8 +177,6 @@ class TestParse:
 
     def test_parse_pattern_number_matches_datatree(self, test_file_path, test_file_bytes):
         """Test that pattern_number matches DataTree metadata."""
-        import radrs.xradar as rxr
-        import radrs.raystack as rrs
 
         dt = rxr.open_datatree(test_file_path)
         rs = rrs.parse(test_file_bytes)
@@ -196,8 +186,6 @@ class TestParse:
 
     def test_parse_time_matches_datatree(self, test_file_path, test_file_bytes):
         """Test that parse time array matches DataTree time ordering."""
-        import radrs.xradar as rxr
-        import radrs.raystack as rrs
 
         dt = rxr.open_datatree(test_file_path)
         rs = rrs.parse(test_file_bytes)
@@ -225,7 +213,6 @@ class TestParse:
 def test_parse_accepts_gzip_bytes(test_file_bytes):
     """Test that parse handles gzipped NEXRAD input bytes."""
     import gzip
-    import radrs.raystack as rrs
 
     raw_rs = rrs.parse(test_file_bytes)
     gz_bytes = gzip.compress(test_file_bytes)
@@ -254,8 +241,6 @@ class TestFromXradarDatatree:
 
     def test_from_xradar_datatree_returns_dict(self, test_file_path):
         """Test that from_xradar_datatree returns a dict."""
-        import radrs.xradar as rxr
-        import radrs.raystack as rrs
 
         dt = rxr.open_datatree(test_file_path)
         rs = rrs.from_xradar_datatree(dt)
@@ -267,8 +252,6 @@ class TestFromXradarDatatree:
 
     def test_from_xradar_datatree_sweep_idx_alignment(self, test_file_path):
         """Test that sweep_idx aligns with sweeps metadata from DataTree."""
-        import radrs.xradar as rxr
-        import radrs.raystack as rrs
 
         dt = rxr.open_datatree(test_file_path)
         rs = rrs.from_xradar_datatree(dt)
@@ -288,7 +271,6 @@ class TestFromXradarDatatree:
         except ImportError:
             pytest.skip("xradar not installed")
 
-        import radrs.raystack as rrs
 
         # xradar DataTree has extra nodes like radar_parameters, georeferencing_correction
         xrad_dt = xd.io.open_nexradlevel2_datatree(test_file_path)
@@ -318,7 +300,6 @@ class TestToXradarDatatree:
 
     def test_to_xradar_datatree_returns_datatree(self, test_file_bytes):
         """Test that to_xradar_datatree returns a DataTree."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
         dt = rrs.to_xradar_datatree(rs)
@@ -329,7 +310,6 @@ class TestToXradarDatatree:
 
     def test_to_xradar_datatree_preserves_moments(self, test_file_bytes):
         """Test that to_xradar_datatree preserves moment data."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
         dt = rrs.to_xradar_datatree(rs)
@@ -348,7 +328,6 @@ class TestRaystackDatatree:
 
     def test_to_raystack_datatree_has_nodes(self, test_file_bytes):
         """Test that to_raystack_datatree yields vcps/sweeps/returns nodes."""
-        import radrs.raystack as rrs
 
         rs = rrs.parse(test_file_bytes)
         dt = rrs.to_raystack_datatree(rs)
@@ -360,7 +339,6 @@ class TestRaystackDatatree:
 
     def test_open_datatree_returns_raystack(self, test_file_path):
         """Test that open_datatree returns raystack DataTree."""
-        import radrs.raystack as rrs
 
         dt = rrs.open_datatree(test_file_path)
         assert "returns" in dt.children
@@ -370,7 +348,6 @@ class TestRaystackDatatree:
     @pytest.mark.asyncio
     async def test_open_datatree_async_returns_raystack(self, test_file_path):
         """Test that open_datatree_async returns raystack DataTree."""
-        import radrs.raystack as rrs
 
         dt = await rrs.open_datatree_async(test_file_path)
         assert "returns" in dt.children
@@ -383,8 +360,6 @@ class TestRoundtrip:
 
     def test_roundtrip_preserves_sweeps(self, test_file_path):
         """Test that roundtrip preserves sweep count."""
-        import radrs.xradar as rxr
-        import radrs.raystack as rrs
 
         dt1 = rxr.open_datatree(test_file_path)
         rs = rrs.from_xradar_datatree(dt1)
@@ -397,8 +372,6 @@ class TestRoundtrip:
 
     def test_roundtrip_preserves_radial_count(self, test_file_path):
         """Test that roundtrip preserves radial count per sweep."""
-        import radrs.xradar as rxr
-        import radrs.raystack as rrs
 
         dt1 = rxr.open_datatree(test_file_path)
         rs = rrs.from_xradar_datatree(dt1)
@@ -417,8 +390,6 @@ class TestRoundtrip:
 
     def test_roundtrip_preserves_coordinates(self, test_file_path):
         """Test that roundtrip preserves azimuth/elevation values exactly."""
-        import radrs.xradar as rxr
-        import radrs.raystack as rrs
 
         dt1 = rxr.open_datatree(test_file_path)
         rs = rrs.from_xradar_datatree(dt1)
@@ -448,8 +419,6 @@ class TestRoundtrip:
         Note: raystack output always has shape (n_radials, fold_size), so we compare
         values at the overlapping range indices, not expect exact shapes.
         """
-        import radrs.xradar as rxr
-        import radrs.raystack as rrs
 
         dt1 = rxr.open_datatree(test_file_path)
         # Use large fold_size to minimize folding (preserve more exact values)
@@ -494,8 +463,6 @@ class TestRoundtrip:
 
     def test_parse_vs_from_xradar_datatree_consistency(self, test_file_path, test_file_bytes):
         """Test that parse and from_xradar_datatree produce consistent structure/coords."""
-        import radrs.xradar as rxr
-        import radrs.raystack as rrs
 
         # Direct parse
         rs1 = rrs.parse(test_file_bytes, fold_size=128)
@@ -523,7 +490,6 @@ class TestPerformance:
     @pytest.mark.benchmark
     def test_parse_benchmark(self, benchmark, test_file_bytes):
         """Benchmark raystack.parse performance."""
-        import radrs.raystack as rrs
 
         rs = benchmark(lambda: rrs.parse(test_file_bytes))
         assert isinstance(rs, dict)

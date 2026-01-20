@@ -37,6 +37,7 @@ package = false
 dev = [
     "arm-pyart>=2.2.0",
     "fsspec>=2026.1.0",
+    "marimo>=0.19.4",
     "maturin-import-hook>=0.3.0",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",

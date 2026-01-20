@@ -7,6 +7,7 @@ import os
 TEST_DATA_DIR = "/Users/rejuvyesh/src/silurian/nexrad/downloads"
 TEST_FILE_1 = os.path.join(TEST_DATA_DIR, "KDMX20220305_232324_V06")
 TEST_FILE_2 = os.path.join(TEST_DATA_DIR, "KCRP20170826_044114_V06")
+TEST_FILES = [TEST_FILE_1, TEST_FILE_2]
 
 
 @pytest.fixture
@@ -25,3 +26,12 @@ def test_file_bytes(test_file_path):
     """Contents of a test NEXRAD file."""
     with open(test_file_path, "rb") as f:
         return f.read()
+
+
+@pytest.fixture(scope="session")
+def available_test_files():
+    """List of available test files."""
+    paths = [path for path in TEST_FILES if os.path.exists(path)]
+    if not paths:
+        pytest.skip("No test data files available")
+    return paths
