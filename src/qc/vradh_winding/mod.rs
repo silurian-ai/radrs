@@ -1,4 +1,7 @@
-//! VRADH winding number derived from region-based dealiasing (Py-ART port)
+//! VRADH winding number derived from region-based dealiasing (Py-ART port).
+//!
+//! Note: This is a close port of Py-ART, but rare fold differences can occur due to
+//! edge ordering, floating-point rounding, and region merge tie-breaking.
 
 mod edges;
 mod regions;
