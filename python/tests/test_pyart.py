@@ -47,6 +47,18 @@ def _match_sweeps_by_elevation(radrs_sweeps, pyart_fixed_angles, tol=0.2):
     return pairs
 
 
+def _pair_sweeps(radrs_sweeps, radar):
+    """Pair sweeps by index when counts match; otherwise use elevation matching."""
+    if len(radrs_sweeps) == int(radar.nsweeps):
+        return list(zip(range(len(radrs_sweeps)), range(int(radar.nsweeps)), strict=False))
+
+    pyart_fixed = np.asarray(radar.fixed_angle["data"])
+    pairs = _match_sweeps_by_elevation(radrs_sweeps, pyart_fixed)
+    if not pairs:
+        pairs = list(zip(range(len(radrs_sweeps)), range(int(radar.nsweeps)), strict=False))
+    return pairs
+
+
 def _align_by_azimuth(
     rs_vals: np.ndarray,
     rs_az: np.ndarray,
@@ -55,8 +67,9 @@ def _align_by_azimuth(
     *,
     decimals: int = 2,
 ) -> tuple[np.ndarray, np.ndarray] | None:
-    rs_az_r = np.round(rs_az, decimals)
-    pa_az_r = np.round(pa_az, decimals)
+    scale = 10**decimals
+    rs_az_r = np.round(rs_az * scale).astype(np.int32)
+    pa_az_r = np.round(pa_az * scale).astype(np.int32)
 
     common = np.intersect1d(rs_az_r, pa_az_r)
     if common.size == 0:
@@ -91,14 +104,7 @@ def test_parse_vs_pyart_sweep_and_radial_counts(test_file_path, test_file_bytes)
     rs = rrs.parse(test_file_bytes, fold_size=fold_size)
 
     radrs_sweeps = rs["sweeps"]
-    pyart_fixed = np.asarray(radar.fixed_angle["data"])
-    pairs = _match_sweeps_by_elevation(radrs_sweeps, pyart_fixed)
-
-    # If elevation matching fails, fall back to index-order comparison
-    if not pairs:
-        pairs = list(
-            zip(range(len(radrs_sweeps)), range(int(radar.nsweeps)), strict=False)
-        )
+    pairs = _pair_sweeps(radrs_sweeps, radar)
 
     assert len(pairs) > 0, "No sweep pairs matched between radrs and Py-ART"
 
@@ -124,12 +130,7 @@ def test_parse_vs_pyart_azimuth_alignment(test_file_path, test_file_bytes):
 
     returns = rs["returns"]
     radrs_sweeps = rs["sweeps"]
-    pyart_fixed = np.asarray(radar.fixed_angle["data"])
-    pairs = _match_sweeps_by_elevation(radrs_sweeps, pyart_fixed)
-    if not pairs:
-        pairs = list(
-            zip(range(len(radrs_sweeps)), range(int(radar.nsweeps)), strict=False)
-        )
+    pairs = _pair_sweeps(radrs_sweeps, radar)
 
     az_all = np.asarray(radar.azimuth["data"])
 
@@ -165,12 +166,7 @@ def test_parse_vs_pyart_moment_values(test_file_path, test_file_bytes):
 
     returns = rs["returns"]
     radrs_sweeps = rs["sweeps"]
-    pyart_fixed = np.asarray(radar.fixed_angle["data"])
-    pairs = _match_sweeps_by_elevation(radrs_sweeps, pyart_fixed)
-    if not pairs:
-        pairs = list(
-            zip(range(len(radrs_sweeps)), range(int(radar.nsweeps)), strict=False)
-        )
+    pairs = _pair_sweeps(radrs_sweeps, radar)
 
     # Map radrs -> pyart field names (exclude known dual-pol decoding issues)
     field_map = {
@@ -228,12 +224,7 @@ def test_parse_vs_pyart_dualpol_moment_values(test_file_path, test_file_bytes):
 
     returns = rs["returns"]
     radrs_sweeps = rs["sweeps"]
-    pyart_fixed = np.asarray(radar.fixed_angle["data"])
-    pairs = _match_sweeps_by_elevation(radrs_sweeps, pyart_fixed)
-    if not pairs:
-        pairs = list(
-            zip(range(len(radrs_sweeps)), range(int(radar.nsweeps)), strict=False)
-        )
+    pairs = _pair_sweeps(radrs_sweeps, radar)
 
     field_map = {
         "ZDR": "differential_reflectivity",

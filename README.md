@@ -138,6 +138,13 @@ DataTree('root')
 
 Raystack parsing can inject QC masks into the returns dataset:
 
+## Compatibility notes (xradar / Py-ART)
+
+- **Sweep ordering:** radrs preserves native sweep order from the file. Some VCPs reuse elevation angles, so pairing by elevation alone can misalign sweeps. When comparing against Py-ART/xradar, align by sweep index when sweep counts match.
+- **Raystack folding semantics:** raystack folding uses physical range alignment (first gate + gate spacing) against the sweep grid, which can differ from simple gate-index folding if moments have different gate geometries.
+- **Dual-pol decoding:** ZDR/PHIDP/KDP decoding depends on the upstream `nexrad` crate. If you see NaNs or mismatches for these moments, check the `nexrad` decode status; DBZH/VRADH/WRADH/RHOHV are expected to match.
+- **Azimuth alignment in tests:** floating-point rounding can make exact azimuth equality brittle; radrs tests align by rounded azimuth or nearest-neighbor to avoid false mismatches.
+
 ```python
 import radrs.raystack as rrs
 import radrs.qc as qc
