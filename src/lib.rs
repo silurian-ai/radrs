@@ -21,7 +21,8 @@
 //! rs = rrs.parse(file_bytes, fold_size=128)
 //!
 //! # Iterate over S3 archive
-//! for dt in radrs.iter_volumes("KTLX", start="2024-03-15"):
+//! source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15")
+//! for dt in radrs.iter_volumes(source):
 //!     process(dt)
 //! ```
 

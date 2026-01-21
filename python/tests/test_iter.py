@@ -1,7 +1,6 @@
 """Tests for radrs iterator functions."""
 
 import pytest
-from datetime import date
 import radrs
 
 
@@ -42,7 +41,8 @@ class TestIterVolumes:
     def test_iter_volumes_returns_iterator(self):
         """Test that iter_volumes returns an iterator (interface check only)."""
 
-        iterator = radrs.iter_volumes("KTLX", start="2024-03-15", end="2024-03-15")
+        source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15", end="2024-03-15")
+        iterator = radrs.iter_volumes(source)
 
         # Should be iterable
         assert hasattr(iterator, "__iter__"), "iter_volumes should return iterable"
@@ -57,7 +57,8 @@ class TestIterVolumes:
         Skip in CI with: pytest -m 'not network'
         """
 
-        iterator = radrs.iter_volumes("KTLX", start="2024-03-15", end="2024-03-15")
+        source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15", end="2024-03-15")
+        iterator = radrs.iter_volumes(source)
 
         # Actually consume one item - this tests fetch AND parse
         dt = next(iterator)

@@ -35,11 +35,12 @@ dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_
 dt = rxr.open_datatree("/path/to/local/file.ar2v")
 
 # Iterate over a date range with prefetch
-for dt in radrs.iter_volumes("KTLX", start="2024-03-15", end="2024-03-16", prefetch=5):
+source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15", end="2024-03-16")
+for dt in radrs.iter_volumes(source, prefetch=5):
     process(dt)
 
 # Async iteration
-async for dt in radrs.iter_volumes_async("KTLX", start="2024-03-15", prefetch=5):
+async for dt in radrs.iter_volumes_async(source, prefetch=5):
     await process(dt)
 
 # Parse directly to raystack format (faster for ML)
@@ -54,8 +55,9 @@ print(rs["returns"]["DBZH"].shape)  # (n_returns, 128)
 | Function | Description |
 |----------|-------------|
 | `list_volumes(site, date)` | List available volumes for a site and date |
-| `iter_volumes(site, start, end, schema, prefetch)` | Iterate over volumes with optional prefetch |
-| `iter_volumes_async(site, start, end, schema, prefetch)` | Async iterator with prefetch |
+| `VolumeSource.nexrad(site, start, end)` | Create a NEXRAD archive volume source |
+| `iter_volumes(source, output, qc, fold_size, prefetch)` | Iterate over volumes from a source |
+| `iter_volumes_async(source, output, qc, fold_size, prefetch)` | Async iterator with prefetch |
 | `stream_archive(site, poll_interval)` | Poll archive for new volumes (~5 min delay) |
 
 ### radrs.xradar

@@ -116,6 +116,47 @@ def test_vradh_winding_number_matches_pyart(available_test_files):
         assert mismatch_ratio < 0.001
 
 
+@pytest.mark.slow
+def test_vradh_winding_number_matches_pyart_all_sweeps(available_test_files):
+    if pyart is None:
+        pytest.skip("pyart not installed")
+
+    for test_file_path in available_test_files:
+        dt = rxr.open_datatree(test_file_path)
+        total = 0
+        mismatches = 0
+        max_diff = 0.0
+
+        for name in dt.children:
+            if not name.startswith("sweep_"):
+                continue
+            sweep_ds = dt[name].dataset
+            if "VRADH" not in sweep_ds or "DBZH" not in sweep_ds:
+                continue
+
+            sweep_ds = sweep_ds.assign(VRADH=_clean_vradh(sweep_ds))
+            nyq = np.nanmax(np.abs(sweep_ds["VRADH"].values))
+            if not np.isfinite(nyq) or nyq <= 0:
+                continue
+
+            radar = _build_single_sweep_pyart_radar(dt, sweep_ds)
+            expected, original = _compute_pyart_winding(radar, nyq, 4.0, 0.0)
+            actual = _compute_radrs_winding(original, sweep_ds["DBZH"].values, nyq, 4.0, 0.0)
+
+            diff = np.nan_to_num(np.abs(actual - expected), nan=0.0)
+            mismatches += np.count_nonzero(diff > 0)
+            total += diff.size
+            max_diff = max(max_diff, float(diff.max()))
+
+        if total == 0:
+            pytest.skip("No sweeps with VRADH/DBZH found")
+
+        mismatch_ratio = mismatches / total
+        # All-sweep parity is slightly looser; rare folds can differ by 2.
+        assert max_diff <= 2.0
+        assert mismatch_ratio < 0.001
+
+
 def test_raystack_parse_adds_vradh_winding_number(test_file_bytes):
     rs = rrs.parse(test_file_bytes, qc=[qc.VradhWindingNumber()])
     returns = rs["returns"]
@@ -141,6 +182,7 @@ def test_vradh_winding_number_synthetic_masks():
 def test_vradh_winding_number_fill_values():
     vradh = np.linspace(-4, 4, 16, dtype=np.float32).reshape(4, 4)
     vradh[0, 0] = -64.5
+    vradh[0, 1] = -63.3
     out = qc.vradh_winding_number(
         vradh,
         None,
@@ -149,6 +191,7 @@ def test_vradh_winding_number_fill_values():
         fill_tolerance=1.0,
     )
     assert np.isnan(out[0, 0])
+    assert np.isfinite(out[0, 1])
     assert np.nanmax(np.abs(out)) <= 1.0
 
 
@@ -156,3 +199,10 @@ def test_vradh_winding_number_auto_nyquist():
     vradh = np.linspace(-8, 8, 49, dtype=np.float32).reshape(7, 7)
     out = qc.vradh_winding_number(vradh, None)
     assert np.isfinite(np.nanmax(out))
+
+
+def test_vradh_winding_number_explicit_nyquist_matches_auto():
+    vradh = np.linspace(-12, 12, 81, dtype=np.float32).reshape(9, 9)
+    auto = qc.vradh_winding_number(vradh, None)
+    explicit = qc.vradh_winding_number(vradh, None, nyquist=12.0)
+    assert np.allclose(auto, explicit, equal_nan=True)

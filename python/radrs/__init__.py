@@ -20,7 +20,8 @@ Example
 >>> rs = rrs.parse(file_bytes, fold_size=128)
 >>>
 >>> # Iterate over S3 archive
->>> for dt in radrs.iter_volumes("KTLX", start="2024-03-15"):
+>>> source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15")
+>>> for dt in radrs.iter_volumes(source):
 ...     process(dt)
 """
 
@@ -31,6 +32,7 @@ from radrs import _radrs
 from radrs import qc, raystack, xradar
 
 list_volumes = _radrs.list_volumes
+VolumeSource = _radrs.VolumeSource
 iter_volumes = _radrs.iter_volumes
 iter_volumes_async = _radrs.iter_volumes_async
 stream_realtime = _radrs.stream_realtime
@@ -46,6 +48,7 @@ if "RADRS_LOG" in os.environ:
 
 __all__ = [
     "list_volumes",
+    "VolumeSource",
     "iter_volumes",
     "iter_volumes_async",
     "stream_realtime",

@@ -1,13 +1,9 @@
-//! Volume iteration over S3 archive
+//! Volume iteration over archive sources
 
 use crate::error::{RadrsError, Result};
-use crate::fetch::{fetch_archive_file, ARCHIVE_STORE, RUNTIME};
+use crate::fetch::RUNTIME;
 use crate::raystack::{self, parse_qc_ops, QcOp};
 use crate::xradar;
-use chrono::{Datelike, NaiveDate};
-use futures::stream::StreamExt;
-use object_store::path::Path as ObjectPath;
-use object_store::ObjectStore;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::VecDeque;
@@ -15,55 +11,24 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
-/// List available volumes for a site and date
-pub async fn list_volumes(site: &str, date: NaiveDate) -> Result<Vec<String>> {
-    let prefix = format!(
-        "{}/{:02}/{:02}/{}/",
-        date.format("%Y"),
-        date.month(),
-        date.day(),
-        site
-    );
+use super::source::{VolumeSource, VolumeSourceState};
 
-    let prefix_path = ObjectPath::from(prefix);
-
-    let mut volumes = Vec::new();
-    let mut list_stream = ARCHIVE_STORE.list(Some(&prefix_path));
-
-    while let Some(result) = list_stream.next().await {
-        match result {
-            Ok(meta) => {
-                let path = meta.location.to_string();
-                // Extract just the filename
-                if let Some(filename) = path.rsplit('/').next() {
-                    // Filter out MDM files and other non-volume files
-                    if filename.starts_with(site)
-                        && (filename.contains("_V0") || filename.contains("_V1"))
-                    {
-                        volumes.push(filename.to_string());
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Error listing object: {}", e);
-            }
-        }
-    }
-
-    volumes.sort();
-    Ok(volumes)
+#[derive(Clone, Copy)]
+enum OutputKind {
+    Xradar,
+    Raystack,
 }
 
-/// List available volumes (Python wrapper)
-#[pyfunction]
-#[pyo3(name = "list_volumes")]
-pub fn list_volumes_py(_py: Python<'_>, site: &str, date: &str) -> PyResult<Vec<String>> {
-    let date = NaiveDate::parse_from_str(date, "%Y-%m-%d")
-        .map_err(|e| RadrsError::Parse(format!("Invalid date format: {}", e)))?;
-
-    let volumes = RUNTIME.block_on(list_volumes(site, date))?;
-
-    Ok(volumes)
+impl OutputKind {
+    fn parse(value: Option<&str>) -> Result<Self> {
+        match value.unwrap_or("xradar") {
+            "xradar" => Ok(OutputKind::Xradar),
+            "raystack" => Ok(OutputKind::Raystack),
+            other => Err(RadrsError::Parse(format!(
+                "Invalid output: {other} (expected 'xradar' or 'raystack')"
+            ))),
+        }
+    }
 }
 
 /// Sync iterator with prefetch support.
@@ -71,7 +36,7 @@ pub fn list_volumes_py(_py: Python<'_>, site: &str, date: &str) -> PyResult<Vec<
 #[pyclass]
 struct VolumeIterator {
     state: Arc<std::sync::Mutex<VolumeIterState>>,
-    schema: String,
+    output: OutputKind,
     fold_size: usize,
     qc_ops: Vec<QcOp>,
 }
@@ -99,7 +64,7 @@ impl VolumeIterator {
             };
 
             // Use if/else to make ownership clear - data is moved into exactly one branch
-            if self.schema == "raystack" {
+            if matches!(self.output, OutputKind::Raystack) {
                 let fold_size = self.fold_size;
                 let parse_result = py.detach(|| raystack::parse_optimized(&data, fold_size));
                 match parse_result {
@@ -128,57 +93,19 @@ impl VolumeIterator {
 }
 
 struct VolumeIterState {
-    site: String,
-    current_date: NaiveDate,
-    end_date: NaiveDate,
-    volumes: Vec<String>,
-    index: usize,
+    source: VolumeSourceState,
     prefetch: usize,
     in_flight: VecDeque<JoinHandle<Result<Vec<u8>>>>,
 }
 
 impl VolumeIterState {
-    async fn next_volume_id(&mut self) -> Result<Option<(NaiveDate, String)>> {
-        loop {
-            if self.current_date > self.end_date {
-                return Ok(None);
-            }
-
-            if !self.volumes.is_empty() && self.index >= self.volumes.len() {
-                self.current_date = self.current_date.succ_opt().unwrap_or(self.current_date);
-                self.volumes.clear();
-                self.index = 0;
-                continue;
-            }
-
-            if self.volumes.is_empty() {
-                self.volumes = list_volumes(&self.site, self.current_date).await?;
-                self.index = 0;
-
-                if self.volumes.is_empty() {
-                    self.current_date = self.current_date.succ_opt().unwrap_or(self.current_date);
-                    continue;
-                }
-            }
-
-            if self.index < self.volumes.len() {
-                let volume = self.volumes[self.index].clone();
-                self.index += 1;
-                return Ok(Some((self.current_date, volume)));
-            }
-        }
-    }
-
     async fn fill_prefetch(&mut self) -> Result<()> {
         while self.in_flight.len() < self.prefetch {
-            let Some((date, volume)) = self.next_volume_id().await? else {
+            let Some(volume_ref) = self.source.next_ref().await? else {
                 break;
             };
 
-            let site = self.site.clone();
-            let handle = tokio::spawn(async move {
-                fetch_archive_file(&site, date.year(), date.month(), date.day(), &volume).await
-            });
+            let handle = tokio::spawn(async move { volume_ref.fetch().await });
             self.in_flight.push_back(handle);
         }
 
@@ -214,7 +141,7 @@ impl VolumeIterState {
 #[pyclass]
 struct VolumeIteratorAsync {
     state: Arc<Mutex<VolumeIterState>>,
-    schema: String,
+    output: OutputKind,
     fold_size: usize,
     qc_ops: Vec<QcOp>,
 }
@@ -227,7 +154,7 @@ impl VolumeIteratorAsync {
 
     fn __anext__(slf: PyRef<'_, Self>, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let state = slf.state.clone();
-        let schema = slf.schema.clone();
+        let output = slf.output;
         let fold_size = slf.fold_size;
         let qc_ops = slf.qc_ops.clone();
 
@@ -244,7 +171,7 @@ impl VolumeIteratorAsync {
                 };
 
                 // Use else to make ownership clear to the compiler - data is moved into exactly one branch
-                if schema == "raystack" {
+                if matches!(output, OutputKind::Raystack) {
                     let parse_result = tokio::task::spawn_blocking(move || {
                         raystack::parse_optimized(&data, fold_size)
                     })
@@ -289,45 +216,31 @@ impl VolumeIteratorAsync {
     }
 }
 
-/// Iterate over volumes for a site and date range (with prefetch support).
+/// Iterate over volumes from a source (with prefetch support).
 #[pyfunction]
-#[pyo3(name = "iter_volumes", signature = (site, start, end = None, schema = None, qc = None, fold_size = None, prefetch = None))]
+#[pyo3(name = "iter_volumes", signature = (source, output = None, qc = None, fold_size = None, prefetch = None))]
 pub fn iter_volumes_py(
     py: Python<'_>,
-    site: &str,
-    start: &str,
-    end: Option<&str>,
-    schema: Option<&str>,
+    source: PyRef<'_, VolumeSource>,
+    output: Option<&str>,
     qc: Option<&Bound<'_, PyAny>>,
     fold_size: Option<usize>,
     prefetch: Option<usize>,
 ) -> PyResult<Py<PyAny>> {
-    let start_date = NaiveDate::parse_from_str(start, "%Y-%m-%d")
-        .map_err(|e| RadrsError::Parse(format!("Invalid start date: {}", e)))?;
-    let end_date = end
-        .map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d"))
-        .transpose()
-        .map_err(|e| RadrsError::Parse(format!("Invalid end date: {}", e)))?
-        .unwrap_or(start_date);
-
-    let schema = schema.unwrap_or("xradar").to_string();
+    let output = OutputKind::parse(output)?;
     let fold_size = fold_size.unwrap_or(128);
     let qc_ops = parse_qc_ops(py, qc)?;
     let prefetch = prefetch.unwrap_or(3).max(1);
 
     let state = VolumeIterState {
-        site: site.to_string(),
-        current_date: start_date,
-        end_date,
-        volumes: Vec::new(),
-        index: 0,
+        source: source.to_state(),
         prefetch,
         in_flight: VecDeque::new(),
     };
 
     let iterator = VolumeIterator {
         state: Arc::new(std::sync::Mutex::new(state)),
-        schema,
+        output,
         fold_size,
         qc_ops,
     };
@@ -337,45 +250,31 @@ pub fn iter_volumes_py(
     Ok(bound.into_any().unbind())
 }
 
-/// Iterate over volumes asynchronously (prefetching enabled).
+/// Iterate over volumes asynchronously from a source (prefetching enabled).
 #[pyfunction]
-#[pyo3(name = "iter_volumes_async", signature = (site, start, end = None, schema = None, qc = None, fold_size = None, prefetch = None))]
+#[pyo3(name = "iter_volumes_async", signature = (source, output = None, qc = None, fold_size = None, prefetch = None))]
 pub fn iter_volumes_async_py(
     py: Python<'_>,
-    site: &str,
-    start: &str,
-    end: Option<&str>,
-    schema: Option<&str>,
+    source: PyRef<'_, VolumeSource>,
+    output: Option<&str>,
     qc: Option<&Bound<'_, PyAny>>,
     fold_size: Option<usize>,
     prefetch: Option<usize>,
 ) -> PyResult<Py<PyAny>> {
-    let start_date = NaiveDate::parse_from_str(start, "%Y-%m-%d")
-        .map_err(|e| RadrsError::Parse(format!("Invalid start date: {}", e)))?;
-    let end_date = end
-        .map(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d"))
-        .transpose()
-        .map_err(|e| RadrsError::Parse(format!("Invalid end date: {}", e)))?
-        .unwrap_or(start_date);
-
-    let schema = schema.unwrap_or("xradar").to_string();
+    let output = OutputKind::parse(output)?;
     let fold_size = fold_size.unwrap_or(128);
     let qc_ops = parse_qc_ops(py, qc)?;
     let prefetch = prefetch.unwrap_or(5).max(1);
 
     let state = VolumeIterState {
-        site: site.to_string(),
-        current_date: start_date,
-        end_date,
-        volumes: Vec::new(),
-        index: 0,
+        source: source.to_state(),
         prefetch,
         in_flight: VecDeque::new(),
     };
 
     let iterator = VolumeIteratorAsync {
         state: Arc::new(Mutex::new(state)),
-        schema,
+        output,
         fold_size,
         qc_ops,
     };
@@ -383,14 +282,4 @@ pub fn iter_volumes_async_py(
     let obj = Py::new(py, iterator)?;
     let bound = obj.into_pyobject(py).unwrap();
     Ok(bound.into_any().unbind())
-}
-
-/// Iterate over volumes (internal async version)
-pub async fn iter_volumes(
-    _site: &str,
-    _start: NaiveDate,
-    _end: NaiveDate,
-) -> Result<()> {
-    // Internal implementation would go here
-    unimplemented!("Use iter_volumes_py for Python interface")
 }

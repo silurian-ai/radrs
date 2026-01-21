@@ -104,11 +104,11 @@ def benchmark_sequential(urls: list[str], use_xradar: bool) -> None:
             print(f"Speedup: {xradar_seq / radrs_seq:.1f}x")
 
 
-def benchmark_iter_sync(site: str, date: str, n: int) -> None:
+def benchmark_iter_sync(source: radrs.VolumeSource, n: int) -> None:
     print(f"\n--- Iterator (sync, {n} files) ---")
     start = time.perf_counter()
     results = []
-    for i, dt in enumerate(radrs.iter_volumes(site, start=date, end=date)):
+    for i, dt in enumerate(radrs.iter_volumes(source)):
         results.append(dt)
         if i >= n - 1:
             break
@@ -116,13 +116,13 @@ def benchmark_iter_sync(site: str, date: str, n: int) -> None:
     print(f"radrs iter_volumes: {elapsed:.2f}s ({len(results) / elapsed:.2f} vol/s)")
 
 
-def benchmark_iter_async(site: str, date: str, n: int) -> None:
+def benchmark_iter_async(source: radrs.VolumeSource, n: int) -> None:
     print(f"\n--- Iterator (async, prefetch=3, {n} files) ---")
 
     async def _run():
         start = time.perf_counter()
         results = []
-        async for dt in radrs.iter_volumes_async(site, start=date, end=date, prefetch=3):
+        async for dt in radrs.iter_volumes_async(source, prefetch=3):
             results.append(dt)
             if len(results) >= n:
                 break
@@ -166,12 +166,13 @@ def run(mode: str, site: str, date: str, n: int, n_full: int, use_xradar: bool) 
 
     urls = get_test_urls(site, date, max(n, 3))
     print(f"Testing with {len(urls)} volume(s)")
+    source = radrs.VolumeSource.nexrad(site, start=date, end=date)
 
     if mode in {"quick", "all"}:
         benchmark_single_file(urls[: max(3, n)], use_xradar=use_xradar)
         benchmark_sequential(urls[:n], use_xradar=use_xradar)
-        benchmark_iter_sync(site, date, n)
-        benchmark_iter_async(site, date, n)
+        benchmark_iter_sync(source, n)
+        benchmark_iter_async(source, n)
         benchmark_async_concurrent(urls[:n])
         benchmark_connection_reuse(urls[: max(3, n)])
 

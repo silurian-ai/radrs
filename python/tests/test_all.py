@@ -7,6 +7,7 @@ def test_import_radrs():
     """Test that radrs can be imported."""
     import radrs
     assert hasattr(radrs, "list_volumes")
+    assert hasattr(radrs, "VolumeSource")
     assert hasattr(radrs, "iter_volumes")
     assert hasattr(radrs, "stream_realtime")
 
