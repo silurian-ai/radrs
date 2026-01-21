@@ -244,12 +244,15 @@ class TestXradarCompatibility:
                 rust_vals = rust_dt[key][moment].values
                 xrad_vals = xradar_datatree[key][moment].values
 
-                # Match radials by closest azimuth
+                # Match radials by closest azimuth (use < 1/2 spacing to avoid
+                # pairing adjacent radials in 0.5° sweeps).
+                expected_spacing = 360.0 / len(xrad_az)
+                az_tolerance = expected_spacing * 0.55
                 matched_diffs = []
                 for i, az in enumerate(rust_az):
                     # Find closest azimuth in xradar
                     j = np.argmin(np.abs(xrad_az - az))
-                    if np.abs(xrad_az[j] - az) > 0.5:  # Must be within 0.5 degrees
+                    if np.abs(xrad_az[j] - az) > az_tolerance:
                         continue
 
                     # Compare the rows - only where radrs has finite values
