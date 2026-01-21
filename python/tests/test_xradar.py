@@ -256,7 +256,10 @@ class TestXradarCompatibility:
                     rust_row = rust_vals[i]
                     xrad_row = xrad_vals[j]
 
-                    finite_mask = np.isfinite(rust_row)
+                    # xradar preserves raw below-threshold sentinel (-33 dBZ for DBZH).
+                    # Treat it as NaN so we only compare valid gates.
+                    xrad_row = np.where(np.isclose(xrad_row, -33.0, atol=0.01), np.nan, xrad_row)
+                    finite_mask = np.isfinite(rust_row) & np.isfinite(xrad_row)
                     if not np.any(finite_mask):
                         continue
 
