@@ -79,8 +79,8 @@ impl VolumeIterator {
             } else {
                 let parse_result = py.detach(|| xradar::open_datatree(data));
                 match parse_result {
-                    Ok(scan) => {
-                        return xradar::datatree::scan_to_datatree(py, &scan);
+                    Ok((scan, meta)) => {
+                        return xradar::datatree::scan_to_datatree(py, &scan, &meta);
                     }
                     Err(e) => {
                         tracing::warn!("Failed to parse volume (xradar), skipping: {}", e);
@@ -197,9 +197,9 @@ impl VolumeIteratorAsync {
                             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))?;
 
                     match parse_result {
-                        Ok(scan) => {
+                        Ok((scan, meta)) => {
                             return Python::attach(|py| {
-                                xradar::datatree::scan_to_datatree(py, &scan)
+                                xradar::datatree::scan_to_datatree(py, &scan, &meta)
                             })
                             .map_err(Into::into);
                         }

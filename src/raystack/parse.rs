@@ -5,6 +5,7 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::{fetch_s3_url, RUNTIME};
+use crate::metadata::{extract_scan_meta, ScanMeta};
 use crate::qc;
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentValue, Scan};
@@ -66,6 +67,9 @@ struct VolumeMeta {
 pub struct RaystackData {
     pub pattern_number: u16,
     pub instrument_name: Option<String>,
+    pub latitude: Option<f32>,
+    pub longitude: Option<f32>,
+    pub altitude: Option<f32>,
     pub sweeps: Vec<SweepInfo>,
     pub n_radials: usize,
     pub fold_size: usize,
@@ -90,10 +94,14 @@ pub struct RaystackData {
 /// Sweep-level metadata (public)
 #[derive(Clone)]
 pub struct SweepInfo {
+    pub sweep_number: u32,
     pub elevation_number: u8,
     pub elevation_angle: f32,
     pub n_radials: usize,
     pub start_index: usize,
+    pub max_gates: usize,
+    pub range_first_km: f64,
+    pub gate_interval_km: f64,
 }
 
 #[derive(Clone)]
@@ -126,27 +134,53 @@ enum QcArray {
     Float(Vec<f32>),
 }
 
+fn sweep_range_metrics(sweep: &SweepInfo, fold_size: usize) -> (f32, f32, f32) {
+    let range_start_m = (sweep.range_first_km * 1000.0) as f32;
+    let gate_interval_m = (sweep.gate_interval_km * 1000.0) as f32;
+
+    if fold_size == 0 || sweep.max_gates == 0 || gate_interval_m <= 0.0 {
+        return (range_start_m, f32::NAN, f32::NAN);
+    }
+
+    let range_step_m = if sweep.max_gates <= fold_size {
+        gate_interval_m
+    } else {
+        gate_interval_m * (sweep.max_gates as f32 / fold_size as f32)
+    };
+
+    let max_range_m = range_start_m + gate_interval_m * ((sweep.max_gates - 1) as f32);
+
+    (range_start_m, range_step_m, max_range_m)
+}
+
 impl RaystackData {
     /// Allocate with known sizes
-    fn with_capacity(meta: &VolumeMeta, fold_size: usize, instrument_name: Option<String>) -> Self {
+    fn with_capacity(meta: &VolumeMeta, fold_size: usize, meta_info: &ScanMeta) -> Self {
         let n = meta.total_radials;
         let moment_len = n * fold_size;
 
         let mut sweeps = Vec::with_capacity(meta.sweeps.len());
         let mut start_index = 0;
-        for sm in &meta.sweeps {
+        for (idx, sm) in meta.sweeps.iter().enumerate() {
             sweeps.push(SweepInfo {
+                sweep_number: idx as u32,
                 elevation_number: sm.elevation_number,
                 elevation_angle: sm.elevation_angle,
                 n_radials: sm.n_radials,
                 start_index,
+                max_gates: sm.max_gates,
+                range_first_km: sm.range_first_km,
+                gate_interval_km: sm.gate_interval_km,
             });
             start_index += sm.n_radials;
         }
 
         Self {
             pattern_number: meta.pattern_number,
-            instrument_name,
+            instrument_name: meta_info.instrument_name.clone(),
+            latitude: meta_info.latitude,
+            longitude: meta_info.longitude,
+            altitude: meta_info.altitude,
             sweeps,
             n_radials: n,
             fold_size,
@@ -486,9 +520,7 @@ pub fn parse_optimized(data: &[u8], fold_size: usize) -> Result<RaystackData> {
 
     // Parse using nexrad-data (handles BZ2 decompression internally with parallel feature)
     let volume = VolumeFile::new(data.into_owned());
-
-    // Extract instrument_name (ICAO code) from volume header
-    let instrument_name = volume.header().and_then(|h| h.icao_of_radar());
+    let meta_info = extract_scan_meta(&volume);
 
     let scan = volume.scan()?;
 
@@ -496,7 +528,7 @@ pub fn parse_optimized(data: &[u8], fold_size: usize) -> Result<RaystackData> {
     let meta = collect_metadata(&scan);
 
     // Allocate output
-    let mut raystack = RaystackData::with_capacity(&meta, fold_size, instrument_name);
+    let mut raystack = RaystackData::with_capacity(&meta, fold_size, &meta_info);
 
     // Second pass: fill data (pass sweep metadata for max_gates per sweep)
     fill_raystack_data(&scan, &mut raystack, &meta.sweeps);
@@ -962,25 +994,68 @@ fn raystack_data_to_raystack_datatree(
     };
 
     let vcp_time = raystack.time.iter().copied().min().unwrap_or(0);
+    let vcp_end = raystack.time.iter().copied().max().unwrap_or(vcp_time);
+    let vcp_duration_ms = vcp_end - vcp_time;
 
     let mut sweep_times: Vec<i64> = Vec::with_capacity(raystack.sweeps.len());
+    let mut sweep_durations: Vec<i64> = Vec::with_capacity(raystack.sweeps.len());
     let mut sweep_time_per_return = vec![vcp_time; n_returns];
+    let mut sweep_number_per_return = vec![0u32; n_returns];
+    let mut elevation_number_per_return = vec![0u32; n_returns];
+    let mut base_range_per_return = vec![f32::NAN; n_returns];
+    let mut range_step_per_return = vec![f32::NAN; n_returns];
+
+    let mut sweep_numbers: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut elevation_numbers: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut elevation_angles: Vec<f32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut n_radials_list: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut start_indices: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut range_starts: Vec<f32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut range_steps: Vec<f32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut max_ranges: Vec<f32> = Vec::with_capacity(raystack.sweeps.len());
 
     for sweep in &raystack.sweeps {
         let start = sweep.start_index;
         let sweep_time = raystack.time.get(start).copied().unwrap_or(vcp_time);
         sweep_times.push(sweep_time);
         let end = (start + sweep.n_radials).min(n_returns);
+        let sweep_end = raystack
+            .time
+            .get(end.saturating_sub(1))
+            .copied()
+            .unwrap_or(sweep_time);
+        sweep_durations.push(sweep_end - sweep_time);
+
+        let (range_start_m, range_step_m, max_range_m) =
+            sweep_range_metrics(sweep, fold_size);
+
+        sweep_numbers.push(sweep.sweep_number);
+        elevation_numbers.push(u32::from(sweep.elevation_number));
+        elevation_angles.push(sweep.elevation_angle);
+        n_radials_list.push(sweep.n_radials as u32);
+        start_indices.push(sweep.start_index as u32);
+        range_starts.push(range_start_m);
+        range_steps.push(range_step_m);
+        max_ranges.push(max_range_m);
+
         for idx in start..end {
             sweep_time_per_return[idx] = sweep_time;
+            sweep_number_per_return[idx] = sweep.sweep_number;
+            elevation_number_per_return[idx] = u32::from(sweep.elevation_number);
+            base_range_per_return[idx] = range_start_m;
+            range_step_per_return[idx] = range_step_m;
         }
     }
 
     let vcp_time_arr = np.call_method1("array", (&vec![vcp_time],))?;
     let vcp_time_dt = vcp_time_arr.call_method1("astype", ("datetime64[ms]",))?;
+    let vcp_duration_arr = np.call_method1("array", (&vec![vcp_duration_ms],))?;
+    let vcp_duration_dt = vcp_duration_arr.call_method1("astype", ("timedelta64[ms]",))?;
 
     let sweep_time_arr = np.call_method1("array", (&sweep_times,))?;
     let sweep_time_dt = sweep_time_arr.call_method1("astype", ("datetime64[ms]",))?;
+    let sweep_duration_arr = np.call_method1("array", (&sweep_durations,))?;
+    let sweep_duration_dt = sweep_duration_arr.call_method1("astype", ("timedelta64[ms]",))?;
 
     let return_time_arr = raystack.time.into_pyarray(py);
     let return_time_dt = np.call_method1("array", (&return_time_arr,))?;
@@ -1002,6 +1077,26 @@ fn raystack_data_to_raystack_datatree(
         "pattern_number",
         (("vcp_time",), vec![u32::from(raystack.pattern_number)]),
     )?;
+    vcps_vars.set_item(
+        "vcp_name",
+        (("vcp_time",), vec![format!("VCP-{}", raystack.pattern_number)]),
+    )?;
+    vcps_vars.set_item("vcp_duration", (("vcp_time",), vcp_duration_dt))?;
+    vcps_vars.set_item(
+        "num_sweeps",
+        (("vcp_time",), vec![raystack.sweeps.len() as u32]),
+    )?;
+    vcps_vars.set_item("instrument_type", (("vcp_time",), vec!["radar"]))?;
+    vcps_vars.set_item("platform_type", (("vcp_time",), vec!["fixed"]))?;
+    if let Some(lat) = raystack.latitude {
+        vcps_vars.set_item("latitude", (("vcp_time",), vec![lat]))?;
+    }
+    if let Some(lon) = raystack.longitude {
+        vcps_vars.set_item("longitude", (("vcp_time",), vec![lon]))?;
+    }
+    if let Some(alt) = raystack.altitude {
+        vcps_vars.set_item("altitude", (("vcp_time",), vec![alt]))?;
+    }
 
     let vcps_ds = xr.call_method(
         "Dataset",
@@ -1016,18 +1111,6 @@ fn raystack_data_to_raystack_datatree(
     )?;
 
     // sweeps dataset
-    let mut elevation_numbers: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
-    let mut elevation_angles: Vec<f32> = Vec::with_capacity(raystack.sweeps.len());
-    let mut n_radials_list: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
-    let mut start_indices: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
-
-    for sweep in &raystack.sweeps {
-        elevation_numbers.push(u32::from(sweep.elevation_number));
-        elevation_angles.push(sweep.elevation_angle);
-        n_radials_list.push(sweep.n_radials as u32);
-        start_indices.push(sweep.start_index as u32);
-    }
-
     let sweeps_coords = PyDict::new(py);
     sweeps_coords.set_item("sweep_time", (("sweep_time",), sweep_time_dt))?;
     sweeps_coords.set_item(
@@ -1040,12 +1123,50 @@ fn raystack_data_to_raystack_datatree(
             (("sweep_time",), vec![name.as_str(); raystack.sweeps.len()]),
         )?;
     }
+    if let Some(lat) = raystack.latitude {
+        sweeps_coords.set_item(
+            "latitude",
+            (("sweep_time",), vec![lat; raystack.sweeps.len()]),
+        )?;
+    }
+    if let Some(lon) = raystack.longitude {
+        sweeps_coords.set_item(
+            "longitude",
+            (("sweep_time",), vec![lon; raystack.sweeps.len()]),
+        )?;
+    }
+    if let Some(alt) = raystack.altitude {
+        sweeps_coords.set_item(
+            "altitude",
+            (("sweep_time",), vec![alt; raystack.sweeps.len()]),
+        )?;
+    }
 
     let sweeps_vars = PyDict::new(py);
-    sweeps_vars.set_item("sweep_number", (("sweep_time",), elevation_numbers))?;
+    sweeps_vars.set_item("sweep_number", (("sweep_time",), sweep_numbers))?;
+    sweeps_vars.set_item("elevation_number", (("sweep_time",), elevation_numbers))?;
     sweeps_vars.set_item("sweep_fixed_angle", (("sweep_time",), elevation_angles))?;
     sweeps_vars.set_item("n_radials", (("sweep_time",), n_radials_list))?;
     sweeps_vars.set_item("start_index", (("sweep_time",), start_indices))?;
+    sweeps_vars.set_item(
+        "sweep_mode",
+        (
+            ("sweep_time",),
+            vec!["azimuth_surveillance"; raystack.sweeps.len()],
+        ),
+    )?;
+    sweeps_vars.set_item(
+        "prt_mode",
+        (("sweep_time",), vec!["not_set"; raystack.sweeps.len()]),
+    )?;
+    sweeps_vars.set_item(
+        "follow_mode",
+        (("sweep_time",), vec!["not_set"; raystack.sweeps.len()]),
+    )?;
+    sweeps_vars.set_item("sweep_duration", (("sweep_time",), sweep_duration_dt))?;
+    sweeps_vars.set_item("max_range", (("sweep_time",), max_ranges))?;
+    sweeps_vars.set_item("range_start", (("sweep_time",), range_starts))?;
+    sweeps_vars.set_item("range_step", (("sweep_time",), range_steps))?;
 
     let sweeps_ds = xr.call_method(
         "Dataset",
@@ -1076,6 +1197,24 @@ fn raystack_data_to_raystack_datatree(
             (("return_time",), vec![name.as_str(); n_returns]),
         )?;
     }
+    if let Some(lat) = raystack.latitude {
+        returns_coords.set_item(
+            "latitude",
+            (("return_time",), vec![lat; n_returns]),
+        )?;
+    }
+    if let Some(lon) = raystack.longitude {
+        returns_coords.set_item(
+            "longitude",
+            (("return_time",), vec![lon; n_returns]),
+        )?;
+    }
+    if let Some(alt) = raystack.altitude {
+        returns_coords.set_item(
+            "altitude",
+            (("return_time",), vec![alt; n_returns]),
+        )?;
+    }
     returns_coords.set_item(
         "range",
         (("range",), (0..fold_size).collect::<Vec<usize>>()),
@@ -1091,6 +1230,22 @@ fn raystack_data_to_raystack_datatree(
     returns_coords.set_item(
         "sweep_idx",
         (("return_time",), raystack.sweep_idx.into_pyarray(py)),
+    )?;
+    returns_coords.set_item(
+        "sweep_number",
+        (("return_time",), sweep_number_per_return.into_pyarray(py)),
+    )?;
+    returns_coords.set_item(
+        "elevation_number",
+        (("return_time",), elevation_number_per_return.into_pyarray(py)),
+    )?;
+    returns_coords.set_item(
+        "base_range",
+        (("return_time",), base_range_per_return.into_pyarray(py)),
+    )?;
+    returns_coords.set_item(
+        "range_step",
+        (("return_time",), range_step_per_return.into_pyarray(py)),
     )?;
 
     let returns_vars = PyDict::new(py);
@@ -1141,7 +1296,12 @@ fn raystack_data_to_raystack_datatree(
     let root_attrs = PyDict::new(py);
     root_attrs.set_item("Conventions", "CF-1.8")?;
     root_attrs.set_item("instrument_type", "radar")?;
+    root_attrs.set_item("platform_type", "fixed")?;
     root_attrs.set_item("volume_coverage_pattern", raystack.pattern_number)?;
+    root_attrs.set_item(
+        "scan_name",
+        format!("VCP-{}", raystack.pattern_number),
+    )?;
     if let Some(ref name) = instrument_name {
         root_attrs.set_item("instrument_name", name.as_str())?;
     }
@@ -1175,6 +1335,25 @@ pub fn raystack_to_python(
     if let Some(ref name) = raystack.instrument_name {
         vcps.set_item("instrument_name", name.as_str())?;
     }
+    vcps.set_item(
+        "vcp_name",
+        format!("VCP-{}", raystack.pattern_number),
+    )?;
+    let vcp_time = raystack.time.iter().copied().min().unwrap_or(0);
+    let vcp_end = raystack.time.iter().copied().max().unwrap_or(vcp_time);
+    vcps.set_item("vcp_duration", vcp_end - vcp_time)?;
+    vcps.set_item("num_sweeps", raystack.sweeps.len() as u32)?;
+    vcps.set_item("instrument_type", "radar")?;
+    vcps.set_item("platform_type", "fixed")?;
+    if let Some(lat) = raystack.latitude {
+        vcps.set_item("latitude", lat)?;
+    }
+    if let Some(lon) = raystack.longitude {
+        vcps.set_item("longitude", lon)?;
+    }
+    if let Some(alt) = raystack.altitude {
+        vcps.set_item("altitude", alt)?;
+    }
     result.set_item("vcps", vcps)?;
 
     // Sweeps list
@@ -1183,10 +1362,14 @@ pub fn raystack_to_python(
         .iter()
         .map(|s| {
             let d = PyDict::new(py);
+            d.set_item("sweep_number", s.sweep_number).ok();
             d.set_item("elevation_number", s.elevation_number).ok();
             d.set_item("elevation_angle", s.elevation_angle).ok();
             d.set_item("n_radials", s.n_radials).ok();
             d.set_item("start_index", s.start_index).ok();
+            d.set_item("max_gates", s.max_gates).ok();
+            d.set_item("range_first_km", s.range_first_km).ok();
+            d.set_item("gate_interval_km", s.gate_interval_km).ok();
             d
         })
         .collect();
@@ -1206,6 +1389,46 @@ pub fn raystack_to_python(
     returns.set_item("elevation", raystack.elevation.into_pyarray(py))?;
     returns.set_item("time", raystack.time.into_pyarray(py))?;
     returns.set_item("sweep_idx", raystack.sweep_idx.into_pyarray(py))?;
+    returns.set_item(
+        "range",
+        (0..fold_size).collect::<Vec<usize>>(),
+    )?;
+
+    let mut sweep_number_per_return = vec![0u32; n_radials];
+    let mut elevation_number_per_return = vec![0u32; n_radials];
+    let mut base_range_per_return = vec![f32::NAN; n_radials];
+    let mut range_step_per_return = vec![f32::NAN; n_radials];
+
+    for sweep in &raystack.sweeps {
+        let start = sweep.start_index;
+        let end = (start + sweep.n_radials).min(n_radials);
+        let (range_start_m, range_step_m, _max_range_m) =
+            sweep_range_metrics(sweep, fold_size);
+
+        for idx in start..end {
+            sweep_number_per_return[idx] = sweep.sweep_number;
+            elevation_number_per_return[idx] = u32::from(sweep.elevation_number);
+            base_range_per_return[idx] = range_start_m;
+            range_step_per_return[idx] = range_step_m;
+        }
+    }
+
+    returns.set_item(
+        "sweep_number",
+        sweep_number_per_return.into_pyarray(py),
+    )?;
+    returns.set_item(
+        "elevation_number",
+        elevation_number_per_return.into_pyarray(py),
+    )?;
+    returns.set_item(
+        "base_range",
+        base_range_per_return.into_pyarray(py),
+    )?;
+    returns.set_item(
+        "range_step",
+        range_step_per_return.into_pyarray(py),
+    )?;
 
     // Moment arrays (2D) - reshape from flat
     let add_moment = |name: &str, data: Vec<f32>, returns: &Bound<'_, PyDict>| -> PyResult<()> {

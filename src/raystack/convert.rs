@@ -44,11 +44,35 @@ fn extract_sweep_number(name: &str) -> Option<usize> {
     name.strip_prefix("sweep_").and_then(|n| n.parse().ok())
 }
 
+#[derive(Clone)]
+struct SweepMeta {
+    name: String,
+    n_radials: usize,
+    elevation_number: u8,
+    elevation_angle: f32,
+    sweep_number: u32,
+    max_gates: usize,
+    range_first_km: f64,
+    gate_interval_km: f64,
+}
+
+fn extract_scalar_coord(
+    np: &Bound<'_, PyModule>,
+    dataset: &Bound<'_, PyAny>,
+    name: &str,
+) -> Option<f32> {
+    let coord = dataset.get_item(name).ok()?;
+    let values = coord.getattr("values").ok()?;
+    let flat = np.call_method1("ravel", (&values,)).ok()?;
+    let data: Vec<f32> = flat.extract().ok()?;
+    data.first().copied()
+}
+
 /// First pass: count radials per sweep for preallocation
 fn count_radials(
     py: Python<'_>,
     children_dict: &Bound<'_, PyDict>,
-) -> PyResult<(Vec<(String, usize, u8, f32)>, usize)> {
+) -> PyResult<(Vec<SweepMeta>, usize)> {
     let np = py.import("numpy")?;
 
     // Collect and sort sweep names numerically
@@ -109,7 +133,37 @@ fn count_radials(
                 .unwrap_or(0.0)
         };
 
-        sweep_info.push((sweep_name, n_radials, elevation_number, elevation_angle));
+        let (max_gates, range_first_km, gate_interval_km) = if let Ok(range) = dataset.get_item("range") {
+            let values = range.getattr("values")?;
+            let flat = np.call_method1("ravel", (&values,))?;
+            let data: Vec<f64> = flat.extract()?;
+            if data.len() >= 2 {
+                let first = data[0];
+                let step = data[1] - data[0];
+                (data.len(), first / 1000.0, step / 1000.0)
+            } else if data.len() == 1 {
+                (1, data[0] / 1000.0, 0.0)
+            } else {
+                (0, 0.0, 0.0)
+            }
+        } else {
+            (0, 0.0, 0.0)
+        };
+
+        let sweep_number = extract_sweep_number(&sweep_name)
+            .map(|n| n as u32)
+            .unwrap_or(sweep_counter as u32);
+
+        sweep_info.push(SweepMeta {
+            name: sweep_name,
+            n_radials,
+            elevation_number,
+            elevation_angle,
+            sweep_number,
+            max_gates,
+            range_first_km,
+            gate_interval_km,
+        });
         total_radials += n_radials;
         sweep_counter += 1;
     }
@@ -136,6 +190,18 @@ fn datatree_to_raystack(
         .get_item("instrument_name")
         .ok()
         .and_then(|v| v.extract().ok());
+    let mut latitude: Option<f32> = root_attrs
+        .get_item("latitude")
+        .ok()
+        .and_then(|v| v.extract().ok());
+    let mut longitude: Option<f32> = root_attrs
+        .get_item("longitude")
+        .ok()
+        .and_then(|v| v.extract().ok());
+    let mut altitude: Option<f32> = root_attrs
+        .get_item("altitude")
+        .ok()
+        .and_then(|v| v.extract().ok());
 
     // Get children (sweeps) - convert Frozen to dict
     let children = datatree.getattr("children")?;
@@ -146,10 +212,25 @@ fn datatree_to_raystack(
     // First pass: count radials for preallocation
     let (sweep_meta, total_radials) = count_radials(py, children_dict)?;
 
+    if latitude.is_none() || longitude.is_none() || altitude.is_none() {
+        if let Some(first) = sweep_meta.first() {
+            if let Ok(Some(child)) = children_dict.get_item(first.name.as_str()) {
+                if let Ok(dataset) = child.getattr("dataset") {
+                    latitude = latitude.or_else(|| extract_scalar_coord(&np, &dataset, "latitude"));
+                    longitude = longitude.or_else(|| extract_scalar_coord(&np, &dataset, "longitude"));
+                    altitude = altitude.or_else(|| extract_scalar_coord(&np, &dataset, "altitude"));
+                }
+            }
+        }
+    }
+
     if total_radials == 0 {
         return Ok(RaystackData {
             pattern_number,
             instrument_name,
+            latitude,
+            longitude,
+            altitude,
             sweeps: Vec::new(),
             n_radials: 0,
             fold_size,
@@ -172,6 +253,9 @@ fn datatree_to_raystack(
     let mut raystack = RaystackData {
         pattern_number,
         instrument_name,
+        latitude,
+        longitude,
+        altitude,
         sweeps: Vec::with_capacity(sweep_meta.len()),
         n_radials: total_radials,
         fold_size,
@@ -190,40 +274,27 @@ fn datatree_to_raystack(
 
     // Build sweep info
     let mut start_index = 0;
-    for (_, n_radials, elevation_number, elevation_angle) in &sweep_meta {
+    for meta in &sweep_meta {
         raystack.sweeps.push(SweepInfo {
-            elevation_number: *elevation_number,
-            elevation_angle: *elevation_angle,
-            n_radials: *n_radials,
+            sweep_number: meta.sweep_number,
+            elevation_number: meta.elevation_number,
+            elevation_angle: meta.elevation_angle,
+            n_radials: meta.n_radials,
             start_index,
+            max_gates: meta.max_gates,
+            range_first_km: meta.range_first_km,
+            gate_interval_km: meta.gate_interval_km,
         });
-        start_index += n_radials;
+        start_index += meta.n_radials;
     }
 
-    // Collect and sort sweep items again for second pass (numerically)
-    let mut sweep_items: Vec<_> = children_dict.iter().collect();
-    sweep_items.sort_by(|(k1, _), (k2, _)| {
-        let s1: String = k1.extract().unwrap_or_default();
-        let s2: String = k2.extract().unwrap_or_default();
-        // Sort numerically: sweep_0, sweep_1, ..., sweep_10, sweep_11, etc.
-        match (extract_sweep_number(&s1), extract_sweep_number(&s2)) {
-            (Some(n1), Some(n2)) => n1.cmp(&n2),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => s1.cmp(&s2),
-        }
-    });
-
-    // Second pass: fill data
-    // Use separate sweep counter that only counts actual sweeps, not all children
+    // Second pass: fill data in sweep_meta order
     let mut radial_idx = 0;
     let mut sweep_counter: u32 = 0;
-    for (key, child) in sweep_items.iter() {
-        let sweep_name: String = key.extract()?;
-        if !sweep_name.starts_with("sweep_") {
+    for meta in sweep_meta.iter() {
+        let Some(child) = children_dict.get_item(meta.name.as_str())? else {
             continue;
-        }
-
+        };
         let dataset = child.getattr("dataset")?;
 
         // Get coordinates
@@ -319,7 +390,19 @@ fn raystack_dict_to_datatree(py: Python<'_>, raystack_dict: &Bound<'_, PyDict>) 
     let root_attrs = PyDict::new(py);
     root_attrs.set_item("Conventions", "CF-1.8")?;
     root_attrs.set_item("instrument_type", "radar")?;
+    root_attrs.set_item("platform_type", "fixed")?;
     root_attrs.set_item("volume_coverage_pattern", pattern_number)?;
+    root_attrs.set_item(
+        "scan_name",
+        format!("VCP-{}", pattern_number),
+    )?;
+    if let Ok(name) = vcps.get_item("instrument_name") {
+        if !name.is_none() {
+            if let Ok(val) = name.extract::<String>() {
+                root_attrs.set_item("instrument_name", val)?;
+            }
+        }
+    }
 
     // Build tree dict
     let tree_dict = PyDict::new(py);
@@ -341,7 +424,22 @@ fn raystack_dict_to_datatree(py: Python<'_>, raystack_dict: &Bound<'_, PyDict>) 
     for (sweep_idx, sweep_info) in sweeps_list.iter().enumerate() {
         let start_index: usize = sweep_info.get_item("start_index")?.extract()?;
         let n_radials: usize = sweep_info.get_item("n_radials")?.extract()?;
-        let elevation_number: u8 = sweep_info.get_item("elevation_number")?.extract()?;
+        let sweep_number: u32 = sweep_info
+            .get_item("sweep_number")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or_else(|| {
+                sweep_info
+                    .get_item("elevation_number")
+                    .ok()
+                    .and_then(|v| v.extract().ok())
+                    .unwrap_or(0u32)
+            });
+        let elevation_number: u8 = sweep_info
+            .get_item("elevation_number")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(sweep_number as u8);
         let elevation_angle: f32 = sweep_info.get_item("elevation_angle")?.extract()?;
 
         let end_index = start_index + n_radials;
@@ -396,7 +494,8 @@ fn raystack_dict_to_datatree(py: Python<'_>, raystack_dict: &Bound<'_, PyDict>) 
 
         // Set sweep attributes
         let sweep_attrs = PyDict::new(py);
-        sweep_attrs.set_item("sweep_number", elevation_number)?;
+        sweep_attrs.set_item("sweep_number", sweep_number)?;
+        sweep_attrs.set_item("elevation_number", elevation_number)?;
         sweep_attrs.set_item("sweep_fixed_angle", elevation_angle)?;
         dataset.setattr("attrs", sweep_attrs)?;
 
@@ -429,6 +528,20 @@ fn raystack_dict_to_raystack_datatree(
         pyo3::exceptions::PyValueError::new_err("Missing 'returns' in raystack dict")
     })?;
 
+    // Determine fold size from first available moment
+    let moment_names = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"];
+    let mut fold_size = None;
+    for moment_name in &moment_names {
+        if let Ok(moment_arr) = returns.get_item(*moment_name) {
+            if let Ok(shape) = moment_arr.getattr("shape") {
+                if let Ok(shape_tuple) = shape.extract::<(usize, usize)>() {
+                    fold_size = Some(shape_tuple.1);
+                    break;
+                }
+            }
+        }
+    }
+
     let pattern_number: u16 = vcps.get_item("pattern_number")?.extract()?;
     let sweeps_list: Vec<Bound<'_, PyAny>> = sweeps.extract()?;
 
@@ -438,27 +551,113 @@ fn raystack_dict_to_raystack_datatree(
     let n_returns = time_vec.len();
 
     let vcp_time = time_vec.iter().copied().min().unwrap_or(0);
+    let vcp_end = time_vec.iter().copied().max().unwrap_or(vcp_time);
+    let vcp_duration_ms = vcp_end - vcp_time;
 
     let mut sweep_times: Vec<i64> = Vec::with_capacity(sweeps_list.len());
+    let mut sweep_durations: Vec<i64> = Vec::with_capacity(sweeps_list.len());
     let mut sweep_time_per_return = vec![vcp_time; n_returns];
+
+    let mut sweep_numbers: Vec<u32> = Vec::with_capacity(sweeps_list.len());
+    let mut elevation_numbers: Vec<u32> = Vec::with_capacity(sweeps_list.len());
+    let mut elevation_angles: Vec<f32> = Vec::with_capacity(sweeps_list.len());
+    let mut n_radials_list: Vec<usize> = Vec::with_capacity(sweeps_list.len());
+    let mut start_indices: Vec<usize> = Vec::with_capacity(sweeps_list.len());
+    let mut range_starts: Vec<f32> = Vec::with_capacity(sweeps_list.len());
+    let mut range_steps: Vec<f32> = Vec::with_capacity(sweeps_list.len());
+    let mut max_ranges: Vec<f32> = Vec::with_capacity(sweeps_list.len());
 
     for sweep_info in sweeps_list.iter() {
         let start_index: usize = sweep_info.get_item("start_index")?.extract()?;
         let n_radials: usize = sweep_info.get_item("n_radials")?.extract()?;
+        let sweep_number: u32 = sweep_info
+            .get_item("sweep_number")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or_else(|| {
+                sweep_info
+                    .get_item("elevation_number")
+                    .ok()
+                    .and_then(|v| v.extract().ok())
+                    .unwrap_or(0u32)
+            });
+        let elevation_number: u32 = sweep_info
+            .get_item("elevation_number")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(sweep_number);
+        let elevation_angle: f32 = sweep_info
+            .get_item("elevation_angle")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0.0);
+
         let sweep_time = time_vec.get(start_index).copied().unwrap_or(vcp_time);
-        sweep_times.push(sweep_time);
         let end_index = start_index.saturating_add(n_radials).min(n_returns);
+        let sweep_end = time_vec
+            .get(end_index.saturating_sub(1))
+            .copied()
+            .unwrap_or(sweep_time);
+        sweep_times.push(sweep_time);
+        sweep_durations.push(sweep_end - sweep_time);
+
         for idx in start_index..end_index {
             sweep_time_per_return[idx] = sweep_time;
         }
+
+        let max_gates: usize = sweep_info
+            .get_item("max_gates")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0);
+        let range_first_km: f64 = sweep_info
+            .get_item("range_first_km")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0.0);
+        let gate_interval_km: f64 = sweep_info
+            .get_item("gate_interval_km")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0.0);
+
+        let range_start_m = (range_first_km * 1000.0) as f32;
+        let gate_interval_m = (gate_interval_km * 1000.0) as f32;
+        let range_step_m = if let (Some(fold), true) = (fold_size, gate_interval_m > 0.0) {
+            if max_gates <= fold {
+                gate_interval_m
+            } else {
+                gate_interval_m * (max_gates as f32 / fold as f32)
+            }
+        } else {
+            f32::NAN
+        };
+        let max_range_m = if max_gates > 0 && gate_interval_m > 0.0 {
+            range_start_m + gate_interval_m * ((max_gates - 1) as f32)
+        } else {
+            f32::NAN
+        };
+
+        sweep_numbers.push(sweep_number);
+        elevation_numbers.push(elevation_number);
+        elevation_angles.push(elevation_angle);
+        n_radials_list.push(n_radials);
+        start_indices.push(start_index);
+        range_starts.push(range_start_m);
+        range_steps.push(range_step_m);
+        max_ranges.push(max_range_m);
     }
 
     // Build datetime64[ms] arrays
     let vcp_time_arr = np.call_method1("array", (&vec![vcp_time],))?;
     let vcp_time_dt = vcp_time_arr.call_method1("astype", ("datetime64[ms]",))?;
+    let vcp_duration_arr = np.call_method1("array", (&vec![vcp_duration_ms],))?;
+    let vcp_duration_dt = vcp_duration_arr.call_method1("astype", ("timedelta64[ms]",))?;
 
     let sweep_time_arr = np.call_method1("array", (&sweep_times,))?;
     let sweep_time_dt = sweep_time_arr.call_method1("astype", ("datetime64[ms]",))?;
+    let sweep_duration_arr = np.call_method1("array", (&sweep_durations,))?;
+    let sweep_duration_dt = sweep_duration_arr.call_method1("astype", ("timedelta64[ms]",))?;
 
     let return_time_arr = np.call_method1("array", (&time_vec,))?;
     let return_time_dt = return_time_arr.call_method1("astype", ("datetime64[ms]",))?;
@@ -469,9 +668,45 @@ fn raystack_dict_to_raystack_datatree(
     // Build vcps dataset
     let vcps_coords = PyDict::new(py);
     vcps_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt))?;
+    let instrument_name: Option<String> = vcps
+        .get_item("instrument_name")
+        .ok()
+        .and_then(|v| v.extract().ok());
+    if let Some(ref name) = instrument_name {
+        vcps_coords.set_item("instrument_name", (("vcp_time",), vec![name.as_str()]))?;
+    }
 
     let vcps_vars = PyDict::new(py);
     vcps_vars.set_item("pattern_number", (("vcp_time",), vec![pattern_number]))?;
+    vcps_vars.set_item(
+        "vcp_name",
+        (("vcp_time",), vec![format!("VCP-{}", pattern_number)]),
+    )?;
+    vcps_vars.set_item("vcp_duration", (("vcp_time",), vcp_duration_dt))?;
+    vcps_vars.set_item("num_sweeps", (("vcp_time",), vec![sweeps_list.len() as u32]))?;
+    vcps_vars.set_item("instrument_type", (("vcp_time",), vec!["radar"]))?;
+    vcps_vars.set_item("platform_type", (("vcp_time",), vec!["fixed"]))?;
+    if let Ok(lat) = vcps.get_item("latitude") {
+        if !lat.is_none() {
+            if let Ok(val) = lat.extract::<f32>() {
+                vcps_vars.set_item("latitude", (("vcp_time",), vec![val]))?;
+            }
+        }
+    }
+    if let Ok(lon) = vcps.get_item("longitude") {
+        if !lon.is_none() {
+            if let Ok(val) = lon.extract::<f32>() {
+                vcps_vars.set_item("longitude", (("vcp_time",), vec![val]))?;
+            }
+        }
+    }
+    if let Ok(alt) = vcps.get_item("altitude") {
+        if !alt.is_none() {
+            if let Ok(val) = alt.extract::<f32>() {
+                vcps_vars.set_item("altitude", (("vcp_time",), vec![val]))?;
+            }
+        }
+    }
 
     let vcps_ds = xr.call_method(
         "Dataset",
@@ -480,32 +715,86 @@ fn raystack_dict_to_raystack_datatree(
     )?;
 
     // Build sweeps dataset
-    let mut elevation_numbers: Vec<u8> = Vec::with_capacity(sweeps_list.len());
-    let mut elevation_angles: Vec<f32> = Vec::with_capacity(sweeps_list.len());
-    let mut n_radials_list: Vec<usize> = Vec::with_capacity(sweeps_list.len());
-    let mut start_indices: Vec<usize> = Vec::with_capacity(sweeps_list.len());
-
-    for sweep_info in sweeps_list.iter() {
-        elevation_numbers.push(sweep_info.get_item("elevation_number")?.extract()?);
-        elevation_angles.push(sweep_info.get_item("elevation_angle")?.extract()?);
-        n_radials_list.push(sweep_info.get_item("n_radials")?.extract()?);
-        start_indices.push(sweep_info.get_item("start_index")?.extract()?);
-    }
-
     let sweeps_coords = PyDict::new(py);
     sweeps_coords.set_item("sweep_time", (("sweep_time",), sweep_time_dt))?;
     sweeps_coords.set_item(
         "vcp_time",
         (("sweep_time",), vec![vcp_time; sweeps_list.len()]),
     )?;
+    if let Some(ref name) = instrument_name {
+        sweeps_coords.set_item(
+            "instrument_name",
+            (("sweep_time",), vec![name.as_str(); sweeps_list.len()]),
+        )?;
+    }
+    if let Ok(lat) = vcps.get_item("latitude") {
+        if !lat.is_none() {
+            if let Ok(val) = lat.extract::<f32>() {
+                sweeps_coords.set_item(
+                    "latitude",
+                    (("sweep_time",), vec![val; sweeps_list.len()]),
+                )?;
+            }
+        }
+    }
+    if let Ok(lon) = vcps.get_item("longitude") {
+        if !lon.is_none() {
+            if let Ok(val) = lon.extract::<f32>() {
+                sweeps_coords.set_item(
+                    "longitude",
+                    (("sweep_time",), vec![val; sweeps_list.len()]),
+                )?;
+            }
+        }
+    }
+    if let Ok(alt) = vcps.get_item("altitude") {
+        if !alt.is_none() {
+            if let Ok(val) = alt.extract::<f32>() {
+                sweeps_coords.set_item(
+                    "altitude",
+                    (("sweep_time",), vec![val; sweeps_list.len()]),
+                )?;
+            }
+        }
+    }
+
+    let mut sweep_number_per_return = vec![0u32; n_returns];
+    let mut elevation_number_per_return = vec![0u32; n_returns];
+    let mut base_range_per_return = vec![f32::NAN; n_returns];
+    let mut range_step_per_return = vec![f32::NAN; n_returns];
+
+    for (idx, start_index) in start_indices.iter().enumerate() {
+        let end = start_index.saturating_add(n_radials_list[idx]).min(n_returns);
+        for r in *start_index..end {
+            sweep_number_per_return[r] = sweep_numbers[idx];
+            elevation_number_per_return[r] = elevation_numbers[idx];
+            base_range_per_return[r] = range_starts[idx];
+            range_step_per_return[r] = range_steps[idx];
+        }
+    }
 
     let sweeps_vars = PyDict::new(py);
-    // Convert Vec<u8> to Vec<i32> to avoid PyO3 converting to bytes
-    let elevation_numbers_i32: Vec<i32> = elevation_numbers.iter().map(|&x| x as i32).collect();
-    sweeps_vars.set_item("sweep_number", (("sweep_time",), elevation_numbers_i32))?;
+    sweeps_vars.set_item("sweep_number", (("sweep_time",), sweep_numbers))?;
+    sweeps_vars.set_item("elevation_number", (("sweep_time",), elevation_numbers))?;
     sweeps_vars.set_item("sweep_fixed_angle", (("sweep_time",), elevation_angles))?;
     sweeps_vars.set_item("n_radials", (("sweep_time",), n_radials_list))?;
     sweeps_vars.set_item("start_index", (("sweep_time",), start_indices))?;
+    sweeps_vars.set_item(
+        "sweep_mode",
+        (("sweep_time",), vec!["azimuth_surveillance"; sweeps_list.len()]),
+    )?;
+    sweeps_vars.set_item(
+        "prt_mode",
+        (("sweep_time",), vec!["not_set"; sweeps_list.len()]),
+    )?;
+    sweeps_vars.set_item(
+        "follow_mode",
+        (("sweep_time",), vec!["not_set"; sweeps_list.len()]),
+    )?;
+    sweeps_vars.set_item("sweep_duration", (("sweep_time",), sweep_duration_dt))?;
+    sweeps_vars.set_item("max_range", (("sweep_time",), max_ranges))?;
+    sweeps_vars.set_item("range_start", (("sweep_time",), range_starts))?;
+    sweeps_vars.set_item("range_step", (("sweep_time",), range_steps))?;
 
     let sweeps_ds = xr.call_method(
         "Dataset",
@@ -526,27 +815,79 @@ fn raystack_dict_to_raystack_datatree(
     if let Ok(sweep_idx_arr) = returns.get_item("sweep_idx") {
         returns_coords.set_item("sweep_idx", (("return_time",), sweep_idx_arr))?;
     }
+    if let Some(ref name) = instrument_name {
+        returns_coords.set_item(
+            "instrument_name",
+            (("return_time",), vec![name.as_str(); n_returns]),
+        )?;
+    }
+    if let Ok(lat) = vcps.get_item("latitude") {
+        if !lat.is_none() {
+            if let Ok(val) = lat.extract::<f32>() {
+                returns_coords.set_item(
+                    "latitude",
+                    (("return_time",), vec![val; n_returns]),
+                )?;
+            }
+        }
+    }
+    if let Ok(lon) = vcps.get_item("longitude") {
+        if !lon.is_none() {
+            if let Ok(val) = lon.extract::<f32>() {
+                returns_coords.set_item(
+                    "longitude",
+                    (("return_time",), vec![val; n_returns]),
+                )?;
+            }
+        }
+    }
+    if let Ok(alt) = vcps.get_item("altitude") {
+        if !alt.is_none() {
+            if let Ok(val) = alt.extract::<f32>() {
+                returns_coords.set_item(
+                    "altitude",
+                    (("return_time",), vec![val; n_returns]),
+                )?;
+            }
+        }
+    }
+
+    if let Ok(sweep_number_arr) = returns.get_item("sweep_number") {
+        returns_coords.set_item("sweep_number", (("return_time",), sweep_number_arr))?;
+    } else {
+        returns_coords.set_item(
+            "sweep_number",
+            (("return_time",), sweep_number_per_return),
+        )?;
+    }
+    if let Ok(elevation_number_arr) = returns.get_item("elevation_number") {
+        returns_coords.set_item("elevation_number", (("return_time",), elevation_number_arr))?;
+    } else {
+        returns_coords.set_item(
+            "elevation_number",
+            (("return_time",), elevation_number_per_return),
+        )?;
+    }
+    if let Ok(base_range_arr) = returns.get_item("base_range") {
+        returns_coords.set_item("base_range", (("return_time",), base_range_arr))?;
+    } else {
+        returns_coords.set_item("base_range", (("return_time",), base_range_per_return))?;
+    }
+    if let Ok(range_step_arr) = returns.get_item("range_step") {
+        returns_coords.set_item("range_step", (("return_time",), range_step_arr))?;
+    } else {
+        returns_coords.set_item("range_step", (("return_time",), range_step_per_return))?;
+    }
+
     returns_coords.set_item("sweep_time", (("return_time",), sweep_time_per_return_dt))?;
     returns_coords.set_item(
         "vcp_time",
         (("return_time",), vec![vcp_time; n_returns]),
     )?;
 
-    // Determine fold size from first available moment
-    let moment_names = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"];
-    let mut fold_size = None;
-    for moment_name in &moment_names {
-        if let Ok(moment_arr) = returns.get_item(*moment_name) {
-            if let Ok(shape) = moment_arr.getattr("shape") {
-                if let Ok(shape_tuple) = shape.extract::<(usize, usize)>() {
-                    fold_size = Some(shape_tuple.1);
-                    break;
-                }
-            }
-        }
-    }
-
-    if let Some(fold) = fold_size {
+    if let Ok(range_arr) = returns.get_item("range") {
+        returns_coords.set_item("range", (("range",), range_arr))?;
+    } else if let Some(fold) = fold_size {
         let range_data: Vec<usize> = (0..fold).collect();
         returns_coords.set_item("range", (("range",), range_data))?;
     }
@@ -568,7 +909,15 @@ fn raystack_dict_to_raystack_datatree(
     let root_attrs = PyDict::new(py);
     root_attrs.set_item("Conventions", "CF-1.8")?;
     root_attrs.set_item("instrument_type", "radar")?;
+    root_attrs.set_item("platform_type", "fixed")?;
     root_attrs.set_item("volume_coverage_pattern", pattern_number)?;
+    root_attrs.set_item(
+        "scan_name",
+        format!("VCP-{}", pattern_number),
+    )?;
+    if let Some(ref name) = instrument_name {
+        root_attrs.set_item("instrument_name", name.as_str())?;
+    }
 
     let root_ds = xr.call_method1("Dataset", (PyDict::new(py),))?;
     root_ds.setattr("attrs", root_attrs)?;

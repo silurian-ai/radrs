@@ -106,7 +106,7 @@ impl RegionTracker {
 pub(crate) struct EdgeTracker {
     node_alpha: Vec<usize>,
     node_beta: Vec<usize>,
-    sum_diff: Vec<f64>,
+    sum_diff: Vec<f32>,
     weight: Vec<i32>,
     edges_in_node: Vec<Vec<usize>>,
     common_finder: Vec<bool>,
@@ -125,7 +125,7 @@ impl EdgeTracker {
         let nedges = indices.0.len() / 2;
         let mut node_alpha = vec![0usize; nedges];
         let mut node_beta = vec![0usize; nedges];
-        let mut sum_diff = vec![0.0f64; nedges];
+        let mut sum_diff = vec![0.0f32; nedges];
         let mut weight = vec![0i32; nedges];
         let mut edges_in_node: Vec<Vec<usize>> = (0..nnodes).map(|_| Vec::new()).collect();
 
@@ -141,7 +141,8 @@ impl EdgeTracker {
             }
             node_alpha[edge_idx] = a as usize;
             node_beta[edge_idx] = b as usize;
-            sum_diff[edge_idx] = (velocities.0[i] - velocities.1[i]) / nyquist_interval;
+            let diff = (velocities.0[i] - velocities.1[i]) / nyquist_interval;
+            sum_diff[edge_idx] = diff as f32;
             weight[edge_idx] = edge_count[i];
             edges_in_node[a as usize].push(edge_idx);
             edges_in_node[b as usize].push(edge_idx);
@@ -229,14 +230,14 @@ impl EdgeTracker {
                 continue;
             }
             if node == self.node_alpha[edge] {
-                self.sum_diff[edge] += weight as f64 * nwrap as f64;
+                self.sum_diff[edge] += weight as f32 * nwrap as f32;
             } else {
-                self.sum_diff[edge] += -weight as f64 * nwrap as f64;
+                self.sum_diff[edge] += -weight as f32 * nwrap as f32;
             }
         }
     }
 
-    pub(crate) fn pop_edge(&self) -> (bool, (usize, usize, f64, usize)) {
+    pub(crate) fn pop_edge(&self) -> (bool, (usize, usize, f32, usize)) {
         let mut max_weight = -1000;
         let mut edge_num = 0usize;
         for (i, &w) in self.weight.iter().enumerate() {
@@ -250,7 +251,7 @@ impl EdgeTracker {
         }
         let node1 = self.node_alpha[edge_num];
         let node2 = self.node_beta[edge_num];
-        let diff = self.sum_diff[edge_num] / max_weight as f64;
+        let diff = self.sum_diff[edge_num] / max_weight as f32;
         (false, (node1, node2, diff, edge_num))
     }
 }

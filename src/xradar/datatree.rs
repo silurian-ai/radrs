@@ -2,6 +2,7 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::{fetch_s3_url, RUNTIME};
+use crate::metadata::{extract_scan_meta, ScanMeta};
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentValue, Radial, Scan, Sweep};
 use numpy::IntoPyArray;
@@ -51,10 +52,10 @@ pub fn open_datatree_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<P
     };
 
     // Parse NEXRAD data without holding the GIL
-    let scan = py.detach(|| parse_nexrad_data(data))?;
+    let (scan, meta) = py.detach(|| parse_nexrad_data(data))?;
 
     // Convert to DataTree
-    scan_to_datatree(py, &scan)
+    scan_to_datatree(py, &scan, &meta)
 }
 
 /// Open a NEXRAD Level 2 file asynchronously and return an xarray DataTree.
@@ -66,26 +67,27 @@ pub fn open_datatree_async_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyRe
     let awaitable = future_into_py(py, async move {
         let data = fetch_source_bytes_async(source).await?;
 
-        let scan = tokio::task::spawn_blocking(move || parse_nexrad_data(data))
+        let (scan, meta) = tokio::task::spawn_blocking(move || parse_nexrad_data(data))
             .await
             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
 
-        Python::attach(|py| scan_to_datatree(py, &scan)).map_err(Into::into)
+        Python::attach(|py| scan_to_datatree(py, &scan, &meta)).map_err(Into::into)
     })?;
 
     Ok(awaitable.into())
 }
 
 /// Open a NEXRAD file from path, URL, or bytes
-pub fn open_datatree(source: Vec<u8>) -> Result<Scan> {
+pub fn open_datatree(source: Vec<u8>) -> Result<(Scan, ScanMeta)> {
     parse_nexrad_data(source)
 }
 
 /// Parse raw NEXRAD data into a Scan
-fn parse_nexrad_data(data: Vec<u8>) -> Result<Scan> {
+fn parse_nexrad_data(data: Vec<u8>) -> Result<(Scan, ScanMeta)> {
     let volume = VolumeFile::new(data);
+    let meta = extract_scan_meta(&volume);
     let scan = volume.scan()?;
-    Ok(scan)
+    Ok((scan, meta))
 }
 
 async fn fetch_source_bytes_async(source: Py<PyAny>) -> Result<Vec<u8>> {
@@ -124,8 +126,11 @@ async fn fetch_source_bytes_async(source: Py<PyAny>) -> Result<Vec<u8>> {
     }
 }
 
-/// Convert a Scan to an xarray DataTree
-pub(crate) fn scan_to_datatree(py: Python<'_>, scan: &Scan) -> PyResult<Py<PyAny>> {
+pub(crate) fn scan_to_datatree(
+    py: Python<'_>,
+    scan: &Scan,
+    meta: &ScanMeta,
+) -> PyResult<Py<PyAny>> {
     // Import xarray
     let xr = py.import("xarray")?;
     let np = py.import("numpy")?;
@@ -136,6 +141,13 @@ pub(crate) fn scan_to_datatree(py: Python<'_>, scan: &Scan) -> PyResult<Py<PyAny
     root_attrs.set_item("instrument_type", "radar")?;
     root_attrs.set_item("platform_type", "fixed")?;
     root_attrs.set_item("volume_coverage_pattern", scan.coverage_pattern_number())?;
+    root_attrs.set_item(
+        "scan_name",
+        format!("VCP-{}", scan.coverage_pattern_number()),
+    )?;
+    if let Some(ref name) = meta.instrument_name {
+        root_attrs.set_item("instrument_name", name.as_str())?;
+    }
 
     // Build the DataTree structure - create root with attrs
     let root_ds = xr.call_method1("Dataset", (PyDict::new(py),))?;
@@ -147,7 +159,7 @@ pub(crate) fn scan_to_datatree(py: Python<'_>, scan: &Scan) -> PyResult<Py<PyAny
 
     for (sweep_idx, sweep) in scan.sweeps().iter().enumerate() {
         let sweep_name = format!("/sweep_{}", sweep_idx);
-        let dataset = sweep_to_dataset(py, &xr, &np, sweep)?;
+        let dataset = sweep_to_dataset(py, &xr, &np, sweep, sweep_idx, meta)?;
         tree_dict.set_item(&sweep_name, dataset)?;
     }
 
@@ -163,6 +175,8 @@ fn sweep_to_dataset<'py>(
     xr: &Bound<'py, PyModule>,
     np: &Bound<'py, PyModule>,
     sweep: &Sweep,
+    sweep_idx: usize,
+    meta: &ScanMeta,
 ) -> PyResult<Bound<'py, PyAny>> {
     let radials = sweep.radials();
     if radials.is_empty() {
@@ -242,6 +256,15 @@ fn sweep_to_dataset<'py>(
         .collect();
     let range_arr = range_data.into_pyarray(py);
     coords.set_item("range", (("range",), range_arr))?;
+    if let Some(lat) = meta.latitude {
+        coords.set_item("latitude", lat)?;
+    }
+    if let Some(lon) = meta.longitude {
+        coords.set_item("longitude", lon)?;
+    }
+    if let Some(alt) = meta.altitude {
+        coords.set_item("altitude", alt)?;
+    }
 
     // Process each moment type - pad all to max_n_gates
     for (moment_getter, cf_name) in &MOMENT_NAMES {
@@ -276,17 +299,15 @@ fn sweep_to_dataset<'py>(
         }
     }
 
+    // Add sweep-level scalar variables (xradar-compatible)
+    data_vars.set_item("sweep_number", sweep_idx)?;
+    if let Some(first_radial) = radials.first() {
+        data_vars.set_item("sweep_fixed_angle", first_radial.elevation_angle_degrees())?;
+    }
+
     // Create Dataset
     let kwargs = [("data_vars", data_vars.as_any()), ("coords", coords.as_any())].into_py_dict(py)?;
     let dataset = xr.call_method("Dataset", (), Some(&kwargs))?;
-
-    // Add sweep-level attributes
-    let sweep_attrs = PyDict::new(py);
-    sweep_attrs.set_item("sweep_number", sweep.elevation_number())?;
-    if let Some(first_radial) = radials.first() {
-        sweep_attrs.set_item("sweep_fixed_angle", first_radial.elevation_angle_degrees())?;
-    }
-    dataset.setattr("attrs", sweep_attrs)?;
 
     Ok(dataset)
 }

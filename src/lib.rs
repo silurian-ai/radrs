@@ -29,6 +29,7 @@
 pub mod error;
 pub mod fetch;
 pub mod iter;
+pub mod metadata;
 pub mod parse;
 pub mod qc;
 pub mod raystack;
