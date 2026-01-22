@@ -1,4 +1,4 @@
 [env]
 # Ensure ring's ARM assembly sees a defined __ARM_ARCH when cross-compiling.
-CFLAGS_aarch64_unknown_linux_gnu = { value = "-march=armv8-a", force = true }
-CFLAGS_aarch64-unknown-linux-gnu = { value = "-march=armv8-a", force = true }
+CFLAGS_aarch64_unknown_linux_gnu = { value = "-march=armv8-a -D__ARM_ARCH=8", force = true }
+CFLAGS_aarch64-unknown-linux-gnu = { value = "-march=armv8-a -D__ARM_ARCH=8", force = true }
