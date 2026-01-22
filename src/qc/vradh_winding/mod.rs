@@ -5,7 +5,6 @@
 
 mod edges;
 mod regions;
-mod texture;
 mod trackers;
 
 use numpy::{IntoPyArray, PyArray2, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
@@ -15,7 +14,7 @@ use edges::edge_sum_and_count;
 use regions::{
     find_regions, find_sweep_interval_splits, output_from_labels, region_sizes_and_masked,
 };
-use texture::velocity_texture;
+use crate::ops::velocity_texture;
 use trackers::{combine_regions, round_even, EdgeTracker, RegionTracker};
 
 #[derive(Clone, Copy)]

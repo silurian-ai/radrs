@@ -29,7 +29,7 @@ Example
 import os
 
 from radrs import _radrs
-from radrs import qc, raystack, xradar
+from radrs import ops, qc, raystack, xradar
 
 list_volumes = _radrs.list_volumes
 VolumeSource = _radrs.VolumeSource
@@ -57,4 +57,5 @@ __all__ = [
     "xradar",
     "raystack",
     "qc",
+    "ops",
 ]

@@ -30,6 +30,7 @@ pub mod error;
 pub mod fetch;
 pub mod iter;
 pub mod metadata;
+pub mod ops;
 pub mod parse;
 pub mod qc;
 pub mod raystack;
@@ -118,6 +119,7 @@ fn _radrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     xradar::register_module(m)?;
     raystack::register_module(m)?;
     qc::register_module(m)?;
+    ops::register_module(m)?;
 
     // Register top-level iterator functions
     iter::register_functions(m)?;

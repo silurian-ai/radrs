@@ -17,7 +17,9 @@ def test_import_submodules():
     import radrs.xradar
     import radrs.raystack
     import radrs.qc
+    import radrs.ops
 
     assert hasattr(radrs.xradar, "open_datatree")
     assert hasattr(radrs.raystack, "parse")
     assert hasattr(radrs.qc, "rhohv_threshold")
+    assert hasattr(radrs.ops, "align_azimuth")
