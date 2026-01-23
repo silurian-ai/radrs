@@ -32,6 +32,7 @@ const MOMENT_ZDR: usize = 3;
 const MOMENT_PHIDP: usize = 4;
 const MOMENT_RHOHV: usize = 5;
 const MOMENT_KDP: usize = 6;
+const MOMENT_NAMES: [&str; 7] = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"];
 
 /// Decompress outer gzip if present. Uses Cow to avoid allocation when not gzipped.
 fn ungzip_if_needed(data: &[u8]) -> Result<Cow<'_, [u8]>> {
@@ -89,6 +90,105 @@ pub struct RaystackData {
     pub phidp: Vec<f32>,
     pub rhohv: Vec<f32>,
     pub kdp: Vec<f32>,
+}
+
+struct ActivityData {
+    moments: Vec<&'static str>,
+    ray_valid_count: Vec<u32>,
+    ray_valid_fraction: Vec<f32>,
+    sweep_valid_count: Vec<u32>,
+    sweep_valid_fraction: Vec<f32>,
+    volume_valid_count: Vec<u32>,
+    volume_valid_fraction: Vec<f32>,
+    n_returns: usize,
+    n_sweeps: usize,
+}
+
+fn compute_activity(raystack: &RaystackData) -> ActivityData {
+    let moments: [(&'static str, &[f32]); 7] = [
+        ("DBZH", &raystack.dbzh),
+        ("VRADH", &raystack.vradh),
+        ("WRADH", &raystack.wradh),
+        ("ZDR", &raystack.zdr),
+        ("PHIDP", &raystack.phidp),
+        ("RHOHV", &raystack.rhohv),
+        ("KDP", &raystack.kdp),
+    ];
+    let n_moments = moments.len();
+    let n_returns = raystack.n_radials;
+    let n_sweeps = raystack.sweeps.len();
+    let fold_size = raystack.fold_size;
+
+    let mut ray_valid_count = vec![0u32; n_moments * n_returns];
+    let mut ray_valid_fraction = vec![f32::NAN; n_moments * n_returns];
+
+    if n_returns > 0 && fold_size > 0 {
+        for (m_idx, (_, data)) in moments.iter().enumerate() {
+            for (r_idx, chunk) in data.chunks_exact(fold_size).enumerate() {
+                let count = chunk.iter().filter(|v| v.is_finite()).count() as u32;
+                let idx = m_idx * n_returns + r_idx;
+                if idx < ray_valid_count.len() {
+                    ray_valid_count[idx] = count;
+                    ray_valid_fraction[idx] = count as f32 / fold_size as f32;
+                }
+            }
+        }
+    }
+
+    let mut sweep_valid_count = vec![0u32; n_moments * n_sweeps];
+    let mut sweep_valid_fraction = vec![f32::NAN; n_moments * n_sweeps];
+
+    if fold_size > 0 && n_sweeps > 0 {
+        for (s_idx, sweep) in raystack.sweeps.iter().enumerate() {
+            let start = sweep.start_index.min(n_returns);
+            let end = (start + sweep.n_radials).min(n_returns);
+            let sweep_radials = end.saturating_sub(start);
+            let denom = sweep_radials * fold_size;
+            for m_idx in 0..n_moments {
+                let base = m_idx * n_returns;
+                let count: u32 = ray_valid_count[base + start..base + end]
+                    .iter()
+                    .copied()
+                    .sum();
+                let idx = m_idx * n_sweeps + s_idx;
+                sweep_valid_count[idx] = count;
+                sweep_valid_fraction[idx] = if denom > 0 {
+                    count as f32 / denom as f32
+                } else {
+                    f32::NAN
+                };
+            }
+        }
+    }
+
+    let mut volume_valid_count = vec![0u32; n_moments];
+    let mut volume_valid_fraction = vec![f32::NAN; n_moments];
+    let denom = n_returns * fold_size;
+    for m_idx in 0..n_moments {
+        let base = m_idx * n_returns;
+        let total: u32 = ray_valid_count[base..base + n_returns]
+            .iter()
+            .copied()
+            .sum();
+        volume_valid_count[m_idx] = total;
+        volume_valid_fraction[m_idx] = if denom > 0 {
+            total as f32 / denom as f32
+        } else {
+            f32::NAN
+        };
+    }
+
+    ActivityData {
+        moments: MOMENT_NAMES.to_vec(),
+        ray_valid_count,
+        ray_valid_fraction,
+        sweep_valid_count,
+        sweep_valid_fraction,
+        volume_valid_count,
+        volume_valid_fraction,
+        n_returns,
+        n_sweeps,
+    }
 }
 
 /// Sweep-level metadata (public)
@@ -992,6 +1092,7 @@ fn raystack_data_to_raystack_datatree(
     } else {
         Vec::new()
     };
+    let activity = compute_activity(&raystack);
 
     let vcp_time = raystack.time.iter().copied().min().unwrap_or(0);
     let vcp_end = raystack.time.iter().copied().max().unwrap_or(vcp_time);
@@ -1067,7 +1168,7 @@ fn raystack_data_to_raystack_datatree(
 
     // vcps dataset
     let vcps_coords = PyDict::new(py);
-    vcps_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt))?;
+    vcps_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt.clone()))?;
     if let Some(ref name) = instrument_name {
         vcps_coords.set_item("instrument_name", (("vcp_time",), vec![name.as_str()]))?;
     }
@@ -1112,7 +1213,7 @@ fn raystack_data_to_raystack_datatree(
 
     // sweeps dataset
     let sweeps_coords = PyDict::new(py);
-    sweeps_coords.set_item("sweep_time", (("sweep_time",), sweep_time_dt))?;
+    sweeps_coords.set_item("sweep_time", (("sweep_time",), sweep_time_dt.clone()))?;
     sweeps_coords.set_item(
         "vcp_time",
         (("sweep_time",), vec![vcp_time; raystack.sweeps.len()]),
@@ -1182,7 +1283,7 @@ fn raystack_data_to_raystack_datatree(
 
     // returns dataset
     let returns_coords = PyDict::new(py);
-    returns_coords.set_item("return_time", (("return_time",), return_time_dt))?;
+    returns_coords.set_item("return_time", (("return_time",), return_time_dt.clone()))?;
     returns_coords.set_item(
         "sweep_time",
         (("return_time",), sweep_time_per_return_dt),
@@ -1293,6 +1394,88 @@ fn raystack_data_to_raystack_datatree(
         ),
     )?;
 
+    let activity_coords = PyDict::new(py);
+    activity_coords.set_item("moment", (("moment",), activity.moments.clone()))?;
+    activity_coords.set_item(
+        "return_time",
+        (("return_time",), return_time_dt.clone()),
+    )?;
+    activity_coords.set_item(
+        "sweep_time",
+        (("sweep_time",), sweep_time_dt.clone()),
+    )?;
+    activity_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt.clone()))?;
+
+    let activity_vars = PyDict::new(py);
+    let ray_counts = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_returns),
+        activity.ray_valid_count,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_vars.set_item(
+        "ray_valid_count",
+        (("moment", "return_time"), ray_counts.into_pyarray(py)),
+    )?;
+    let ray_frac = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_returns),
+        activity.ray_valid_fraction,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_vars.set_item(
+        "ray_valid_fraction",
+        (("moment", "return_time"), ray_frac.into_pyarray(py)),
+    )?;
+
+    let sweep_counts = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_sweeps),
+        activity.sweep_valid_count,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_vars.set_item(
+        "sweep_valid_count",
+        (("moment", "sweep_time"), sweep_counts.into_pyarray(py)),
+    )?;
+    let sweep_frac = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_sweeps),
+        activity.sweep_valid_fraction,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_vars.set_item(
+        "sweep_valid_fraction",
+        (("moment", "sweep_time"), sweep_frac.into_pyarray(py)),
+    )?;
+
+    let volume_counts = Array2::from_shape_vec(
+        (activity.moments.len(), 1),
+        activity.volume_valid_count,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_vars.set_item(
+        "volume_valid_count",
+        (("moment", "vcp_time"), volume_counts.into_pyarray(py)),
+    )?;
+    let volume_frac = Array2::from_shape_vec(
+        (activity.moments.len(), 1),
+        activity.volume_valid_fraction,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_vars.set_item(
+        "volume_valid_fraction",
+        (("moment", "vcp_time"), volume_frac.into_pyarray(py)),
+    )?;
+
+    let activity_ds = xr.call_method(
+        "Dataset",
+        (),
+        Some(
+            &[
+                ("data_vars", activity_vars.as_any()),
+                ("coords", activity_coords.as_any()),
+            ]
+            .into_py_dict(py)?,
+        ),
+    )?;
+
     let root_attrs = PyDict::new(py);
     root_attrs.set_item("Conventions", "CF-1.8")?;
     root_attrs.set_item("instrument_type", "radar")?;
@@ -1314,6 +1497,7 @@ fn raystack_data_to_raystack_datatree(
     tree_dict.set_item("vcps", vcps_ds)?;
     tree_dict.set_item("sweeps", sweeps_ds)?;
     tree_dict.set_item("returns", returns_ds)?;
+    tree_dict.set_item("activity", activity_ds)?;
 
     let datatree_class = xr.getattr("DataTree")?;
     let datatree = datatree_class.call_method1("from_dict", (tree_dict,))?;
@@ -1328,6 +1512,7 @@ pub fn raystack_to_python(
     qc_ops: &[QcOp],
 ) -> PyResult<Py<PyAny>> {
     let result = PyDict::new(py);
+    let activity = compute_activity(&raystack);
 
     // VCPs dict
     let vcps = PyDict::new(py);
@@ -1464,6 +1649,53 @@ pub fn raystack_to_python(
     }
 
     result.set_item("returns", returns)?;
+
+    let activity_dict = PyDict::new(py);
+    activity_dict.set_item("moment", activity.moments.clone())?;
+
+    let ray_counts = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_returns),
+        activity.ray_valid_count,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("ray_valid_count", ray_counts.into_pyarray(py))?;
+
+    let ray_frac = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_returns),
+        activity.ray_valid_fraction,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("ray_valid_fraction", ray_frac.into_pyarray(py))?;
+
+    let sweep_counts = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_sweeps),
+        activity.sweep_valid_count,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("sweep_valid_count", sweep_counts.into_pyarray(py))?;
+
+    let sweep_frac = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_sweeps),
+        activity.sweep_valid_fraction,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("sweep_valid_fraction", sweep_frac.into_pyarray(py))?;
+
+    let volume_counts = Array2::from_shape_vec(
+        (activity.moments.len(), 1),
+        activity.volume_valid_count,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("volume_valid_count", volume_counts.into_pyarray(py))?;
+
+    let volume_frac = Array2::from_shape_vec(
+        (activity.moments.len(), 1),
+        activity.volume_valid_fraction,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("volume_valid_fraction", volume_frac.into_pyarray(py))?;
+
+    result.set_item("activity", activity_dict)?;
 
     Ok(result.into())
 }

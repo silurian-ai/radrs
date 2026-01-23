@@ -109,6 +109,8 @@ DataTree('root')
 │   └── Dataset: pattern_number, ...
 ├── DataTree('sweeps')
 │   └── Dataset: elevation_number, elevation_angle, n_radials, start_index, ...
+├── DataTree('activity')
+│   └── Dataset: ray_valid_count, ray_valid_fraction, sweep_valid_count, sweep_valid_fraction, volume_valid_count, volume_valid_fraction
 └── DataTree('returns')
     └── Dataset: azimuth, elevation, time, sweep_idx, DBZH, VRADH, ... (n_returns, fold_size)
 ```
@@ -130,7 +132,16 @@ DataTree('root')
         "DBZH": ndarray(n_returns, fold_size),
         "VRADH": ndarray(n_returns, fold_size),
         ...
-    }
+    },
+    "activity": {
+        "moment": ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"],
+        "ray_valid_count": ndarray(n_moments, n_returns),
+        "ray_valid_fraction": ndarray(n_moments, n_returns),
+        "sweep_valid_count": ndarray(n_moments, n_sweeps),
+        "sweep_valid_fraction": ndarray(n_moments, n_sweeps),
+        "volume_valid_count": ndarray(n_moments, 1),
+        "volume_valid_fraction": ndarray(n_moments, 1),
+    },
 }
 ```
 

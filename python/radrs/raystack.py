@@ -11,8 +11,8 @@ Example
 >>> # Parse directly to raystack format (faster - single pass)
 >>> rs = rrs.parse(file_bytes, fold_size=128)
 >>>
->>> # rs is a dict with vcps/sweeps/returns
->>> print(rs.keys())  # ['vcps', 'sweeps', 'returns']
+>>> # rs is a dict with vcps/sweeps/returns/activity
+>>> print(rs.keys())  # ['vcps', 'sweeps', 'returns', 'activity']
 >>> print(rs['returns']['DBZH'].shape)  # (n_returns, 128)
 >>>
 >>> # Convert DataTree to raystack format

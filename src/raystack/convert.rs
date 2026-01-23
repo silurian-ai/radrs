@@ -667,7 +667,7 @@ fn raystack_dict_to_raystack_datatree(
 
     // Build vcps dataset
     let vcps_coords = PyDict::new(py);
-    vcps_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt))?;
+    vcps_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt.clone()))?;
     let instrument_name: Option<String> = vcps
         .get_item("instrument_name")
         .ok()
@@ -716,7 +716,7 @@ fn raystack_dict_to_raystack_datatree(
 
     // Build sweeps dataset
     let sweeps_coords = PyDict::new(py);
-    sweeps_coords.set_item("sweep_time", (("sweep_time",), sweep_time_dt))?;
+    sweeps_coords.set_item("sweep_time", (("sweep_time",), sweep_time_dt.clone()))?;
     sweeps_coords.set_item(
         "vcp_time",
         (("sweep_time",), vec![vcp_time; sweeps_list.len()]),
@@ -804,7 +804,7 @@ fn raystack_dict_to_raystack_datatree(
 
     // Build returns dataset
     let returns_coords = PyDict::new(py);
-    returns_coords.set_item("return_time", (("return_time",), return_time_dt))?;
+    returns_coords.set_item("return_time", (("return_time",), return_time_dt.clone()))?;
 
     if let Ok(azimuth_arr) = returns.get_item("azimuth") {
         returns_coords.set_item("azimuth", (("return_time",), azimuth_arr))?;
@@ -905,6 +905,47 @@ fn raystack_dict_to_raystack_datatree(
         Some(&[("data_vars", returns_vars.as_any()), ("coords", returns_coords.as_any())].into_py_dict(py)?),
     )?;
 
+    let mut activity_ds = None;
+    if let Ok(Some(activity)) = raystack_dict.get_item("activity") {
+        let activity_coords = PyDict::new(py);
+        if let Ok(moment) = activity.get_item("moment") {
+            activity_coords.set_item("moment", (("moment",), moment))?;
+        }
+        activity_coords.set_item("return_time", (("return_time",), return_time_dt.clone()))?;
+        activity_coords.set_item("sweep_time", (("sweep_time",), sweep_time_dt.clone()))?;
+        activity_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt.clone()))?;
+
+        let activity_vars = PyDict::new(py);
+        if let Ok(arr) = activity.get_item("ray_valid_count") {
+            activity_vars.set_item("ray_valid_count", (("moment", "return_time"), arr))?;
+        }
+        if let Ok(arr) = activity.get_item("ray_valid_fraction") {
+            activity_vars.set_item("ray_valid_fraction", (("moment", "return_time"), arr))?;
+        }
+        if let Ok(arr) = activity.get_item("sweep_valid_count") {
+            activity_vars.set_item("sweep_valid_count", (("moment", "sweep_time"), arr))?;
+        }
+        if let Ok(arr) = activity.get_item("sweep_valid_fraction") {
+            activity_vars.set_item("sweep_valid_fraction", (("moment", "sweep_time"), arr))?;
+        }
+        if let Ok(arr) = activity.get_item("volume_valid_count") {
+            activity_vars.set_item("volume_valid_count", (("moment", "vcp_time"), arr))?;
+        }
+        if let Ok(arr) = activity.get_item("volume_valid_fraction") {
+            activity_vars.set_item("volume_valid_fraction", (("moment", "vcp_time"), arr))?;
+        }
+
+        let ds = xr.call_method(
+            "Dataset",
+            (),
+            Some(
+                &[("data_vars", activity_vars.as_any()), ("coords", activity_coords.as_any())]
+                    .into_py_dict(py)?,
+            ),
+        )?;
+        activity_ds = Some(ds);
+    }
+
     // Root dataset with minimal attrs
     let root_attrs = PyDict::new(py);
     root_attrs.set_item("Conventions", "CF-1.8")?;
@@ -928,6 +969,9 @@ fn raystack_dict_to_raystack_datatree(
     tree_dict.set_item("vcps", vcps_ds)?;
     tree_dict.set_item("sweeps", sweeps_ds)?;
     tree_dict.set_item("returns", returns_ds)?;
+    if let Some(activity_ds) = activity_ds {
+        tree_dict.set_item("activity", activity_ds)?;
+    }
 
     let datatree_class = xr.getattr("DataTree")?;
     let datatree = datatree_class.call_method1("from_dict", (tree_dict,))?;
