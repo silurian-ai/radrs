@@ -135,6 +135,9 @@ class TestParse:
             actual = activity["ray_valid_count"][idx]
             assert np.array_equal(actual, expected)
 
+    def test_parse_activity_can_be_disabled(self, test_file_bytes):
+        rs = rrs.parse(test_file_bytes, include_activity=False)
+        assert "activity" not in rs
     def test_parse_sweep_idx_alignment(self, test_file_bytes):
         """Test that sweep_idx values align with sweeps metadata."""
 
@@ -559,6 +562,11 @@ class TestRoundtrip:
             err_msg="azimuth differs between parse and from_xradar_datatree"
         )
 
+    def test_from_xradar_activity_can_be_disabled(self, test_file_path):
+        dt = rxr.open_datatree(test_file_path)
+        rs = rrs.from_xradar_datatree(dt, include_activity=False)
+        assert "activity" not in rs
+
 
 class TestActivityDataTree:
     def test_open_datatree_includes_activity(self, test_file_path):
@@ -581,6 +589,10 @@ class TestActivityDataTree:
         activity = dt["activity"].dataset
         assert "volume_valid_fraction" in activity
         assert activity["volume_valid_fraction"].shape[1] == 1
+
+    def test_open_datatree_activity_can_be_disabled(self, test_file_path):
+        dt = rrs.open_datatree(test_file_path, include_activity=False)
+        assert "activity" not in dt
 
 
 class TestActivityConsistency:

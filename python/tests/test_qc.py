@@ -72,9 +72,10 @@ def test_parse_with_rhohv_qc_mask(test_file_bytes):
 
     rs = rrs.parse(test_file_bytes, qc=[qc.RhohvThreshold()])
     returns = rs["returns"]
+    qc_out = rs["qc"]
 
-    assert "rhohv_threshold_mask" in returns
-    mask = returns["rhohv_threshold_mask"]
+    assert "rhohv_threshold_mask" in qc_out
+    mask = qc_out["rhohv_threshold_mask"]
     assert mask.dtype == np.int8
 
     base = returns.get("RHOHV")
@@ -92,9 +93,10 @@ def test_open_datatree_with_sun_spike_mask(test_file_path):
 
     dt = rrs.open_datatree(test_file_path, qc=[qc.SunSpike()])
     returns = dt["/returns"].dataset
+    qc_ds = dt["/qc"].dataset
 
-    assert "sun_spike_mask" in returns
-    mask = returns["sun_spike_mask"].values
+    assert "sun_spike_mask" in qc_ds
+    mask = qc_ds["sun_spike_mask"].values
     assert mask.dtype == np.int8
 
     dbzh = returns["DBZH"].values

@@ -8,15 +8,16 @@ use pyo3::types::{IntoPyDict, PyDict};
 
 /// Convert xarray DataTree (xradar) to Raystack format
 #[pyfunction]
-#[pyo3(name = "from_xradar_datatree", signature = (datatree, fold_size = None))]
+#[pyo3(name = "from_xradar_datatree", signature = (datatree, fold_size = None, include_activity = true))]
 pub fn from_xradar_datatree_py(
     py: Python<'_>,
     datatree: &Bound<'_, PyAny>,
     fold_size: Option<usize>,
+    include_activity: bool,
 ) -> PyResult<Py<PyAny>> {
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
     let raystack = datatree_to_raystack(py, datatree, fold_size)?;
-    raystack_to_python(py, raystack, &[])
+    raystack_to_python(py, raystack, &[], include_activity)
 }
 
 /// Convert Raystack to xarray DataTree (xradar layout)
@@ -879,7 +880,10 @@ fn raystack_dict_to_raystack_datatree(
         returns_coords.set_item("range_step", (("return_time",), range_step_per_return))?;
     }
 
-    returns_coords.set_item("sweep_time", (("return_time",), sweep_time_per_return_dt))?;
+    returns_coords.set_item(
+        "sweep_time",
+        (("return_time",), sweep_time_per_return_dt.clone()),
+    )?;
     returns_coords.set_item(
         "vcp_time",
         (("return_time",), vec![vcp_time; n_returns]),
@@ -904,6 +908,35 @@ fn raystack_dict_to_raystack_datatree(
         (),
         Some(&[("data_vars", returns_vars.as_any()), ("coords", returns_coords.as_any())].into_py_dict(py)?),
     )?;
+
+    let mut qc_ds = None;
+    if let Ok(Some(qc_any)) = raystack_dict.get_item("qc") {
+        if let Ok(qc_dict) = qc_any.cast::<PyDict>() {
+            let qc_coords = PyDict::new(py);
+            qc_coords.set_item("return_time", (("return_time",), return_time_dt.clone()))?;
+            qc_coords.set_item("sweep_time", (("return_time",), sweep_time_per_return_dt.clone()))?;
+            qc_coords.set_item("vcp_time", (("return_time",), vec![vcp_time; n_returns]))?;
+            if let Ok(range_arr) = returns.get_item("range") {
+                qc_coords.set_item("range", (("range",), range_arr))?;
+            } else if let Some(fold) = fold_size {
+                let range_data: Vec<usize> = (0..fold).collect();
+                qc_coords.set_item("range", (("range",), range_data))?;
+            }
+
+            let qc_vars = PyDict::new(py);
+            for (name_obj, arr_obj) in qc_dict.iter() {
+                let name: String = name_obj.extract()?;
+                qc_vars.set_item(name, (("return_time", "range"), arr_obj))?;
+            }
+
+            let ds = xr.call_method(
+                "Dataset",
+                (),
+                Some(&[("data_vars", qc_vars.as_any()), ("coords", qc_coords.as_any())].into_py_dict(py)?),
+            )?;
+            qc_ds = Some(ds);
+        }
+    }
 
     let mut activity_ds = None;
     if let Ok(Some(activity)) = raystack_dict.get_item("activity") {
@@ -969,6 +1002,9 @@ fn raystack_dict_to_raystack_datatree(
     tree_dict.set_item("vcps", vcps_ds)?;
     tree_dict.set_item("sweeps", sweeps_ds)?;
     tree_dict.set_item("returns", returns_ds)?;
+    if let Some(qc_ds) = qc_ds {
+        tree_dict.set_item("qc", qc_ds)?;
+    }
     if let Some(activity_ds) = activity_ds {
         tree_dict.set_item("activity", activity_ds)?;
     }

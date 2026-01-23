@@ -69,7 +69,7 @@ impl VolumeIterator {
                 let parse_result = py.detach(|| raystack::parse_optimized(&data, fold_size));
                 match parse_result {
                     Ok(raystack) => {
-                        return raystack::raystack_to_python(py, raystack, &self.qc_ops);
+                        return raystack::raystack_to_python(py, raystack, &self.qc_ops, true);
                     }
                     Err(e) => {
                         tracing::warn!("Failed to parse volume (raystack), skipping: {}", e);
@@ -181,7 +181,7 @@ impl VolumeIteratorAsync {
                     match parse_result {
                         Ok(raystack) => {
                             return Python::attach(|py| {
-                                raystack::raystack_to_python(py, raystack, &qc_ops)
+                                raystack::raystack_to_python(py, raystack, &qc_ops, true)
                             })
                             .map_err(Into::into);
                         }

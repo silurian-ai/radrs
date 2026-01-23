@@ -105,16 +105,16 @@ struct ActivityData {
 }
 
 fn compute_activity(raystack: &RaystackData) -> ActivityData {
-    let moments: [(&'static str, &[f32]); 7] = [
-        ("DBZH", &raystack.dbzh),
-        ("VRADH", &raystack.vradh),
-        ("WRADH", &raystack.wradh),
-        ("ZDR", &raystack.zdr),
-        ("PHIDP", &raystack.phidp),
-        ("RHOHV", &raystack.rhohv),
-        ("KDP", &raystack.kdp),
+    let moment_data: [&[f32]; 7] = [
+        &raystack.dbzh,
+        &raystack.vradh,
+        &raystack.wradh,
+        &raystack.zdr,
+        &raystack.phidp,
+        &raystack.rhohv,
+        &raystack.kdp,
     ];
-    let n_moments = moments.len();
+    let n_moments = MOMENT_NAMES.len();
     let n_returns = raystack.n_radials;
     let n_sweeps = raystack.sweeps.len();
     let fold_size = raystack.fold_size;
@@ -123,7 +123,7 @@ fn compute_activity(raystack: &RaystackData) -> ActivityData {
     let mut ray_valid_fraction = vec![f32::NAN; n_moments * n_returns];
 
     if n_returns > 0 && fold_size > 0 {
-        for (m_idx, (_, data)) in moments.iter().enumerate() {
+        for (m_idx, data) in moment_data.iter().enumerate() {
             for (r_idx, chunk) in data.chunks_exact(fold_size).enumerate() {
                 let count = chunk.iter().filter(|v| v.is_finite()).count() as u32;
                 let idx = m_idx * n_returns + r_idx;
@@ -970,12 +970,13 @@ fn fold_moment_values_into(
 
 /// Parse NEXRAD data to raystack format (Python wrapper)
 #[pyfunction]
-#[pyo3(name = "parse", signature = (data, fold_size = None, qc = None))]
+#[pyo3(name = "parse", signature = (data, fold_size = None, qc = None, include_activity = true))]
 pub fn parse_py<'py>(
     py: Python<'py>,
     data: &[u8],
     fold_size: Option<usize>,
     qc: Option<&Bound<'py, PyAny>>,
+    include_activity: bool,
 ) -> PyResult<Py<PyAny>> {
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
     let qc_ops = parse_qc_ops(py, qc)?;
@@ -983,17 +984,18 @@ pub fn parse_py<'py>(
     // Release GIL during parsing
     let raystack = py.detach(|| parse_optimized(data, fold_size))?;
 
-    raystack_to_python(py, raystack, &qc_ops)
+    raystack_to_python(py, raystack, &qc_ops, include_activity)
 }
 
 /// Open a NEXRAD Level 2 file and return raystack DataTree
 #[pyfunction]
-#[pyo3(name = "open_datatree", signature = (source, fold_size = None, qc = None))]
+#[pyo3(name = "open_datatree", signature = (source, fold_size = None, qc = None, include_activity = true))]
 pub fn open_raystack_datatree_py<'py>(
     py: Python<'py>,
     source: &Bound<'py, PyAny>,
     fold_size: Option<usize>,
     qc: Option<&Bound<'py, PyAny>>,
+    include_activity: bool,
 ) -> PyResult<Py<PyAny>> {
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
     let qc_ops = parse_qc_ops(py, qc)?;
@@ -1010,17 +1012,18 @@ pub fn open_raystack_datatree_py<'py>(
     };
 
     let raystack = py.detach(|| parse_optimized(&data, fold_size))?;
-    raystack_data_to_raystack_datatree(py, raystack, &qc_ops)
+    raystack_data_to_raystack_datatree(py, raystack, &qc_ops, include_activity)
 }
 
 /// Open a NEXRAD Level 2 file asynchronously and return raystack DataTree
 #[pyfunction]
-#[pyo3(name = "open_datatree_async", signature = (source, fold_size = None, qc = None))]
+#[pyo3(name = "open_datatree_async", signature = (source, fold_size = None, qc = None, include_activity = true))]
 pub fn open_raystack_datatree_async_py<'py>(
     py: Python<'py>,
     source: &Bound<'py, PyAny>,
     fold_size: Option<usize>,
     qc: Option<&Bound<'py, PyAny>>,
+    include_activity: bool,
 ) -> PyResult<Py<PyAny>> {
     let source = source.as_borrowed().to_owned().unbind();
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
@@ -1033,7 +1036,7 @@ pub fn open_raystack_datatree_async_py<'py>(
             .await
             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
 
-        Python::attach(|py| raystack_data_to_raystack_datatree(py, raystack, &qc_ops))
+        Python::attach(|py| raystack_data_to_raystack_datatree(py, raystack, &qc_ops, include_activity))
             .map_err(Into::into)
     })?;
 
@@ -1080,6 +1083,7 @@ fn raystack_data_to_raystack_datatree(
     py: Python<'_>,
     raystack: RaystackData,
     qc_ops: &[QcOp],
+    include_activity: bool,
 ) -> PyResult<Py<PyAny>> {
     let xr = py.import("xarray")?;
     let np = py.import("numpy")?;
@@ -1092,7 +1096,11 @@ fn raystack_data_to_raystack_datatree(
     } else {
         Vec::new()
     };
-    let activity = compute_activity(&raystack);
+    let activity = if include_activity {
+        Some(compute_activity(&raystack))
+    } else {
+        None
+    };
 
     let vcp_time = raystack.time.iter().copied().min().unwrap_or(0);
     let vcp_end = raystack.time.iter().copied().max().unwrap_or(vcp_time);
@@ -1286,7 +1294,7 @@ fn raystack_data_to_raystack_datatree(
     returns_coords.set_item("return_time", (("return_time",), return_time_dt.clone()))?;
     returns_coords.set_item(
         "sweep_time",
-        (("return_time",), sweep_time_per_return_dt),
+        (("return_time",), sweep_time_per_return_dt.clone()),
     )?;
     returns_coords.set_item(
         "vcp_time",
@@ -1367,21 +1375,6 @@ fn raystack_data_to_raystack_datatree(
     add_moment("RHOHV", raystack.rhohv, &returns_vars)?;
     add_moment("KDP", raystack.kdp, &returns_vars)?;
 
-    for (name, output) in qc_outputs {
-        match output {
-            QcArray::Mask(mask) => {
-                let arr = Array2::from_shape_vec((n_returns, fold_size), mask)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                returns_vars.set_item(name, (("return_time", "range"), arr.into_pyarray(py)))?;
-            }
-            QcArray::Float(data) => {
-                let arr = Array2::from_shape_vec((n_returns, fold_size), data)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                returns_vars.set_item(name, (("return_time", "range"), arr.into_pyarray(py)))?;
-            }
-        }
-    }
-
     let returns_ds = xr.call_method(
         "Dataset",
         (),
@@ -1392,89 +1385,140 @@ fn raystack_data_to_raystack_datatree(
             ]
             .into_py_dict(py)?,
         ),
-    )?;
+        )?;
 
-    let activity_coords = PyDict::new(py);
-    activity_coords.set_item("moment", (("moment",), activity.moments.clone()))?;
-    activity_coords.set_item(
-        "return_time",
-        (("return_time",), return_time_dt.clone()),
-    )?;
-    activity_coords.set_item(
-        "sweep_time",
-        (("sweep_time",), sweep_time_dt.clone()),
-    )?;
-    activity_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt.clone()))?;
+    let qc_ds = if !qc_outputs.is_empty() && n_returns > 0 {
+        let qc_coords = PyDict::new(py);
+        qc_coords.set_item("return_time", (("return_time",), return_time_dt.clone()))?;
+        qc_coords.set_item(
+            "range",
+            (("range",), (0..fold_size).collect::<Vec<usize>>()),
+        )?;
+        qc_coords.set_item(
+            "sweep_time",
+            (("return_time",), sweep_time_per_return_dt.clone()),
+        )?;
+        qc_coords.set_item(
+            "vcp_time",
+            (("return_time",), vec![vcp_time; n_returns]),
+        )?;
 
-    let activity_vars = PyDict::new(py);
-    let ray_counts = Array2::from_shape_vec(
-        (activity.moments.len(), activity.n_returns),
-        activity.ray_valid_count,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_vars.set_item(
-        "ray_valid_count",
-        (("moment", "return_time"), ray_counts.into_pyarray(py)),
-    )?;
-    let ray_frac = Array2::from_shape_vec(
-        (activity.moments.len(), activity.n_returns),
-        activity.ray_valid_fraction,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_vars.set_item(
-        "ray_valid_fraction",
-        (("moment", "return_time"), ray_frac.into_pyarray(py)),
-    )?;
+        let qc_vars = PyDict::new(py);
+        for (name, output) in qc_outputs {
+            match output {
+                QcArray::Mask(mask) => {
+                    let arr = Array2::from_shape_vec((n_returns, fold_size), mask)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                    qc_vars.set_item(name, (("return_time", "range"), arr.into_pyarray(py)))?;
+                }
+                QcArray::Float(data) => {
+                    let arr = Array2::from_shape_vec((n_returns, fold_size), data)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                    qc_vars.set_item(name, (("return_time", "range"), arr.into_pyarray(py)))?;
+                }
+            }
+        }
 
-    let sweep_counts = Array2::from_shape_vec(
-        (activity.moments.len(), activity.n_sweeps),
-        activity.sweep_valid_count,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_vars.set_item(
-        "sweep_valid_count",
-        (("moment", "sweep_time"), sweep_counts.into_pyarray(py)),
-    )?;
-    let sweep_frac = Array2::from_shape_vec(
-        (activity.moments.len(), activity.n_sweeps),
-        activity.sweep_valid_fraction,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_vars.set_item(
-        "sweep_valid_fraction",
-        (("moment", "sweep_time"), sweep_frac.into_pyarray(py)),
-    )?;
+        Some(xr.call_method(
+            "Dataset",
+            (),
+            Some(
+                &[
+                    ("data_vars", qc_vars.as_any()),
+                    ("coords", qc_coords.as_any()),
+                ]
+                .into_py_dict(py)?,
+            ),
+        )?)
+    } else {
+        None
+    };
 
-    let volume_counts = Array2::from_shape_vec(
-        (activity.moments.len(), 1),
-        activity.volume_valid_count,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_vars.set_item(
-        "volume_valid_count",
-        (("moment", "vcp_time"), volume_counts.into_pyarray(py)),
-    )?;
-    let volume_frac = Array2::from_shape_vec(
-        (activity.moments.len(), 1),
-        activity.volume_valid_fraction,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_vars.set_item(
-        "volume_valid_fraction",
-        (("moment", "vcp_time"), volume_frac.into_pyarray(py)),
-    )?;
+    let activity_ds = if let Some(activity) = activity {
+        let activity_coords = PyDict::new(py);
+        activity_coords.set_item("moment", (("moment",), activity.moments.clone()))?;
+        activity_coords.set_item(
+            "return_time",
+            (("return_time",), return_time_dt.clone()),
+        )?;
+        activity_coords.set_item(
+            "sweep_time",
+            (("sweep_time",), sweep_time_dt.clone()),
+        )?;
+        activity_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt.clone()))?;
 
-    let activity_ds = xr.call_method(
-        "Dataset",
-        (),
-        Some(
-            &[
-                ("data_vars", activity_vars.as_any()),
-                ("coords", activity_coords.as_any()),
-            ]
-            .into_py_dict(py)?,
-        ),
-    )?;
+        let activity_vars = PyDict::new(py);
+        let ray_counts = Array2::from_shape_vec(
+            (activity.moments.len(), activity.n_returns),
+            activity.ray_valid_count,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_vars.set_item(
+            "ray_valid_count",
+            (("moment", "return_time"), ray_counts.into_pyarray(py)),
+        )?;
+        let ray_frac = Array2::from_shape_vec(
+            (activity.moments.len(), activity.n_returns),
+            activity.ray_valid_fraction,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_vars.set_item(
+            "ray_valid_fraction",
+            (("moment", "return_time"), ray_frac.into_pyarray(py)),
+        )?;
+
+        let sweep_counts = Array2::from_shape_vec(
+            (activity.moments.len(), activity.n_sweeps),
+            activity.sweep_valid_count,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_vars.set_item(
+            "sweep_valid_count",
+            (("moment", "sweep_time"), sweep_counts.into_pyarray(py)),
+        )?;
+        let sweep_frac = Array2::from_shape_vec(
+            (activity.moments.len(), activity.n_sweeps),
+            activity.sweep_valid_fraction,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_vars.set_item(
+            "sweep_valid_fraction",
+            (("moment", "sweep_time"), sweep_frac.into_pyarray(py)),
+        )?;
+
+        let volume_counts = Array2::from_shape_vec(
+            (activity.moments.len(), 1),
+            activity.volume_valid_count,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_vars.set_item(
+            "volume_valid_count",
+            (("moment", "vcp_time"), volume_counts.into_pyarray(py)),
+        )?;
+        let volume_frac = Array2::from_shape_vec(
+            (activity.moments.len(), 1),
+            activity.volume_valid_fraction,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_vars.set_item(
+            "volume_valid_fraction",
+            (("moment", "vcp_time"), volume_frac.into_pyarray(py)),
+        )?;
+
+        Some(xr.call_method(
+            "Dataset",
+            (),
+            Some(
+                &[
+                    ("data_vars", activity_vars.as_any()),
+                    ("coords", activity_coords.as_any()),
+                ]
+                .into_py_dict(py)?,
+            ),
+        )?)
+    } else {
+        None
+    };
 
     let root_attrs = PyDict::new(py);
     root_attrs.set_item("Conventions", "CF-1.8")?;
@@ -1497,7 +1541,12 @@ fn raystack_data_to_raystack_datatree(
     tree_dict.set_item("vcps", vcps_ds)?;
     tree_dict.set_item("sweeps", sweeps_ds)?;
     tree_dict.set_item("returns", returns_ds)?;
-    tree_dict.set_item("activity", activity_ds)?;
+    if let Some(qc_ds) = qc_ds {
+        tree_dict.set_item("qc", qc_ds)?;
+    }
+    if let Some(activity_ds) = activity_ds {
+        tree_dict.set_item("activity", activity_ds)?;
+    }
 
     let datatree_class = xr.getattr("DataTree")?;
     let datatree = datatree_class.call_method1("from_dict", (tree_dict,))?;
@@ -1510,9 +1559,14 @@ pub fn raystack_to_python(
     py: Python<'_>,
     raystack: RaystackData,
     qc_ops: &[QcOp],
+    include_activity: bool,
 ) -> PyResult<Py<PyAny>> {
     let result = PyDict::new(py);
-    let activity = compute_activity(&raystack);
+    let activity = if include_activity {
+        Some(compute_activity(&raystack))
+    } else {
+        None
+    };
 
     // VCPs dict
     let vcps = PyDict::new(py);
@@ -1633,69 +1687,75 @@ pub fn raystack_to_python(
     add_moment("RHOHV", raystack.rhohv, &returns)?;
     add_moment("KDP", raystack.kdp, &returns)?;
 
-    for (name, output) in qc_outputs {
-        match output {
-            QcArray::Mask(mask) => {
-                let arr = Array2::from_shape_vec((n_radials, fold_size), mask)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                returns.set_item(name, arr.into_pyarray(py))?;
-            }
-            QcArray::Float(data) => {
-                let arr = Array2::from_shape_vec((n_radials, fold_size), data)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                returns.set_item(name, arr.into_pyarray(py))?;
-            }
-        }
-    }
-
     result.set_item("returns", returns)?;
 
-    let activity_dict = PyDict::new(py);
-    activity_dict.set_item("moment", activity.moments.clone())?;
+    if !qc_outputs.is_empty() && n_radials > 0 {
+        let qc = PyDict::new(py);
+        for (name, output) in qc_outputs {
+            match output {
+                QcArray::Mask(mask) => {
+                    let arr = Array2::from_shape_vec((n_radials, fold_size), mask)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                    qc.set_item(name, arr.into_pyarray(py))?;
+                }
+                QcArray::Float(data) => {
+                    let arr = Array2::from_shape_vec((n_radials, fold_size), data)
+                        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                    qc.set_item(name, arr.into_pyarray(py))?;
+                }
+            }
+        }
+        result.set_item("qc", qc)?;
+    }
 
-    let ray_counts = Array2::from_shape_vec(
-        (activity.moments.len(), activity.n_returns),
-        activity.ray_valid_count,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_dict.set_item("ray_valid_count", ray_counts.into_pyarray(py))?;
+    if let Some(activity) = activity {
+        let activity_dict = PyDict::new(py);
+        activity_dict.set_item("moment", activity.moments.clone())?;
 
-    let ray_frac = Array2::from_shape_vec(
-        (activity.moments.len(), activity.n_returns),
-        activity.ray_valid_fraction,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_dict.set_item("ray_valid_fraction", ray_frac.into_pyarray(py))?;
+        let ray_counts = Array2::from_shape_vec(
+            (activity.moments.len(), activity.n_returns),
+            activity.ray_valid_count,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_dict.set_item("ray_valid_count", ray_counts.into_pyarray(py))?;
 
-    let sweep_counts = Array2::from_shape_vec(
-        (activity.moments.len(), activity.n_sweeps),
-        activity.sweep_valid_count,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_dict.set_item("sweep_valid_count", sweep_counts.into_pyarray(py))?;
+        let ray_frac = Array2::from_shape_vec(
+            (activity.moments.len(), activity.n_returns),
+            activity.ray_valid_fraction,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_dict.set_item("ray_valid_fraction", ray_frac.into_pyarray(py))?;
 
-    let sweep_frac = Array2::from_shape_vec(
-        (activity.moments.len(), activity.n_sweeps),
-        activity.sweep_valid_fraction,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_dict.set_item("sweep_valid_fraction", sweep_frac.into_pyarray(py))?;
+        let sweep_counts = Array2::from_shape_vec(
+            (activity.moments.len(), activity.n_sweeps),
+            activity.sweep_valid_count,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_dict.set_item("sweep_valid_count", sweep_counts.into_pyarray(py))?;
 
-    let volume_counts = Array2::from_shape_vec(
-        (activity.moments.len(), 1),
-        activity.volume_valid_count,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_dict.set_item("volume_valid_count", volume_counts.into_pyarray(py))?;
+        let sweep_frac = Array2::from_shape_vec(
+            (activity.moments.len(), activity.n_sweeps),
+            activity.sweep_valid_fraction,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_dict.set_item("sweep_valid_fraction", sweep_frac.into_pyarray(py))?;
 
-    let volume_frac = Array2::from_shape_vec(
-        (activity.moments.len(), 1),
-        activity.volume_valid_fraction,
-    )
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    activity_dict.set_item("volume_valid_fraction", volume_frac.into_pyarray(py))?;
+        let volume_counts = Array2::from_shape_vec(
+            (activity.moments.len(), 1),
+            activity.volume_valid_count,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_dict.set_item("volume_valid_count", volume_counts.into_pyarray(py))?;
 
-    result.set_item("activity", activity_dict)?;
+        let volume_frac = Array2::from_shape_vec(
+            (activity.moments.len(), 1),
+            activity.volume_valid_fraction,
+        )
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        activity_dict.set_item("volume_valid_fraction", volume_frac.into_pyarray(py))?;
+
+        result.set_item("activity", activity_dict)?;
+    }
 
     Ok(result.into())
 }

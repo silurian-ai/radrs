@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import statistics
+import tempfile
 import time
 from typing import Dict
 
@@ -66,6 +68,33 @@ def compute_activity_python(returns_ds, sweeps_ds, moments=None) -> Dict[str, np
     }
 
 
+def open_xradar_datatree(source: str):
+    try:
+        import xradar as xd
+    except ImportError as exc:
+        raise SystemExit("xradar not installed. Install xradar to use --python-source xradar.") from exc
+
+    if source.startswith("s3://"):
+        try:
+            import fsspec
+        except ImportError as exc:
+            raise SystemExit("fsspec not installed. Install fsspec to open s3:// URLs with xradar.") from exc
+
+        with fsspec.open(source, mode="rb") as handle:
+            data = handle.read()
+
+        with tempfile.NamedTemporaryFile(suffix="_V06", delete=False) as tmp:
+            tmp.write(data)
+            tmp_path = tmp.name
+
+        try:
+            return xd.io.open_nexradlevel2_datatree(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+
+    return xd.io.open_nexradlevel2_datatree(source)
+
+
 def timed(fn, repeats: int) -> list[float]:
     samples = []
     for _ in range(repeats):
@@ -84,16 +113,41 @@ def summarize(samples: list[float]) -> tuple[float, float]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Raystack activity benchmark")
     parser.add_argument("--source", default=DEFAULT_SOURCE)
+    parser.add_argument(
+        "--python-source",
+        choices=("raystack", "xradar"),
+        default="raystack",
+        help="Where to load data for the Python baseline.",
+    )
+    parser.add_argument(
+        "--xradar",
+        action="store_true",
+        help="Alias for --python-source xradar.",
+    )
     parser.add_argument("--repeats", type=int, default=5)
     args = parser.parse_args()
+
+    if args.xradar:
+        args.python_source = "xradar"
 
     print("=" * 60)
     print("radrs activity benchmark")
     print("=" * 60)
     print(f"Source: {args.source}")
+    print(f"Python source: {args.python_source}")
 
-    dt = rrs.open_datatree(args.source)
-    activity = dt["activity"].dataset
+    if args.python_source == "xradar":
+        dt_xradar = open_xradar_datatree(args.source)
+        rs_python = rrs.from_xradar_datatree(dt_xradar, include_activity=False)
+        dt_python = rrs.to_raystack_datatree(rs_python)
+
+        rs_rust = rrs.from_xradar_datatree(dt_xradar, include_activity=True)
+        dt_rust = rrs.to_raystack_datatree(rs_rust)
+    else:
+        dt_rust = rrs.open_datatree(args.source, include_activity=True)
+        dt_python = dt_rust
+
+    activity = dt_rust["activity"].dataset
     moments = [str(m) for m in activity["moment"].values.tolist()]
 
     def rust_access():
@@ -101,7 +155,11 @@ def main() -> None:
         _ = activity["sweep_valid_fraction"].values
 
     def python_compute():
-        _ = compute_activity_python(dt["returns"].dataset, dt["sweeps"].dataset, moments)
+        _ = compute_activity_python(
+            dt_python["returns"].dataset,
+            dt_python["sweeps"].dataset,
+            moments,
+        )
 
     rust_samples = timed(rust_access, args.repeats)
     py_samples = timed(python_compute, args.repeats)
@@ -113,9 +171,17 @@ def main() -> None:
     print(f"Rust activity access: {rust_med*1000:.1f} ms (p90 {rust_p90*1000:.1f} ms)")
     print(f"Python recompute:    {py_med*1000:.1f} ms (p90 {py_p90*1000:.1f} ms)")
 
-    expected = compute_activity_python(dt["returns"].dataset, dt["sweeps"].dataset, moments)
+    expected = compute_activity_python(
+        dt_python["returns"].dataset,
+        dt_python["sweeps"].dataset,
+        moments,
+    )
     print("\n--- Consistency ---")
-    max_diff = float(np.nanmax(np.abs(activity["ray_valid_fraction"].values - expected["ray_valid_fraction"])) )
+    max_diff = float(
+        np.nanmax(
+            np.abs(activity["ray_valid_fraction"].values - expected["ray_valid_fraction"])
+        )
+    )
     print(f"Max abs diff (ray_valid_fraction): {max_diff:.6f}")
 
 
