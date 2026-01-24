@@ -32,8 +32,8 @@ const MOMENT_NAMES: [(&str, &str); 7] = [
 /// # Returns
 /// xarray.DataTree with sweeps as children
 #[pyfunction]
-#[pyo3(name = "open_datatree")]
-pub fn open_datatree_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+#[pyo3(name = "open_datatree", signature = (source, sort_by_azimuth = false))]
+pub fn open_datatree_py(py: Python<'_>, source: &Bound<'_, PyAny>, sort_by_azimuth: bool) -> PyResult<Py<PyAny>> {
     // Handle different input types
     let data = if source.is_instance_of::<PyBytes>() {
         // Bytes input
@@ -55,13 +55,13 @@ pub fn open_datatree_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<P
     let (scan, meta) = py.detach(|| parse_nexrad_data(data))?;
 
     // Convert to DataTree
-    scan_to_datatree(py, &scan, &meta)
+    scan_to_datatree(py, &scan, &meta, sort_by_azimuth)
 }
 
 /// Open a NEXRAD Level 2 file asynchronously and return an xarray DataTree.
 #[pyfunction]
-#[pyo3(name = "open_datatree_async")]
-pub fn open_datatree_async_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+#[pyo3(name = "open_datatree_async", signature = (source, sort_by_azimuth = false))]
+pub fn open_datatree_async_py(py: Python<'_>, source: &Bound<'_, PyAny>, sort_by_azimuth: bool) -> PyResult<Py<PyAny>> {
     let source = source.as_borrowed().to_owned().unbind();
 
     let awaitable = future_into_py(py, async move {
@@ -71,7 +71,7 @@ pub fn open_datatree_async_py(py: Python<'_>, source: &Bound<'_, PyAny>) -> PyRe
             .await
             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
 
-        Python::attach(|py| scan_to_datatree(py, &scan, &meta)).map_err(Into::into)
+        Python::attach(|py| scan_to_datatree(py, &scan, &meta, sort_by_azimuth)).map_err(Into::into)
     })?;
 
     Ok(awaitable.into())
@@ -130,6 +130,7 @@ pub(crate) fn scan_to_datatree(
     py: Python<'_>,
     scan: &Scan,
     meta: &ScanMeta,
+    sort_by_azimuth: bool,
 ) -> PyResult<Py<PyAny>> {
     // Import xarray
     let xr = py.import("xarray")?;
@@ -159,7 +160,7 @@ pub(crate) fn scan_to_datatree(
 
     for (sweep_idx, sweep) in scan.sweeps().iter().enumerate() {
         let sweep_name = format!("/sweep_{}", sweep_idx);
-        let dataset = sweep_to_dataset(py, &xr, &np, sweep, sweep_idx, meta)?;
+        let dataset = sweep_to_dataset(py, &xr, &np, sweep, sweep_idx, meta, sort_by_azimuth)?;
         tree_dict.set_item(&sweep_name, dataset)?;
     }
 
@@ -177,6 +178,7 @@ fn sweep_to_dataset<'py>(
     sweep: &Sweep,
     sweep_idx: usize,
     meta: &ScanMeta,
+    sort_by_azimuth: bool,
 ) -> PyResult<Bound<'py, PyAny>> {
     let radials = sweep.radials();
     if radials.is_empty() {
@@ -185,6 +187,19 @@ fn sweep_to_dataset<'py>(
     }
 
     let n_rays = radials.len();
+
+    // Create sorted indices if requested (to match xradar behavior)
+    let sorted_indices: Vec<usize> = if sort_by_azimuth {
+        let mut indices: Vec<usize> = (0..n_rays).collect();
+        indices.sort_by(|&a, &b| {
+            let az_a = radials[a].azimuth_angle_degrees();
+            let az_b = radials[b].azimuth_angle_degrees();
+            az_a.partial_cmp(&az_b).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        indices
+    } else {
+        (0..n_rays).collect()
+    };
 
     // Determine range info for each moment type and find the max range
     let mut moment_info: HashMap<&str, (usize, f64, f64)> = HashMap::new();
@@ -219,12 +234,13 @@ fn sweep_to_dataset<'py>(
 
     let (range_first, range_interval) = max_range_info.unwrap();
 
-    // Build coordinate arrays
+    // Build coordinate arrays (using sorted order if requested)
     let mut azimuth_data: Vec<f32> = Vec::with_capacity(n_rays);
     let mut elevation_data: Vec<f32> = Vec::with_capacity(n_rays);
     let mut time_data: Vec<i64> = Vec::with_capacity(n_rays);
 
-    for radial in radials {
+    for &idx in &sorted_indices {
+        let radial = &radials[idx];
         azimuth_data.push(radial.azimuth_angle_degrees());
         elevation_data.push(radial.elevation_angle_degrees());
         time_data.push(radial.collection_timestamp());
@@ -272,14 +288,15 @@ fn sweep_to_dataset<'py>(
             // Create 2D data array (time, range) filled with NaN, padded to max_n_gates
             let mut moment_data: Vec<f32> = vec![f32::NAN; n_rays * max_n_gates];
 
-            for (ray_idx, radial) in radials.iter().enumerate() {
+            for (out_idx, &radial_idx) in sorted_indices.iter().enumerate() {
+                let radial = &radials[radial_idx];
                 if let Some(moment) = get_moment_data(radial, moment_getter) {
                     let values = moment.values();
                     for (gate_idx, value) in values.iter().enumerate() {
                         if gate_idx >= max_n_gates {
                             break;
                         }
-                        let flat_idx = ray_idx * max_n_gates + gate_idx;
+                        let flat_idx = out_idx * max_n_gates + gate_idx;
                         moment_data[flat_idx] = match value {
                             MomentValue::Value(v) => *v,
                             MomentValue::BelowThreshold => f32::NAN,

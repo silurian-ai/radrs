@@ -56,16 +56,18 @@ print(rs["returns"]["DBZH"].shape)  # (n_returns, 128)
 |----------|-------------|
 | `list_volumes(site, date)` | List available volumes for a site and date |
 | `VolumeSource.nexrad(site, start, end)` | Create a NEXRAD archive volume source |
-| `iter_volumes(source, output, qc, fold_size, prefetch)` | Iterate over volumes from a source |
-| `iter_volumes_async(source, output, qc, fold_size, prefetch)` | Async iterator with prefetch |
+| `iter_volumes(source, output, qc, fold_size, prefetch, sort_by_azimuth)` | Iterate over volumes from a source |
+| `iter_volumes_async(source, output, qc, fold_size, prefetch, sort_by_azimuth)` | Async iterator with prefetch |
 | `stream_archive(site, poll_interval)` | Poll archive for new volumes (~5 min delay) |
 
 ### radrs.xradar
 
 | Function | Description |
 |----------|-------------|
-| `open_datatree(source)` | Open file/URL/bytes as xarray DataTree |
-| `open_datatree_async(source)` | Async version of open_datatree |
+| `open_datatree(source, sort_by_azimuth=False)` | Open file/URL/bytes as xarray DataTree |
+| `open_datatree_async(source, sort_by_azimuth=False)` | Async version of open_datatree |
+
+Set `sort_by_azimuth=True` to sort radials by azimuth angle (0°→360°), matching xradar's output order. By default, radrs preserves the original file order.
 
 ### radrs.raystack
 
@@ -232,7 +234,7 @@ radrs/
 
 | Behavior | radrs | xradar |
 |----------|-------|--------|
-| Radial ordering | File order | Sorted by azimuth |
+| Radial ordering | File order (use `sort_by_azimuth=True` to match xradar) | Sorted by azimuth |
 | Below-threshold | NaN | Raw value |
 | Range-folded | NaN | Raw value |
 
