@@ -57,6 +57,12 @@ class TestOpenDatatree:
         for coord in expected_coords:
             assert coord in ds.coords or coord in ds, f"Missing coordinate: {coord}"
 
+        # Azimuth should be the primary dimension
+        if "azimuth" in ds.coords:
+            assert ds["azimuth"].dims == ("azimuth",)
+        if "time" in ds.coords:
+            assert ds["time"].dims == ("azimuth",)
+
     def test_datatree_sweep_structure(self, test_file_path):
         """Test that each sweep has correct structure."""
 
@@ -86,6 +92,30 @@ class TestOpenDatatree:
         # Root should have instrument_type or similar metadata
         root_attrs = dt.attrs
         assert isinstance(root_attrs, dict)
+
+    def test_datatree_root_metadata(self, test_file_path):
+        """Root dataset should include key metadata variables."""
+
+        dt = rxr.open_datatree(test_file_path)
+        root_ds = dt.dataset
+        for var in [
+            "volume_number",
+            "platform_number",
+            "instrument_type",
+            "latitude",
+            "longitude",
+            "altitude",
+        ]:
+            assert var in root_ds, f"Missing root metadata variable: {var}"
+
+    def test_datatree_sweep_metadata(self, test_file_path):
+        """Sweep datasets should include sweep/prt/follow mode metadata."""
+
+        dt = rxr.open_datatree(test_file_path)
+        sweep_0 = dt["sweep_0"]
+        ds = sweep_0.dataset
+        for var in ["sweep_mode", "prt_mode", "follow_mode"]:
+            assert var in ds, f"Missing sweep metadata variable: {var}"
 
     def test_datatree_azimuth_values(self, test_file_path):
         """Test that azimuth values are in valid range."""

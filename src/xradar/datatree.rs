@@ -158,8 +158,27 @@ pub(crate) fn scan_to_datatree(
         root_attrs.set_item("instrument_name", name.as_str())?;
     }
 
-    // Build the DataTree structure - create root with attrs
-    let root_ds = xr.call_method1("Dataset", (PyDict::new(py),))?;
+    // Root data variables (xradar-style metadata)
+    let root_vars = PyDict::new(py);
+    if let Some(volume_number) = meta.volume_number {
+        root_vars.set_item("volume_number", volume_number)?;
+    }
+    // NEXRAD is a fixed platform; platform_number is not provided in the file format.
+    root_vars.set_item("platform_number", 0)?;
+    root_vars.set_item("instrument_type", "radar")?;
+    if let Some(lat) = meta.latitude {
+        root_vars.set_item("latitude", lat)?;
+    }
+    if let Some(lon) = meta.longitude {
+        root_vars.set_item("longitude", lon)?;
+    }
+    if let Some(alt) = meta.altitude {
+        root_vars.set_item("altitude", alt)?;
+    }
+
+    // Build the DataTree structure - create root with attrs and vars
+    let root_kwargs = [("data_vars", root_vars.as_any())].into_py_dict(py)?;
+    let root_ds = xr.call_method("Dataset", (), Some(&root_kwargs))?;
     root_ds.setattr("attrs", root_attrs)?;
 
     // Create DataTree - xarray 2024+ uses from_dict
@@ -260,13 +279,16 @@ fn sweep_to_dataset<'py>(
     let data_vars = PyDict::new(py);
     let coords = PyDict::new(py);
 
+    // Use azimuth as the primary dimension (xradar convention)
+    let ray_dim = "azimuth";
+
     // Create azimuth coordinate
     let azimuth_arr = azimuth_data.into_pyarray(py);
-    coords.set_item("azimuth", (("time",), azimuth_arr))?;
+    coords.set_item("azimuth", ((ray_dim,), azimuth_arr))?;
 
     // Create elevation coordinate
     let elevation_arr = elevation_data.into_pyarray(py);
-    coords.set_item("elevation", (("time",), elevation_arr))?;
+    coords.set_item("elevation", ((ray_dim,), elevation_arr))?;
 
     // Create time coordinate (as int64 nanoseconds for datetime64[ns])
     // Convert milliseconds to datetime64[ns]
@@ -274,7 +296,7 @@ fn sweep_to_dataset<'py>(
     let time_arr = np.call_method1("array", (time_arr_i64,))?;
     let time_arr_ms = time_arr.call_method1("astype", ("datetime64[ms]",))?;
     let time_arr_ns = time_arr_ms.call_method1("astype", ("datetime64[ns]",))?;
-    coords.set_item("time", (("time",), time_arr_ns))?;
+    coords.set_item("time", ((ray_dim,), time_arr_ns))?;
 
     // Build range coordinate using max_n_gates (in meters)
     let range_data: Vec<f64> = (0..max_n_gates)
@@ -321,7 +343,7 @@ fn sweep_to_dataset<'py>(
             let arr_2d = flat_arr.call_method1("reshape", ((n_rays, max_n_gates),))?;
 
             // Add to data_vars with dimensions
-            let dims = ("time", "range");
+            let dims = (ray_dim, "range");
             data_vars.set_item(*cf_name, (dims, arr_2d))?;
         }
     }
@@ -331,6 +353,9 @@ fn sweep_to_dataset<'py>(
     if let Some(first_radial) = radials.first() {
         data_vars.set_item("sweep_fixed_angle", first_radial.elevation_angle_degrees())?;
     }
+    data_vars.set_item("sweep_mode", "azimuth_surveillance")?;
+    data_vars.set_item("prt_mode", "not_set")?;
+    data_vars.set_item("follow_mode", "not_set")?;
 
     // Create Dataset
     let kwargs = [
