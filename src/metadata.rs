@@ -10,16 +10,21 @@ pub struct ScanMeta {
     pub latitude: Option<f32>,
     pub longitude: Option<f32>,
     pub altitude: Option<f32>,
+    pub volume_number: Option<u16>,
 }
 
 /// Extract scan-level metadata from a NEXRAD volume.
 pub fn extract_scan_meta(volume: &VolumeFile) -> ScanMeta {
     let mut meta = ScanMeta::default();
 
-    meta.instrument_name = volume
-        .header()
-        .and_then(|h| h.icao_of_radar())
-        .map(|name| name.trim_matches('\0').trim().to_string());
+    if let Some(header) = volume.header() {
+        meta.instrument_name = header
+            .icao_of_radar()
+            .map(|name| name.trim_matches('\0').trim().to_string());
+        meta.volume_number = header
+            .extension_number()
+            .and_then(|num| num.trim_matches('\0').trim().parse::<u16>().ok());
+    }
 
     let records = match volume.records() {
         Ok(records) => records,
