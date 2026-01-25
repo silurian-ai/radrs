@@ -9,7 +9,7 @@ mod vradh_winding;
 
 pub use rhohv::rhohv_threshold;
 pub use sun_spike::sun_spike;
-pub use vradh_winding::{vradh_winding_number, VradhWindingParams};
+pub use vradh_winding::{VradhWindingParams, vradh_winding_number};
 
 use pyo3::prelude::*;
 
@@ -19,7 +19,10 @@ pub fn register_module(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
 
     qc_module.add_function(wrap_pyfunction!(rhohv::rhohv_threshold_py, &qc_module)?)?;
     qc_module.add_function(wrap_pyfunction!(sun_spike::sun_spike_py, &qc_module)?)?;
-    qc_module.add_function(wrap_pyfunction!(vradh_winding::vradh_winding_number_py, &qc_module)?)?;
+    qc_module.add_function(wrap_pyfunction!(
+        vradh_winding::vradh_winding_number_py,
+        &qc_module
+    )?)?;
 
     parent_module.add_submodule(&qc_module)?;
     Ok(())

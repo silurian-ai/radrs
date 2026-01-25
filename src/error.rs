@@ -1,7 +1,7 @@
 //! Error types for radrs
 
-use pyo3::exceptions::PyValueError;
 use pyo3::PyErr;
+use pyo3::exceptions::PyValueError;
 use thiserror::Error;
 
 /// Result type for radrs operations

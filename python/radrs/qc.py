@@ -21,7 +21,7 @@ Example
 >>> import radrs.raystack as rrs
 >>> import radrs.qc as qc
 >>> rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(threshold=0.8)])
->>> rs["returns"]["rhohv_threshold_mask"].shape
+>>> rs["qc"]["rhohv_threshold_mask"].shape
 """
 
 from __future__ import annotations

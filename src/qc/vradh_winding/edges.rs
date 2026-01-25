@@ -72,16 +72,7 @@ pub(crate) fn edge_sum_and_count(
             let y_check = y as isize - 1;
             if y_check != -1 {
                 let (neighbor, nvel) = scan_neighbor(
-                    labels,
-                    data,
-                    n_rows,
-                    n_cols,
-                    x as isize,
-                    y_check,
-                    0,
-                    -1,
-                    max_gap_y,
-                    false,
+                    labels, data, n_rows, n_cols, x as isize, y_check, 0, -1, max_gap_y, false,
                 );
                 add_edge(&mut edges, label, neighbor, vel, nvel);
             }
@@ -90,16 +81,7 @@ pub(crate) fn edge_sum_and_count(
             let y_check = y as isize + 1;
             if y_check != bottom + 1 {
                 let (neighbor, nvel) = scan_neighbor(
-                    labels,
-                    data,
-                    n_rows,
-                    n_cols,
-                    x as isize,
-                    y_check,
-                    0,
-                    1,
-                    max_gap_y,
-                    false,
+                    labels, data, n_rows, n_cols, x as isize, y_check, 0, 1, max_gap_y, false,
                 );
                 add_edge(&mut edges, label, neighbor, vel, nvel);
             }
@@ -107,7 +89,11 @@ pub(crate) fn edge_sum_and_count(
     }
 
     if edges.is_empty() {
-        return ((Vec::new(), Vec::new()), Vec::new(), (Vec::new(), Vec::new()));
+        return (
+            (Vec::new(), Vec::new()),
+            Vec::new(),
+            (Vec::new(), Vec::new()),
+        );
     }
 
     edges.sort_by(|a, b| {

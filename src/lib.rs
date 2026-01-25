@@ -57,7 +57,7 @@ fn log_filter_from_env(py: Python<'_>) -> PyResult<Option<String>> {
 
 /// Initialize tracing with optional filter directive (e.g., "radrs=debug,radrs::iter=trace")
 fn initialize_tracing(filter: Option<&str>) {
-    use tracing_subscriber::{fmt, EnvFilter};
+    use tracing_subscriber::{EnvFilter, fmt};
 
     TRACING_INIT.call_once(|| {
         let filter = filter

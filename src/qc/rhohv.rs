@@ -47,8 +47,7 @@ pub fn rhohv_threshold_py<'py>(
 
     // Convert to 2D numpy array
     let mask_arr = mask_flat.into_pyarray(py);
-    let mask_2d = mask_arr
-        .reshape([n_rows, n_cols])?;
+    let mask_2d = mask_arr.reshape([n_rows, n_cols])?;
 
     Ok(mask_2d)
 }

@@ -5,6 +5,57 @@ import numpy as np
 import radrs.raystack as rrs
 import radrs.xradar as rxr
 
+S3_TEST_FILE = "s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06"
+MOMENT_NAMES = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"]
+
+
+def _compute_activity_python(returns_ds, sweeps_ds, moments=None):
+    if moments is None:
+        moments = [m for m in MOMENT_NAMES if m in returns_ds]
+
+    n_returns = int(returns_ds.sizes["return_time"])
+    fold_size = int(returns_ds.sizes["range"])
+    n_sweeps = int(sweeps_ds.sizes["sweep_time"])
+
+    ray_valid_count = np.zeros((len(moments), n_returns), dtype=np.uint32)
+    ray_valid_fraction = np.full((len(moments), n_returns), np.nan, dtype=np.float32)
+
+    if fold_size > 0 and n_returns > 0:
+        for idx, moment in enumerate(moments):
+            data = np.asarray(returns_ds[moment].values)
+            counts = np.isfinite(data).sum(axis=1).astype(np.uint32)
+            ray_valid_count[idx] = counts
+            ray_valid_fraction[idx] = counts.astype(np.float32) / float(fold_size)
+
+    sweep_valid_count = np.zeros((len(moments), n_sweeps), dtype=np.uint32)
+    sweep_valid_fraction = np.full((len(moments), n_sweeps), np.nan, dtype=np.float32)
+
+    starts = np.asarray(sweeps_ds["start_index"].values, dtype=np.int64)
+    n_radials = np.asarray(sweeps_ds["n_radials"].values, dtype=np.int64)
+    for s_idx, (start, count) in enumerate(zip(starts, n_radials, strict=False)):
+        end = min(start + count, n_returns)
+        denom = max(0, end - start) * fold_size
+        sweep_counts = ray_valid_count[:, start:end].sum(axis=1).astype(np.uint32)
+        sweep_valid_count[:, s_idx] = sweep_counts
+        if denom > 0:
+            sweep_valid_fraction[:, s_idx] = sweep_counts.astype(np.float32) / float(denom)
+
+    volume_valid_count = ray_valid_count.sum(axis=1).astype(np.uint32)
+    volume_valid_fraction = np.full((len(moments), 1), np.nan, dtype=np.float32)
+    denom = n_returns * fold_size
+    if denom > 0:
+        volume_valid_fraction[:, 0] = volume_valid_count.astype(np.float32) / float(denom)
+
+    return {
+        "moment": moments,
+        "ray_valid_count": ray_valid_count,
+        "ray_valid_fraction": ray_valid_fraction,
+        "sweep_valid_count": sweep_valid_count,
+        "sweep_valid_fraction": sweep_valid_fraction,
+        "volume_valid_count": volume_valid_count.reshape(-1, 1),
+        "volume_valid_fraction": volume_valid_fraction,
+    }
+
 
 class TestParse:
     """Tests for raystack.parse function."""
@@ -59,6 +110,34 @@ class TestParse:
         found = [m for m in moment_names if m in returns]
         assert len(found) > 0, "Should have at least one moment variable"
 
+    def test_parse_has_activity(self, test_file_bytes):
+        """Test that activity metrics are present and aligned."""
+
+        rs = rrs.parse(test_file_bytes)
+        assert "activity" in rs
+
+        activity = rs["activity"]
+        moments = list(activity["moment"])
+        n_moments = len(moments)
+        n_returns = len(rs["returns"]["azimuth"])
+        n_sweeps = len(rs["sweeps"])
+
+        assert activity["ray_valid_count"].shape == (n_moments, n_returns)
+        assert activity["ray_valid_fraction"].shape == (n_moments, n_returns)
+        assert activity["sweep_valid_count"].shape == (n_moments, n_sweeps)
+        assert activity["sweep_valid_fraction"].shape == (n_moments, n_sweeps)
+        assert activity["volume_valid_count"].shape == (n_moments, 1)
+        assert activity["volume_valid_fraction"].shape == (n_moments, 1)
+
+        if "DBZH" in rs["returns"] and "DBZH" in moments:
+            idx = moments.index("DBZH")
+            expected = np.isfinite(rs["returns"]["DBZH"]).sum(axis=1)
+            actual = activity["ray_valid_count"][idx]
+            assert np.array_equal(actual, expected)
+
+    def test_parse_activity_can_be_disabled(self, test_file_bytes):
+        rs = rrs.parse(test_file_bytes, include_activity=False)
+        assert "activity" not in rs
     def test_parse_sweep_idx_alignment(self, test_file_bytes):
         """Test that sweep_idx values align with sweeps metadata."""
 
@@ -481,6 +560,116 @@ class TestRoundtrip:
             rs2["returns"]["azimuth"],
             rtol=1e-5,
             err_msg="azimuth differs between parse and from_xradar_datatree"
+        )
+
+    def test_from_xradar_activity_can_be_disabled(self, test_file_path):
+        dt = rxr.open_datatree(test_file_path)
+        rs = rrs.from_xradar_datatree(dt, include_activity=False)
+        assert "activity" not in rs
+
+
+class TestActivityDataTree:
+    def test_open_datatree_includes_activity(self, test_file_path):
+        dt = rrs.open_datatree(test_file_path)
+        assert "activity" in dt
+
+        activity = dt["activity"].dataset
+        assert "moment" in activity.coords
+        assert "ray_valid_count" in activity
+        assert "ray_valid_fraction" in activity
+
+        n_returns = dt["returns"].sizes["return_time"]
+        assert activity["ray_valid_count"].shape[1] == n_returns
+
+    @pytest.mark.network
+    @pytest.mark.slow
+    def test_open_datatree_activity_s3(self):
+        dt = rrs.open_datatree(S3_TEST_FILE)
+        assert "activity" in dt
+        activity = dt["activity"].dataset
+        assert "volume_valid_fraction" in activity
+        assert activity["volume_valid_fraction"].shape[1] == 1
+
+    def test_open_datatree_activity_can_be_disabled(self, test_file_path):
+        dt = rrs.open_datatree(test_file_path, include_activity=False)
+        assert "activity" not in dt
+
+
+class TestActivityConsistency:
+    def test_activity_python_matches_rust(self, test_file_path):
+        dt = rrs.open_datatree(test_file_path)
+        activity = dt["activity"].dataset
+        moments = [str(m) for m in activity["moment"].values.tolist()]
+        expected = _compute_activity_python(dt["returns"].dataset, dt["sweeps"].dataset, moments)
+
+        np.testing.assert_array_equal(
+            activity["ray_valid_count"].values, expected["ray_valid_count"]
+        )
+        np.testing.assert_array_equal(
+            activity["sweep_valid_count"].values, expected["sweep_valid_count"]
+        )
+        np.testing.assert_array_equal(
+            activity["volume_valid_count"].values, expected["volume_valid_count"]
+        )
+        np.testing.assert_allclose(
+            activity["ray_valid_fraction"].values,
+            expected["ray_valid_fraction"],
+            rtol=1e-6,
+            atol=1e-6,
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            activity["sweep_valid_fraction"].values,
+            expected["sweep_valid_fraction"],
+            rtol=1e-6,
+            atol=1e-6,
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            activity["volume_valid_fraction"].values,
+            expected["volume_valid_fraction"],
+            rtol=1e-6,
+            atol=1e-6,
+            equal_nan=True,
+        )
+
+    @pytest.mark.network
+    @pytest.mark.slow
+    def test_activity_python_matches_rust_s3(self):
+        dt = rrs.open_datatree(S3_TEST_FILE)
+        activity = dt["activity"].dataset
+        moments = [str(m) for m in activity["moment"].values.tolist()]
+        expected = _compute_activity_python(dt["returns"].dataset, dt["sweeps"].dataset, moments)
+
+        np.testing.assert_array_equal(
+            activity["ray_valid_count"].values, expected["ray_valid_count"]
+        )
+        np.testing.assert_array_equal(
+            activity["sweep_valid_count"].values, expected["sweep_valid_count"]
+        )
+        np.testing.assert_array_equal(
+            activity["volume_valid_count"].values, expected["volume_valid_count"]
+        )
+        np.testing.assert_allclose(
+            activity["ray_valid_fraction"].values,
+            expected["ray_valid_fraction"],
+            rtol=1e-6,
+            atol=1e-6,
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            activity["sweep_valid_fraction"].values,
+            expected["sweep_valid_fraction"],
+            rtol=1e-6,
+            atol=1e-6,
+            equal_nan=True,
+        )
+        np.testing.assert_allclose(
+            activity["volume_valid_fraction"].values,
+            expected["volume_valid_fraction"],
+            rtol=1e-6,
+            atol=1e-6,
+            equal_nan=True,
         )
 
 

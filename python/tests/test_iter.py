@@ -24,10 +24,12 @@ class TestListVolumes:
         assert len(volumes) > 0, \
             "list_volumes returned empty list for date with known data"
 
-        # All entries should be strings starting with site ID
-        assert all(isinstance(v, str) for v in volumes), \
+        # All entries should be VolumeInfo objects with name starting with site ID
+        assert all(hasattr(v, "name") for v in volumes), \
+            "All volumes should have a name attribute"
+        assert all(isinstance(v.name, str) for v in volumes), \
             "All volume names should be strings"
-        assert all(v.startswith("KTLX") for v in volumes), \
+        assert all(v.name.startswith("KTLX") for v in volumes), \
             "All volume names should start with site ID"
 
         # Should have reasonable number of volumes (a day has ~288 volumes at 5-min intervals)

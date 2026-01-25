@@ -2,7 +2,7 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::RUNTIME;
-use crate::raystack::{self, parse_qc_ops, QcOp};
+use crate::raystack::{self, QcOp, parse_qc_ops};
 use crate::xradar;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -39,6 +39,7 @@ struct VolumeIterator {
     output: OutputKind,
     fold_size: usize,
     qc_ops: Vec<QcOp>,
+    sort_by_azimuth: bool,
 }
 
 #[pymethods]
@@ -69,7 +70,7 @@ impl VolumeIterator {
                 let parse_result = py.detach(|| raystack::parse_optimized(&data, fold_size));
                 match parse_result {
                     Ok(raystack) => {
-                        return raystack::raystack_to_python(py, raystack, &self.qc_ops);
+                        return raystack::raystack_to_python(py, raystack, &self.qc_ops, true);
                     }
                     Err(e) => {
                         tracing::warn!("Failed to parse volume (raystack), skipping: {}", e);
@@ -80,7 +81,12 @@ impl VolumeIterator {
                 let parse_result = py.detach(|| xradar::open_datatree(data));
                 match parse_result {
                     Ok((scan, meta)) => {
-                        return xradar::datatree::scan_to_datatree(py, &scan, &meta);
+                        return xradar::datatree::scan_to_datatree(
+                            py,
+                            &scan,
+                            &meta,
+                            self.sort_by_azimuth,
+                        );
                     }
                     Err(e) => {
                         tracing::warn!("Failed to parse volume (xradar), skipping: {}", e);
@@ -144,6 +150,7 @@ struct VolumeIteratorAsync {
     output: OutputKind,
     fold_size: usize,
     qc_ops: Vec<QcOp>,
+    sort_by_azimuth: bool,
 }
 
 #[pymethods]
@@ -157,6 +164,7 @@ impl VolumeIteratorAsync {
         let output = slf.output;
         let fold_size = slf.fold_size;
         let qc_ops = slf.qc_ops.clone();
+        let sort_by_azimuth = slf.sort_by_azimuth;
 
         let awaitable = future_into_py(py, async move {
             // Loop until we get a valid file or run out of files
@@ -181,7 +189,7 @@ impl VolumeIteratorAsync {
                     match parse_result {
                         Ok(raystack) => {
                             return Python::attach(|py| {
-                                raystack::raystack_to_python(py, raystack, &qc_ops)
+                                raystack::raystack_to_python(py, raystack, &qc_ops, true)
                             })
                             .map_err(Into::into);
                         }
@@ -199,7 +207,12 @@ impl VolumeIteratorAsync {
                     match parse_result {
                         Ok((scan, meta)) => {
                             return Python::attach(|py| {
-                                xradar::datatree::scan_to_datatree(py, &scan, &meta)
+                                xradar::datatree::scan_to_datatree(
+                                    py,
+                                    &scan,
+                                    &meta,
+                                    sort_by_azimuth,
+                                )
                             })
                             .map_err(Into::into);
                         }
@@ -218,7 +231,7 @@ impl VolumeIteratorAsync {
 
 /// Iterate over volumes from a source (with prefetch support).
 #[pyfunction]
-#[pyo3(name = "iter_volumes", signature = (source, output = None, qc = None, fold_size = None, prefetch = None))]
+#[pyo3(name = "iter_volumes", signature = (source, output = None, qc = None, fold_size = None, prefetch = None, sort_by_azimuth = false))]
 pub fn iter_volumes_py(
     py: Python<'_>,
     source: PyRef<'_, VolumeSource>,
@@ -226,6 +239,7 @@ pub fn iter_volumes_py(
     qc: Option<&Bound<'_, PyAny>>,
     fold_size: Option<usize>,
     prefetch: Option<usize>,
+    sort_by_azimuth: bool,
 ) -> PyResult<Py<PyAny>> {
     let output = OutputKind::parse(output)?;
     let fold_size = fold_size.unwrap_or(128);
@@ -243,6 +257,7 @@ pub fn iter_volumes_py(
         output,
         fold_size,
         qc_ops,
+        sort_by_azimuth,
     };
 
     let obj = Py::new(py, iterator)?;
@@ -252,7 +267,7 @@ pub fn iter_volumes_py(
 
 /// Iterate over volumes asynchronously from a source (prefetching enabled).
 #[pyfunction]
-#[pyo3(name = "iter_volumes_async", signature = (source, output = None, qc = None, fold_size = None, prefetch = None))]
+#[pyo3(name = "iter_volumes_async", signature = (source, output = None, qc = None, fold_size = None, prefetch = None, sort_by_azimuth = false))]
 pub fn iter_volumes_async_py(
     py: Python<'_>,
     source: PyRef<'_, VolumeSource>,
@@ -260,6 +275,7 @@ pub fn iter_volumes_async_py(
     qc: Option<&Bound<'_, PyAny>>,
     fold_size: Option<usize>,
     prefetch: Option<usize>,
+    sort_by_azimuth: bool,
 ) -> PyResult<Py<PyAny>> {
     let output = OutputKind::parse(output)?;
     let fold_size = fold_size.unwrap_or(128);
@@ -277,6 +293,7 @@ pub fn iter_volumes_async_py(
         output,
         fold_size,
         qc_ops,
+        sort_by_azimuth,
     };
 
     let obj = Py::new(py, iterator)?;

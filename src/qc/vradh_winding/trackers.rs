@@ -23,7 +23,10 @@ pub(crate) fn round_even(value: f64) -> i32 {
     }
 }
 
-pub(crate) fn combine_regions(region_tracker: &mut RegionTracker, edge_tracker: &mut EdgeTracker) -> bool {
+pub(crate) fn combine_regions(
+    region_tracker: &mut RegionTracker,
+    edge_tracker: &mut EdgeTracker,
+) -> bool {
     let (done, extra) = edge_tracker.pop_edge();
     if done {
         return true;
@@ -203,7 +206,13 @@ impl EdgeTracker {
         self.last_base_node = base_node as isize;
     }
 
-    fn combine_edges(&mut self, base_edge: usize, merge_edge: usize, merge_node: usize, neighbor_node: usize) {
+    fn combine_edges(
+        &mut self,
+        base_edge: usize,
+        merge_edge: usize,
+        merge_node: usize,
+        neighbor_node: usize,
+    ) {
         self.weight[base_edge] += self.weight[merge_edge];
         self.weight[merge_edge] = -999;
         self.sum_diff[base_edge] += self.sum_diff[merge_edge];

@@ -1,12 +1,69 @@
 //! Volume sources for iterators
 
 use crate::error::{RadrsError, Result};
-use crate::fetch::{fetch_archive_file, ARCHIVE_STORE, RUNTIME};
-use chrono::{Datelike, NaiveDate};
+use crate::fetch::{ARCHIVE_STORE, RUNTIME, fetch_archive_file};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use futures::stream::StreamExt;
-use object_store::path::Path as ObjectPath;
 use object_store::ObjectStore;
+use object_store::path::Path as ObjectPath;
 use pyo3::prelude::*;
+use pyo3::types::PyDateTime;
+
+/// Information about a volume from S3 listing
+#[pyclass]
+#[derive(Clone, Debug)]
+pub struct VolumeInfo {
+    /// Volume filename (e.g., "KTLX20240702_000556_V06")
+    #[pyo3(get)]
+    pub name: String,
+    /// File size in bytes
+    #[pyo3(get)]
+    pub size: u64,
+    /// Last modified timestamp
+    last_modified: DateTime<Utc>,
+}
+
+#[pymethods]
+impl VolumeInfo {
+    fn __repr__(&self) -> String {
+        format!(
+            "VolumeInfo(name='{}', size={}, last_modified='{}')",
+            self.name,
+            self.size,
+            self.last_modified.format("%Y-%m-%d %H:%M:%S UTC")
+        )
+    }
+
+    fn __str__(&self) -> String {
+        self.name.clone()
+    }
+
+    /// Get last_modified as Python datetime
+    #[getter]
+    fn last_modified<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDateTime>> {
+        let timestamp = self.last_modified.timestamp();
+        let microseconds = self.last_modified.timestamp_subsec_micros();
+        PyDateTime::from_timestamp(
+            py,
+            timestamp as f64 + microseconds as f64 / 1_000_000.0,
+            None,
+        )
+    }
+
+    /// Get S3 URL for this volume
+    fn s3_url(&self, site: &str, date: &str) -> PyResult<String> {
+        let date = NaiveDate::parse_from_str(date, "%Y-%m-%d")
+            .map_err(|e| RadrsError::Parse(format!("Invalid date format: {}", e)))?;
+        Ok(format!(
+            "s3://unidata-nexrad-level2/{}/{:02}/{:02}/{}/{}",
+            date.format("%Y"),
+            date.month(),
+            date.day(),
+            site,
+            self.name
+        ))
+    }
+}
 
 #[derive(Clone)]
 pub(crate) enum VolumeRef {
@@ -26,6 +83,7 @@ impl VolumeRef {
         }
     }
 }
+
 
 #[derive(Clone)]
 pub(crate) struct NexradArchiveConfig {
@@ -81,10 +139,9 @@ impl VolumeSource {
             .unwrap_or(start_date);
 
         if end_date < start_date {
-            return Err(RadrsError::Parse(
-                "End date cannot be before start date".to_string(),
-            )
-            .into());
+            return Err(
+                RadrsError::Parse("End date cannot be before start date".to_string()).into(),
+            );
         }
 
         Ok(VolumeSource {
@@ -160,8 +217,14 @@ impl NexradArchiveState {
     }
 }
 
-/// List available volumes for a site and date
+/// List available volumes for a site and date (internal, returns just names for iteration)
 pub async fn list_volumes(site: &str, date: NaiveDate) -> Result<Vec<String>> {
+    let volumes = list_volumes_with_info(site, date).await?;
+    Ok(volumes.into_iter().map(|v| v.name).collect())
+}
+
+/// List available volumes with full metadata (size, last_modified)
+pub async fn list_volumes_with_info(site: &str, date: NaiveDate) -> Result<Vec<VolumeInfo>> {
     let prefix = format!(
         "{}/{:02}/{:02}/{}/",
         date.format("%Y"),
@@ -183,7 +246,11 @@ pub async fn list_volumes(site: &str, date: NaiveDate) -> Result<Vec<String>> {
                     if filename.starts_with(site)
                         && (filename.contains("_V0") || filename.contains("_V1"))
                     {
-                        volumes.push(filename.to_string());
+                        volumes.push(VolumeInfo {
+                            name: filename.to_string(),
+                            size: meta.size as u64,
+                            last_modified: meta.last_modified,
+                        });
                     }
                 }
             }
@@ -193,18 +260,19 @@ pub async fn list_volumes(site: &str, date: NaiveDate) -> Result<Vec<String>> {
         }
     }
 
-    volumes.sort();
+    // Sort by name (which includes timestamp, so this is chronological)
+    volumes.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(volumes)
 }
 
-/// List available volumes (Python wrapper)
+/// List available volumes (Python wrapper) - returns VolumeInfo with size and last_modified
 #[pyfunction]
 #[pyo3(name = "list_volumes")]
-pub fn list_volumes_py(_py: Python<'_>, site: &str, date: &str) -> PyResult<Vec<String>> {
+pub fn list_volumes_py(_py: Python<'_>, site: &str, date: &str) -> PyResult<Vec<VolumeInfo>> {
     let date = NaiveDate::parse_from_str(date, "%Y-%m-%d")
         .map_err(|e| RadrsError::Parse(format!("Invalid date format: {}", e)))?;
 
-    let volumes = RUNTIME.block_on(list_volumes(site, date))?;
+    let volumes = RUNTIME.block_on(list_volumes_with_info(site, date))?;
 
     Ok(volumes)
 }

@@ -1,9 +1,9 @@
 //! Archive data access from S3
 
 use crate::error::{RadrsError, Result};
-use crate::fetch::{store_for_bucket, ARCHIVE_STORE, FETCH_SEMAPHORE};
-use object_store::path::Path as ObjectPath;
+use crate::fetch::{ARCHIVE_STORE, FETCH_SEMAPHORE, store_for_bucket};
 use object_store::ObjectStore;
+use object_store::path::Path as ObjectPath;
 use std::sync::Arc;
 
 /// Fetch a file from the NEXRAD archive
@@ -23,23 +23,20 @@ pub async fn fetch_archive_file(
 /// Parse an S3 URL and fetch the file
 pub async fn fetch_s3_url(url: &str) -> Result<Vec<u8>> {
     // Parse s3://bucket/path format
-    let url = url.strip_prefix("s3://").ok_or_else(|| {
-        RadrsError::InvalidUrl(format!("Not an S3 URL: {}", url))
-    })?;
+    let url = url
+        .strip_prefix("s3://")
+        .ok_or_else(|| RadrsError::InvalidUrl(format!("Not an S3 URL: {}", url)))?;
 
-    let (bucket, key) = url.split_once('/').ok_or_else(|| {
-        RadrsError::InvalidUrl(format!("Invalid S3 URL format: s3://{}", url))
-    })?;
+    let (bucket, key) = url
+        .split_once('/')
+        .ok_or_else(|| RadrsError::InvalidUrl(format!("Invalid S3 URL format: s3://{}", url)))?;
 
     let store = store_for_bucket(bucket)?;
     let path = ObjectPath::from(key);
     fetch_object_bytes(&store, &path).await
 }
 
-async fn fetch_object_bytes(
-    store: &Arc<dyn ObjectStore>,
-    path: &ObjectPath,
-) -> Result<Vec<u8>> {
+async fn fetch_object_bytes(store: &Arc<dyn ObjectStore>, path: &ObjectPath) -> Result<Vec<u8>> {
     let _permit = FETCH_SEMAPHORE.acquire().await.expect("semaphore closed");
     let result = store.get(path).await?;
     let bytes = result.bytes().await?;

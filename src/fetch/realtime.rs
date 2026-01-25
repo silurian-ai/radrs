@@ -1,10 +1,10 @@
 //! Realtime data access from S3
 
 use crate::error::Result;
-use crate::fetch::{store_for_bucket, FETCH_SEMAPHORE};
+use crate::fetch::{FETCH_SEMAPHORE, store_for_bucket};
 use futures::stream::StreamExt;
-use object_store::path::Path as ObjectPath;
 use object_store::ObjectStore;
+use object_store::path::Path as ObjectPath;
 use std::collections::HashSet;
 
 const REALTIME_BUCKET: &str = "unidata-nexrad-level2-chunks";

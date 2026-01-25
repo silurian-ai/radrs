@@ -3,13 +3,13 @@
 mod filters;
 mod texture;
 
-pub(crate) use texture::velocity_texture;
 use numpy::{
     IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1, PyReadonlyArray2,
     PyUntypedArrayMethods,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+pub(crate) use texture::velocity_texture;
 
 #[derive(Clone)]
 #[pyclass]
@@ -214,11 +214,7 @@ fn azimuth_distance(a: f32, b: f32, wrap: bool) -> f32 {
     if wrap {
         diff = diff % 360.0;
         let wrapped = 360.0 - diff;
-        if wrapped < diff {
-            wrapped
-        } else {
-            diff
-        }
+        if wrapped < diff { wrapped } else { diff }
     } else {
         diff
     }
@@ -337,7 +333,9 @@ pub fn align_range_py(
     tolerance_m: Option<f32>,
 ) -> PyResult<RangePlan> {
     if src_step_m == 0.0 || dst_step_m == 0.0 {
-        return Err(PyValueError::new_err("src_step_m and dst_step_m must be non-zero"));
+        return Err(PyValueError::new_err(
+            "src_step_m and dst_step_m must be non-zero",
+        ));
     }
     let tol = tolerance_m.unwrap_or_else(|| default_range_tolerance(src_step_m, dst_step_m));
     if tol <= 0.0 {

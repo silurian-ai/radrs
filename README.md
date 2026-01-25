@@ -56,16 +56,18 @@ print(rs["returns"]["DBZH"].shape)  # (n_returns, 128)
 |----------|-------------|
 | `list_volumes(site, date)` | List available volumes for a site and date |
 | `VolumeSource.nexrad(site, start, end)` | Create a NEXRAD archive volume source |
-| `iter_volumes(source, output, qc, fold_size, prefetch)` | Iterate over volumes from a source |
-| `iter_volumes_async(source, output, qc, fold_size, prefetch)` | Async iterator with prefetch |
+| `iter_volumes(source, output, qc, fold_size, prefetch, sort_by_azimuth)` | Iterate over volumes from a source |
+| `iter_volumes_async(source, output, qc, fold_size, prefetch, sort_by_azimuth)` | Async iterator with prefetch |
 | `stream_archive(site, poll_interval)` | Poll archive for new volumes (~5 min delay) |
 
 ### radrs.xradar
 
 | Function | Description |
 |----------|-------------|
-| `open_datatree(source)` | Open file/URL/bytes as xarray DataTree |
-| `open_datatree_async(source)` | Async version of open_datatree |
+| `open_datatree(source, sort_by_azimuth=False)` | Open file/URL/bytes as xarray DataTree |
+| `open_datatree_async(source, sort_by_azimuth=False)` | Async version of open_datatree |
+
+Set `sort_by_azimuth=True` to sort radials by azimuth angle (0°→360°), matching xradar's output order. By default, radrs preserves the original file order.
 
 ### radrs.raystack
 
@@ -109,6 +111,10 @@ DataTree('root')
 │   └── Dataset: pattern_number, ...
 ├── DataTree('sweeps')
 │   └── Dataset: elevation_number, elevation_angle, n_radials, start_index, ...
+├── DataTree('qc')
+│   └── Dataset: rhohv_threshold_mask, sun_spike_mask, vradh_winding_number, ...
+├── DataTree('activity')
+│   └── Dataset: ray_valid_count, ray_valid_fraction, sweep_valid_count, sweep_valid_fraction, volume_valid_count, volume_valid_fraction
 └── DataTree('returns')
     └── Dataset: azimuth, elevation, time, sweep_idx, DBZH, VRADH, ... (n_returns, fold_size)
 ```
@@ -130,13 +136,49 @@ DataTree('root')
         "DBZH": ndarray(n_returns, fold_size),
         "VRADH": ndarray(n_returns, fold_size),
         ...
-    }
+    },
+    "qc": {
+        "rhohv_threshold_mask": ndarray(n_returns, fold_size),
+        "sun_spike_mask": ndarray(n_returns, fold_size),
+        "vradh_winding_number": ndarray(n_returns, fold_size),
+    },
+    "activity": {
+        "moment": ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"],
+        "ray_valid_count": ndarray(n_moments, n_returns),
+        "ray_valid_fraction": ndarray(n_moments, n_returns),
+        "sweep_valid_count": ndarray(n_moments, n_sweeps),
+        "sweep_valid_fraction": ndarray(n_moments, n_sweeps),
+        "volume_valid_count": ndarray(n_moments, 1),
+        "volume_valid_fraction": ndarray(n_moments, 1),
+    },
 }
 ```
 
+### Activity Metrics
+
+Activity metrics summarize data availability for each radar moment (DBZH, VRADH, WRADH, ZDR, PHIDP, RHOHV, KDP) at three levels:
+
+| Metric | Shape | Description |
+|--------|-------|-------------|
+| `ray_valid_count` | (n_moments, n_returns) | Count of finite values per ray |
+| `ray_valid_fraction` | (n_moments, n_returns) | Fraction of valid gates per ray (count / fold_size) |
+| `sweep_valid_count` | (n_moments, n_sweeps) | Total valid values per sweep |
+| `sweep_valid_fraction` | (n_moments, n_sweeps) | Fraction valid per sweep (count / (n_radials * fold_size)) |
+| `volume_valid_count` | (n_moments, 1) | Total valid values in the volume |
+| `volume_valid_fraction` | (n_moments, 1) | Fraction valid across the volume |
+
+Activity is computed during parsing and included by default. To disable:
+
+```python
+rs = rrs.parse(file_bytes, include_activity=False)
+dt = rrs.open_datatree(source, include_activity=False)
+```
+
+Fractions are normalized by the rays actually present in the raystack. If processing a partial volume (e.g., time-sliced), sweep/volume fractions reflect only the observed data, not full-sweep geometry.
+
 ### QC masks
 
-Raystack parsing can inject QC masks into the returns dataset:
+Raystack parsing can emit QC outputs under a dedicated `qc` node/dict:
 
 ## Compatibility notes (xradar / Py-ART)
 
@@ -150,11 +192,11 @@ import radrs.raystack as rrs
 import radrs.qc as qc
 
 rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(), qc.SunSpike()])
-mask = rs["returns"]["rhohv_threshold_mask"]  # int8, same shape as DBZH/RHOHV
+mask = rs["qc"]["rhohv_threshold_mask"]  # int8, same shape as DBZH/RHOHV
 
 # Winding number from VRADH dealiasing
 rs = rrs.parse(file_bytes, qc=[qc.VradhWindingNumber()])
-winding = rs["returns"]["vradh_winding_number"]  # float32, same shape as VRADH
+winding = rs["qc"]["vradh_winding_number"]  # float32, same shape as VRADH
 ```
 
 ## Development
@@ -192,7 +234,7 @@ radrs/
 
 | Behavior | radrs | xradar |
 |----------|-------|--------|
-| Radial ordering | File order | Sorted by azimuth |
+| Radial ordering | File order (use `sort_by_azimuth=True` to match xradar) | Sorted by azimuth |
 | Below-threshold | NaN | Raw value |
 | Range-folded | NaN | Raw value |
 

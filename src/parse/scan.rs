@@ -19,14 +19,17 @@ pub fn parse_header(data: &[u8]) -> Option<VolumeHeader> {
     let header = volume.header()?;
 
     // Version is extracted from tape_filename: "AR2V0 0xx." where xx is version
-    let version = header.tape_filename().and_then(|name| {
-        // Format is "AR2V0 0xx." - version is at chars 7-8
-        if name.len() >= 9 {
-            name[7..9].parse::<u8>().ok()
-        } else {
-            None
-        }
-    }).unwrap_or(0);
+    let version = header
+        .tape_filename()
+        .and_then(|name| {
+            // Format is "AR2V0 0xx." - version is at chars 7-8
+            if name.len() >= 9 {
+                name[7..9].parse::<u8>().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0);
 
     Some(VolumeHeader {
         version,

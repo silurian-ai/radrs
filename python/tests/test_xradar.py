@@ -181,15 +181,13 @@ class TestXradarCompatibility:
             assert abs(rust_n - xrad_n) <= max_diff, \
                 f"{key}: radial count diff too large: radrs={rust_n}, xradar={xrad_n}"
 
-    def test_azimuth_values_match_by_matching(self, test_file_path, xradar_datatree):
-        """Test that azimuth values match xradar by finding closest matches.
+    def test_azimuth_values_match(self, test_file_path, xradar_datatree):
+        """Test that azimuth values match xradar.
 
-        Instead of comparing sorted arrays directly (which fails when radial
-        counts differ), we verify that each azimuth in radrs has a matching
-        azimuth in xradar within tolerance.
+        Both sorted by azimuth, so we match by finding closest azimuths
+        (radial counts may differ slightly between implementations).
         """
-
-        rust_dt = rxr.open_datatree(test_file_path)
+        rust_dt = rxr.open_datatree(test_file_path, sort_by_azimuth=True)
 
         for key in rust_dt.children:
             if not key.startswith("sweep_"):
@@ -198,83 +196,53 @@ class TestXradarCompatibility:
             rust_az = rust_dt[key]["azimuth"].values
             xrad_az = xradar_datatree[key]["azimuth"].values
 
-            # For each radrs azimuth, find closest in xradar
-            max_min_diff = 0.0
-            for az in rust_az:
-                min_diff = np.min(np.abs(xrad_az - az))
-                max_min_diff = max(max_min_diff, min_diff)
+            # Each azimuth should have a close match
+            max_diff = max(np.min(np.abs(xrad_az - az)) for az in rust_az)
+            tolerance = 360.0 / len(rust_az) * 1.1  # ~1 azimuth spacing
+            assert max_diff < tolerance, f"{key}: worst azimuth match = {max_diff:.2f}°"
 
-            # Each azimuth should have a match within expected spacing
-            # For 360-radial sweeps, spacing is ~1°, so allow up to 1.1°
-            expected_spacing = 360.0 / len(rust_az)
-            tolerance = expected_spacing * 1.1
-            assert max_min_diff < tolerance, \
-                f"{key}: worst azimuth match = {max_min_diff:.2f}°, expected < {tolerance:.2f}°"
-
-    def test_moment_values_match_at_same_azimuth(self, test_file_path, xradar_datatree):
+    def test_moment_values_match(self, test_file_path, xradar_datatree):
         """Test that moment values match xradar when aligned by azimuth.
 
-        Since radrs and xradar order radials differently, we need to match
-        radials by azimuth. We then compare the finite (non-NaN) values.
-
         Note: radrs marks below-threshold/range-folded as NaN, while xradar
-        preserves the raw encoded values. So we only compare positions where
-        radrs has finite values.
+        preserves raw values. We only compare where both have finite values.
         """
-
-        rust_dt = rxr.open_datatree(test_file_path)
-        moments_to_check = ["DBZH", "VRADH", "RHOHV"]
+        rust_dt = rxr.open_datatree(test_file_path, sort_by_azimuth=True)
 
         for key in rust_dt.children:
             if not key.startswith("sweep_"):
                 continue
-
             if key not in xradar_datatree.children:
                 continue
 
             rust_az = rust_dt[key]["azimuth"].values
             xrad_az = xradar_datatree[key]["azimuth"].values
+            az_spacing = 360.0 / len(xrad_az)
 
-            for moment in moments_to_check:
-                if moment not in rust_dt[key].dataset:
-                    continue
-                if moment not in xradar_datatree[key].dataset:
+            for moment in ["DBZH", "VRADH", "RHOHV"]:
+                if moment not in rust_dt[key].dataset or moment not in xradar_datatree[key].dataset:
                     continue
 
                 rust_vals = rust_dt[key][moment].values
                 xrad_vals = xradar_datatree[key][moment].values
 
-                # Match radials by closest azimuth (use < 1/2 spacing to avoid
-                # pairing adjacent radials in 0.5° sweeps).
-                expected_spacing = 360.0 / len(xrad_az)
-                az_tolerance = expected_spacing * 0.55
+                # Match rows by closest azimuth
                 matched_diffs = []
                 for i, az in enumerate(rust_az):
-                    # Find closest azimuth in xradar
                     j = np.argmin(np.abs(xrad_az - az))
-                    if np.abs(xrad_az[j] - az) > az_tolerance:
+                    if np.abs(xrad_az[j] - az) > az_spacing * 0.55:
                         continue
 
-                    # Compare the rows - only where radrs has finite values
                     rust_row = rust_vals[i]
                     xrad_row = xrad_vals[j]
-
-                    # xradar preserves raw below-threshold sentinel (-33 dBZ for DBZH).
-                    # Treat it as NaN so we only compare valid gates.
                     xrad_row = np.where(np.isclose(xrad_row, -33.0, atol=0.01), np.nan, xrad_row)
-                    finite_mask = np.isfinite(rust_row) & np.isfinite(xrad_row)
-                    if not np.any(finite_mask):
-                        continue
 
-                    diff = np.abs(rust_row[finite_mask] - xrad_row[finite_mask])
-                    matched_diffs.extend(diff.tolist())
+                    mask = np.isfinite(rust_row) & np.isfinite(xrad_row)
+                    if np.any(mask):
+                        matched_diffs.extend(np.abs(rust_row[mask] - xrad_row[mask]).tolist())
 
-                if not matched_diffs:
-                    continue
-
-                max_diff = max(matched_diffs)
-                assert max_diff < 0.01, \
-                    f"{key}/{moment}: max diff = {max_diff}, expected < 0.01"
+                if matched_diffs:
+                    assert max(matched_diffs) < 0.01, f"{key}/{moment}: max diff = {max(matched_diffs)}"
 
 
 class TestPerformance:

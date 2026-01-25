@@ -10,12 +10,12 @@ mod trackers;
 use numpy::{IntoPyArray, PyArray2, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 
+use crate::ops::velocity_texture;
 use edges::edge_sum_and_count;
 use regions::{
     find_regions, find_sweep_interval_splits, output_from_labels, region_sizes_and_masked,
 };
-use crate::ops::velocity_texture;
-use trackers::{combine_regions, round_even, EdgeTracker, RegionTracker};
+use trackers::{EdgeTracker, RegionTracker, combine_regions, round_even};
 
 #[derive(Clone, Copy)]
 pub struct VradhWindingParams {
@@ -154,8 +154,13 @@ pub fn vradh_winding_number(
 
     let nyq_interval = nyq as f64 * 2.0;
     let mut region_tracker = RegionTracker::new(&region_sizes);
-    let mut edge_tracker =
-        EdgeTracker::new(&indices, &edge_count, &vel_sums, nyq_interval, nfeatures + 1);
+    let mut edge_tracker = EdgeTracker::new(
+        &indices,
+        &edge_count,
+        &vel_sums,
+        nyq_interval,
+        nfeatures + 1,
+    );
 
     loop {
         if combine_regions(&mut region_tracker, &mut edge_tracker) {

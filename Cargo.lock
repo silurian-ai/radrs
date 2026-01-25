@@ -860,8 +860,8 @@ dependencies = [
 
 [[package]]
 name = "nexrad-data"
-version = "1.0.0-rc.2"
-source = "git+https://github.com/rejuvyesh/nexrad?branch=jkg%2Fdual-pole-parsing#9a2ac7af76f4b237a84a8e4f4d6769c60ba1f988"
+version = "1.0.0-rc.4"
+source = "git+https://github.com/rejuvyesh/nexrad?branch=jkg%2Fdual-pole-parsing#88c24b5e34536ea36b16b8b9ae988a014b0464d1"
 dependencies = [
  "bzip2",
  "chrono",
@@ -875,8 +875,8 @@ dependencies = [
 
 [[package]]
 name = "nexrad-decode"
-version = "1.0.0-rc.1"
-source = "git+https://github.com/rejuvyesh/nexrad?branch=jkg%2Fdual-pole-parsing#9a2ac7af76f4b237a84a8e4f4d6769c60ba1f988"
+version = "1.0.0-rc.2"
+source = "git+https://github.com/rejuvyesh/nexrad?branch=jkg%2Fdual-pole-parsing#88c24b5e34536ea36b16b8b9ae988a014b0464d1"
 dependencies = [
  "chrono",
  "hex",
@@ -891,7 +891,7 @@ dependencies = [
 [[package]]
 name = "nexrad-model"
 version = "1.0.0-rc.1"
-source = "git+https://github.com/rejuvyesh/nexrad?branch=jkg%2Fdual-pole-parsing#9a2ac7af76f4b237a84a8e4f4d6769c60ba1f988"
+source = "git+https://github.com/rejuvyesh/nexrad?branch=jkg%2Fdual-pole-parsing#88c24b5e34536ea36b16b8b9ae988a014b0464d1"
 dependencies = [
  "thiserror",
 ]
@@ -1249,6 +1249,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "zerocopy",
 ]
 
 [[package]]
