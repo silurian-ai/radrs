@@ -2,7 +2,7 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::RUNTIME;
-use crate::raystack::{self, parse_qc_ops, QcOp};
+use crate::raystack::{self, QcOp, parse_qc_ops};
 use crate::xradar;
 use pyo3::prelude::*;
 use pyo3_async_runtimes::tokio::future_into_py;
@@ -81,7 +81,12 @@ impl VolumeIterator {
                 let parse_result = py.detach(|| xradar::open_datatree(data));
                 match parse_result {
                     Ok((scan, meta)) => {
-                        return xradar::datatree::scan_to_datatree(py, &scan, &meta, self.sort_by_azimuth);
+                        return xradar::datatree::scan_to_datatree(
+                            py,
+                            &scan,
+                            &meta,
+                            self.sort_by_azimuth,
+                        );
                     }
                     Err(e) => {
                         tracing::warn!("Failed to parse volume (xradar), skipping: {}", e);
@@ -202,7 +207,12 @@ impl VolumeIteratorAsync {
                     match parse_result {
                         Ok((scan, meta)) => {
                             return Python::attach(|py| {
-                                xradar::datatree::scan_to_datatree(py, &scan, &meta, sort_by_azimuth)
+                                xradar::datatree::scan_to_datatree(
+                                    py,
+                                    &scan,
+                                    &meta,
+                                    sort_by_azimuth,
+                                )
                             })
                             .map_err(Into::into);
                         }

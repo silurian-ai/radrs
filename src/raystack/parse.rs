@@ -4,20 +4,20 @@
 //! Supports parallel BZ2 decompression via rayon.
 
 use crate::error::{RadrsError, Result};
-use crate::fetch::{fetch_s3_url, RUNTIME};
-use crate::metadata::{extract_scan_meta, ScanMeta};
+use crate::fetch::{RUNTIME, fetch_s3_url};
+use crate::metadata::{ScanMeta, extract_scan_meta};
 use crate::qc;
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentValue, Scan};
-use numpy::ndarray::Array2;
 use numpy::IntoPyArray;
+use numpy::ndarray::Array2;
+use pyo3::PyErr;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyBytes, PyDict, PyList};
-use pyo3::PyErr;
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::borrow::Cow;
-use std::io::Read;
 use std::fs;
+use std::io::Read;
 
 /// Default fold size for raystack format
 pub const DEFAULT_FOLD_SIZE: usize = 128;
@@ -206,7 +206,10 @@ pub struct SweepInfo {
 
 #[derive(Clone)]
 pub enum QcOp {
-    RhohvThreshold { threshold: f32, vname: String },
+    RhohvThreshold {
+        threshold: f32,
+        vname: String,
+    },
     SunSpike {
         dbzh_threshold: f32,
         fill_threshold: f32,
@@ -341,9 +344,7 @@ pub(crate) fn parse_qc_ops(py: Python<'_>, qc: Option<&Bound<'_, PyAny>>) -> PyR
         if let Ok(dict) = item.cast::<PyDict>() {
             let name_any = dict
                 .get_item("name")?
-                .ok_or_else(|| {
-                    pyo3::exceptions::PyValueError::new_err("QC spec missing 'name'")
-                })?;
+                .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("QC spec missing 'name'"))?;
             let name: String = name_any.extract()?;
             ops.push(qc_op_from_name(&name, Some(&dict), py)?);
             continue;
@@ -598,7 +599,8 @@ fn build_qc_outputs(raystack: &RaystackData, qc_ops: &[QcOp]) -> Vec<(String, Qc
                         fill_value: *fill_value,
                         fill_tolerance: *fill_tolerance,
                     };
-                    let sweep_out = qc::vradh_winding_number(vradh, Some(dbzh), n_radials, fold_size, params);
+                    let sweep_out =
+                        qc::vradh_winding_number(vradh, Some(dbzh), n_radials, fold_size, params);
                     out[offset..offset + slice_len].copy_from_slice(&sweep_out);
                 }
                 outputs.push((vname.clone(), QcArray::Float(out)));
@@ -1036,8 +1038,10 @@ pub fn open_raystack_datatree_async_py<'py>(
             .await
             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
 
-        Python::attach(|py| raystack_data_to_raystack_datatree(py, raystack, &qc_ops, include_activity))
-            .map_err(Into::into)
+        Python::attach(|py| {
+            raystack_data_to_raystack_datatree(py, raystack, &qc_ops, include_activity)
+        })
+        .map_err(Into::into)
     })?;
 
     Ok(awaitable.into())
@@ -1135,8 +1139,7 @@ fn raystack_data_to_raystack_datatree(
             .unwrap_or(sweep_time);
         sweep_durations.push(sweep_end - sweep_time);
 
-        let (range_start_m, range_step_m, max_range_m) =
-            sweep_range_metrics(sweep, fold_size);
+        let (range_start_m, range_step_m, max_range_m) = sweep_range_metrics(sweep, fold_size);
 
         sweep_numbers.push(sweep.sweep_number);
         elevation_numbers.push(u32::from(sweep.elevation_number));
@@ -1172,7 +1175,8 @@ fn raystack_data_to_raystack_datatree(
 
     let sweep_time_per_return_arr = sweep_time_per_return.into_pyarray(py);
     let sweep_time_per_return_dt = np.call_method1("array", (&sweep_time_per_return_arr,))?;
-    let sweep_time_per_return_dt = sweep_time_per_return_dt.call_method1("astype", ("datetime64[ms]",))?;
+    let sweep_time_per_return_dt =
+        sweep_time_per_return_dt.call_method1("astype", ("datetime64[ms]",))?;
 
     // vcps dataset
     let vcps_coords = PyDict::new(py);
@@ -1188,7 +1192,10 @@ fn raystack_data_to_raystack_datatree(
     )?;
     vcps_vars.set_item(
         "vcp_name",
-        (("vcp_time",), vec![format!("VCP-{}", raystack.pattern_number)]),
+        (
+            ("vcp_time",),
+            vec![format!("VCP-{}", raystack.pattern_number)],
+        ),
     )?;
     vcps_vars.set_item("vcp_duration", (("vcp_time",), vcp_duration_dt))?;
     vcps_vars.set_item(
@@ -1296,10 +1303,7 @@ fn raystack_data_to_raystack_datatree(
         "sweep_time",
         (("return_time",), sweep_time_per_return_dt.clone()),
     )?;
-    returns_coords.set_item(
-        "vcp_time",
-        (("return_time",), vec![vcp_time; n_returns]),
-    )?;
+    returns_coords.set_item("vcp_time", (("return_time",), vec![vcp_time; n_returns]))?;
     if let Some(ref name) = instrument_name {
         returns_coords.set_item(
             "instrument_name",
@@ -1307,22 +1311,13 @@ fn raystack_data_to_raystack_datatree(
         )?;
     }
     if let Some(lat) = raystack.latitude {
-        returns_coords.set_item(
-            "latitude",
-            (("return_time",), vec![lat; n_returns]),
-        )?;
+        returns_coords.set_item("latitude", (("return_time",), vec![lat; n_returns]))?;
     }
     if let Some(lon) = raystack.longitude {
-        returns_coords.set_item(
-            "longitude",
-            (("return_time",), vec![lon; n_returns]),
-        )?;
+        returns_coords.set_item("longitude", (("return_time",), vec![lon; n_returns]))?;
     }
     if let Some(alt) = raystack.altitude {
-        returns_coords.set_item(
-            "altitude",
-            (("return_time",), vec![alt; n_returns]),
-        )?;
+        returns_coords.set_item("altitude", (("return_time",), vec![alt; n_returns]))?;
     }
     returns_coords.set_item(
         "range",
@@ -1346,7 +1341,10 @@ fn raystack_data_to_raystack_datatree(
     )?;
     returns_coords.set_item(
         "elevation_number",
-        (("return_time",), elevation_number_per_return.into_pyarray(py)),
+        (
+            ("return_time",),
+            elevation_number_per_return.into_pyarray(py),
+        ),
     )?;
     returns_coords.set_item(
         "base_range",
@@ -1385,7 +1383,7 @@ fn raystack_data_to_raystack_datatree(
             ]
             .into_py_dict(py)?,
         ),
-        )?;
+    )?;
 
     let qc_ds = if !qc_outputs.is_empty() && n_returns > 0 {
         let qc_coords = PyDict::new(py);
@@ -1398,10 +1396,7 @@ fn raystack_data_to_raystack_datatree(
             "sweep_time",
             (("return_time",), sweep_time_per_return_dt.clone()),
         )?;
-        qc_coords.set_item(
-            "vcp_time",
-            (("return_time",), vec![vcp_time; n_returns]),
-        )?;
+        qc_coords.set_item("vcp_time", (("return_time",), vec![vcp_time; n_returns]))?;
 
         let qc_vars = PyDict::new(py);
         for (name, output) in qc_outputs {
@@ -1419,17 +1414,19 @@ fn raystack_data_to_raystack_datatree(
             }
         }
 
-        Some(xr.call_method(
-            "Dataset",
-            (),
-            Some(
-                &[
-                    ("data_vars", qc_vars.as_any()),
-                    ("coords", qc_coords.as_any()),
-                ]
-                .into_py_dict(py)?,
-            ),
-        )?)
+        Some(
+            xr.call_method(
+                "Dataset",
+                (),
+                Some(
+                    &[
+                        ("data_vars", qc_vars.as_any()),
+                        ("coords", qc_coords.as_any()),
+                    ]
+                    .into_py_dict(py)?,
+                ),
+            )?,
+        )
     } else {
         None
     };
@@ -1437,14 +1434,8 @@ fn raystack_data_to_raystack_datatree(
     let activity_ds = if let Some(activity) = activity {
         let activity_coords = PyDict::new(py);
         activity_coords.set_item("moment", (("moment",), activity.moments.clone()))?;
-        activity_coords.set_item(
-            "return_time",
-            (("return_time",), return_time_dt.clone()),
-        )?;
-        activity_coords.set_item(
-            "sweep_time",
-            (("sweep_time",), sweep_time_dt.clone()),
-        )?;
+        activity_coords.set_item("return_time", (("return_time",), return_time_dt.clone()))?;
+        activity_coords.set_item("sweep_time", (("sweep_time",), sweep_time_dt.clone()))?;
         activity_coords.set_item("vcp_time", (("vcp_time",), vcp_time_dt.clone()))?;
 
         let activity_vars = PyDict::new(py);
@@ -1486,36 +1477,34 @@ fn raystack_data_to_raystack_datatree(
             (("moment", "sweep_time"), sweep_frac.into_pyarray(py)),
         )?;
 
-        let volume_counts = Array2::from_shape_vec(
-            (activity.moments.len(), 1),
-            activity.volume_valid_count,
-        )
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let volume_counts =
+            Array2::from_shape_vec((activity.moments.len(), 1), activity.volume_valid_count)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         activity_vars.set_item(
             "volume_valid_count",
             (("moment", "vcp_time"), volume_counts.into_pyarray(py)),
         )?;
-        let volume_frac = Array2::from_shape_vec(
-            (activity.moments.len(), 1),
-            activity.volume_valid_fraction,
-        )
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let volume_frac =
+            Array2::from_shape_vec((activity.moments.len(), 1), activity.volume_valid_fraction)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         activity_vars.set_item(
             "volume_valid_fraction",
             (("moment", "vcp_time"), volume_frac.into_pyarray(py)),
         )?;
 
-        Some(xr.call_method(
-            "Dataset",
-            (),
-            Some(
-                &[
-                    ("data_vars", activity_vars.as_any()),
-                    ("coords", activity_coords.as_any()),
-                ]
-                .into_py_dict(py)?,
-            ),
-        )?)
+        Some(
+            xr.call_method(
+                "Dataset",
+                (),
+                Some(
+                    &[
+                        ("data_vars", activity_vars.as_any()),
+                        ("coords", activity_coords.as_any()),
+                    ]
+                    .into_py_dict(py)?,
+                ),
+            )?,
+        )
     } else {
         None
     };
@@ -1525,10 +1514,7 @@ fn raystack_data_to_raystack_datatree(
     root_attrs.set_item("instrument_type", "radar")?;
     root_attrs.set_item("platform_type", "fixed")?;
     root_attrs.set_item("volume_coverage_pattern", raystack.pattern_number)?;
-    root_attrs.set_item(
-        "scan_name",
-        format!("VCP-{}", raystack.pattern_number),
-    )?;
+    root_attrs.set_item("scan_name", format!("VCP-{}", raystack.pattern_number))?;
     if let Some(ref name) = instrument_name {
         root_attrs.set_item("instrument_name", name.as_str())?;
     }
@@ -1574,10 +1560,7 @@ pub fn raystack_to_python(
     if let Some(ref name) = raystack.instrument_name {
         vcps.set_item("instrument_name", name.as_str())?;
     }
-    vcps.set_item(
-        "vcp_name",
-        format!("VCP-{}", raystack.pattern_number),
-    )?;
+    vcps.set_item("vcp_name", format!("VCP-{}", raystack.pattern_number))?;
     let vcp_time = raystack.time.iter().copied().min().unwrap_or(0);
     let vcp_end = raystack.time.iter().copied().max().unwrap_or(vcp_time);
     vcps.set_item("vcp_duration", vcp_end - vcp_time)?;
@@ -1628,10 +1611,7 @@ pub fn raystack_to_python(
     returns.set_item("elevation", raystack.elevation.into_pyarray(py))?;
     returns.set_item("time", raystack.time.into_pyarray(py))?;
     returns.set_item("sweep_idx", raystack.sweep_idx.into_pyarray(py))?;
-    returns.set_item(
-        "range",
-        (0..fold_size).collect::<Vec<usize>>(),
-    )?;
+    returns.set_item("range", (0..fold_size).collect::<Vec<usize>>())?;
 
     let mut sweep_number_per_return = vec![0u32; n_radials];
     let mut elevation_number_per_return = vec![0u32; n_radials];
@@ -1641,8 +1621,7 @@ pub fn raystack_to_python(
     for sweep in &raystack.sweeps {
         let start = sweep.start_index;
         let end = (start + sweep.n_radials).min(n_radials);
-        let (range_start_m, range_step_m, _max_range_m) =
-            sweep_range_metrics(sweep, fold_size);
+        let (range_start_m, range_step_m, _max_range_m) = sweep_range_metrics(sweep, fold_size);
 
         for idx in start..end {
             sweep_number_per_return[idx] = sweep.sweep_number;
@@ -1652,22 +1631,13 @@ pub fn raystack_to_python(
         }
     }
 
-    returns.set_item(
-        "sweep_number",
-        sweep_number_per_return.into_pyarray(py),
-    )?;
+    returns.set_item("sweep_number", sweep_number_per_return.into_pyarray(py))?;
     returns.set_item(
         "elevation_number",
         elevation_number_per_return.into_pyarray(py),
     )?;
-    returns.set_item(
-        "base_range",
-        base_range_per_return.into_pyarray(py),
-    )?;
-    returns.set_item(
-        "range_step",
-        range_step_per_return.into_pyarray(py),
-    )?;
+    returns.set_item("base_range", base_range_per_return.into_pyarray(py))?;
+    returns.set_item("range_step", range_step_per_return.into_pyarray(py))?;
 
     // Moment arrays (2D) - reshape from flat
     let add_moment = |name: &str, data: Vec<f32>, returns: &Bound<'_, PyDict>| -> PyResult<()> {
@@ -1740,18 +1710,14 @@ pub fn raystack_to_python(
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         activity_dict.set_item("sweep_valid_fraction", sweep_frac.into_pyarray(py))?;
 
-        let volume_counts = Array2::from_shape_vec(
-            (activity.moments.len(), 1),
-            activity.volume_valid_count,
-        )
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let volume_counts =
+            Array2::from_shape_vec((activity.moments.len(), 1), activity.volume_valid_count)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         activity_dict.set_item("volume_valid_count", volume_counts.into_pyarray(py))?;
 
-        let volume_frac = Array2::from_shape_vec(
-            (activity.moments.len(), 1),
-            activity.volume_valid_fraction,
-        )
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let volume_frac =
+            Array2::from_shape_vec((activity.moments.len(), 1), activity.volume_valid_fraction)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         activity_dict.set_item("volume_valid_fraction", volume_frac.into_pyarray(py))?;
 
         result.set_item("activity", activity_dict)?;
@@ -1774,16 +1740,7 @@ mod tests {
         ];
         let mut dest = vec![f32::NAN; 6];
         // sweep_gates = 4, fold_size = 6, same grid
-        fold_moment_values_into(
-            &values,
-            &mut dest,
-            6,
-            4,
-            0.5,
-            0.25,
-            0.5,
-            0.25,
-        );
+        fold_moment_values_into(&values, &mut dest, 6, 4, 0.5, 0.25, 0.5, 0.25);
 
         assert_eq!(dest[0], 1.0);
         assert!(dest[1].is_nan());
@@ -1809,16 +1766,7 @@ mod tests {
         ];
         let mut dest = vec![f32::NAN; 3];
         // sweep_gates = 6, fold_size = 3, same grid
-        fold_moment_values_into(
-            &values,
-            &mut dest,
-            3,
-            6,
-            0.0,
-            1.0,
-            0.0,
-            1.0,
-        );
+        fold_moment_values_into(&values, &mut dest, 3, 6, 0.0, 1.0, 0.0, 1.0);
 
         assert!((dest[0] - 1.0).abs() < 0.01);
         assert!((dest[1] - 3.0).abs() < 0.01);
@@ -1829,16 +1777,7 @@ mod tests {
     fn test_fold_moment_values_into_empty() {
         let values: Vec<MomentValue> = vec![];
         let mut dest = vec![f32::NAN; 4];
-        fold_moment_values_into(
-            &values,
-            &mut dest,
-            4,
-            4,
-            0.0,
-            1.0,
-            0.0,
-            1.0,
-        );
+        fold_moment_values_into(&values, &mut dest, 4, 4, 0.0, 1.0, 0.0, 1.0);
 
         assert!(dest.iter().all(|v| v.is_nan()));
     }
@@ -1849,16 +1788,7 @@ mod tests {
         // Moment gates at 1.0, 2.0 should land at indices 1 and 3.
         let values = vec![MomentValue::Value(10.0), MomentValue::Value(20.0)];
         let mut dest = vec![f32::NAN; 6];
-        fold_moment_values_into(
-            &values,
-            &mut dest,
-            6,
-            4,
-            1.0,
-            1.0,
-            0.5,
-            0.5,
-        );
+        fold_moment_values_into(&values, &mut dest, 6, 4, 1.0, 1.0, 0.5, 0.5);
 
         assert!(dest[0].is_nan());
         assert_eq!(dest[1], 10.0);
@@ -1877,16 +1807,7 @@ mod tests {
             MomentValue::Value(30.0),
         ];
         let mut dest = vec![f32::NAN; 4];
-        fold_moment_values_into(
-            &values,
-            &mut dest,
-            4,
-            8,
-            1.0,
-            2.0,
-            0.0,
-            1.0,
-        );
+        fold_moment_values_into(&values, &mut dest, 4, 8, 1.0, 2.0, 0.0, 1.0);
 
         assert!((dest[0] - 10.0).abs() < 0.01);
         assert!((dest[1] - 20.0).abs() < 0.01);

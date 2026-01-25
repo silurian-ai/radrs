@@ -1,15 +1,15 @@
 //! DataTree conversion for xradar compatibility
 
 use crate::error::{RadrsError, Result};
-use crate::fetch::{fetch_s3_url, RUNTIME};
-use crate::metadata::{extract_scan_meta, ScanMeta};
+use crate::fetch::{RUNTIME, fetch_s3_url};
+use crate::metadata::{ScanMeta, extract_scan_meta};
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentValue, Radial, Scan, Sweep};
 use numpy::IntoPyArray;
+use pyo3::PyErr;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyBytes, PyDict};
 use pyo3_async_runtimes::tokio::future_into_py;
-use pyo3::PyErr;
 use std::collections::HashMap;
 use std::fs;
 
@@ -33,7 +33,11 @@ const MOMENT_NAMES: [(&str, &str); 7] = [
 /// xarray.DataTree with sweeps as children
 #[pyfunction]
 #[pyo3(name = "open_datatree", signature = (source, sort_by_azimuth = false))]
-pub fn open_datatree_py(py: Python<'_>, source: &Bound<'_, PyAny>, sort_by_azimuth: bool) -> PyResult<Py<PyAny>> {
+pub fn open_datatree_py(
+    py: Python<'_>,
+    source: &Bound<'_, PyAny>,
+    sort_by_azimuth: bool,
+) -> PyResult<Py<PyAny>> {
     // Handle different input types
     let data = if source.is_instance_of::<PyBytes>() {
         // Bytes input
@@ -61,7 +65,11 @@ pub fn open_datatree_py(py: Python<'_>, source: &Bound<'_, PyAny>, sort_by_azimu
 /// Open a NEXRAD Level 2 file asynchronously and return an xarray DataTree.
 #[pyfunction]
 #[pyo3(name = "open_datatree_async", signature = (source, sort_by_azimuth = false))]
-pub fn open_datatree_async_py(py: Python<'_>, source: &Bound<'_, PyAny>, sort_by_azimuth: bool) -> PyResult<Py<PyAny>> {
+pub fn open_datatree_async_py(
+    py: Python<'_>,
+    source: &Bound<'_, PyAny>,
+    sort_by_azimuth: bool,
+) -> PyResult<Py<PyAny>> {
     let source = source.as_borrowed().to_owned().unbind();
 
     let awaitable = future_into_py(py, async move {
@@ -213,7 +221,9 @@ fn sweep_to_dataset<'py>(
                 let first_range = moment.first_gate_range_km();
                 let gate_interval = moment.gate_interval_km();
 
-                let entry = moment_info.entry(*cf_name).or_insert((0, first_range, gate_interval));
+                let entry = moment_info
+                    .entry(*cf_name)
+                    .or_insert((0, first_range, gate_interval));
                 if n_gates > entry.0 {
                     *entry = (n_gates, first_range, gate_interval);
                 }
@@ -323,14 +333,21 @@ fn sweep_to_dataset<'py>(
     }
 
     // Create Dataset
-    let kwargs = [("data_vars", data_vars.as_any()), ("coords", coords.as_any())].into_py_dict(py)?;
+    let kwargs = [
+        ("data_vars", data_vars.as_any()),
+        ("coords", coords.as_any()),
+    ]
+    .into_py_dict(py)?;
     let dataset = xr.call_method("Dataset", (), Some(&kwargs))?;
 
     Ok(dataset)
 }
 
 /// Helper to get moment data from a radial by name
-fn get_moment_data<'a>(radial: &'a Radial, moment_name: &str) -> Option<&'a nexrad_model::data::MomentData> {
+fn get_moment_data<'a>(
+    radial: &'a Radial,
+    moment_name: &str,
+) -> Option<&'a nexrad_model::data::MomentData> {
     match moment_name {
         "reflectivity" => radial.reflectivity(),
         "velocity" => radial.velocity(),

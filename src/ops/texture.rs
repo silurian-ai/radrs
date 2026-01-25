@@ -1,5 +1,5 @@
-use rayon::prelude::*;
 use super::filters::{convolve_ones_symm_par, median_filter_symm_par};
+use rayon::prelude::*;
 
 pub(crate) fn velocity_texture(
     vel: &[f32],

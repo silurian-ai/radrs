@@ -1,7 +1,7 @@
 //! Conversion between DataTree and Raystack formats
 
 use crate::raystack::fold::fold_ranges_into;
-use crate::raystack::parse::{RaystackData, SweepInfo, DEFAULT_FOLD_SIZE, raystack_to_python};
+use crate::raystack::parse::{DEFAULT_FOLD_SIZE, RaystackData, SweepInfo, raystack_to_python};
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyDict};
@@ -134,22 +134,23 @@ fn count_radials(
                 .unwrap_or(0.0)
         };
 
-        let (max_gates, range_first_km, gate_interval_km) = if let Ok(range) = dataset.get_item("range") {
-            let values = range.getattr("values")?;
-            let flat = np.call_method1("ravel", (&values,))?;
-            let data: Vec<f64> = flat.extract()?;
-            if data.len() >= 2 {
-                let first = data[0];
-                let step = data[1] - data[0];
-                (data.len(), first / 1000.0, step / 1000.0)
-            } else if data.len() == 1 {
-                (1, data[0] / 1000.0, 0.0)
+        let (max_gates, range_first_km, gate_interval_km) =
+            if let Ok(range) = dataset.get_item("range") {
+                let values = range.getattr("values")?;
+                let flat = np.call_method1("ravel", (&values,))?;
+                let data: Vec<f64> = flat.extract()?;
+                if data.len() >= 2 {
+                    let first = data[0];
+                    let step = data[1] - data[0];
+                    (data.len(), first / 1000.0, step / 1000.0)
+                } else if data.len() == 1 {
+                    (1, data[0] / 1000.0, 0.0)
+                } else {
+                    (0, 0.0, 0.0)
+                }
             } else {
                 (0, 0.0, 0.0)
-            }
-        } else {
-            (0, 0.0, 0.0)
-        };
+            };
 
         let sweep_number = extract_sweep_number(&sweep_name)
             .map(|n| n as u32)
@@ -218,7 +219,8 @@ fn datatree_to_raystack(
             if let Ok(Some(child)) = children_dict.get_item(first.name.as_str()) {
                 if let Ok(dataset) = child.getattr("dataset") {
                     latitude = latitude.or_else(|| extract_scalar_coord(&np, &dataset, "latitude"));
-                    longitude = longitude.or_else(|| extract_scalar_coord(&np, &dataset, "longitude"));
+                    longitude =
+                        longitude.or_else(|| extract_scalar_coord(&np, &dataset, "longitude"));
                     altitude = altitude.or_else(|| extract_scalar_coord(&np, &dataset, "altitude"));
                 }
             }
@@ -369,7 +371,10 @@ fn datatree_to_raystack(
 }
 
 /// Convert Raystack dict back to xarray DataTree
-fn raystack_dict_to_datatree(py: Python<'_>, raystack_dict: &Bound<'_, PyDict>) -> PyResult<Py<PyAny>> {
+fn raystack_dict_to_datatree(
+    py: Python<'_>,
+    raystack_dict: &Bound<'_, PyDict>,
+) -> PyResult<Py<PyAny>> {
     let xr = py.import("xarray")?;
     let np = py.import("numpy")?;
 
@@ -393,10 +398,7 @@ fn raystack_dict_to_datatree(py: Python<'_>, raystack_dict: &Bound<'_, PyDict>) 
     root_attrs.set_item("instrument_type", "radar")?;
     root_attrs.set_item("platform_type", "fixed")?;
     root_attrs.set_item("volume_coverage_pattern", pattern_number)?;
-    root_attrs.set_item(
-        "scan_name",
-        format!("VCP-{}", pattern_number),
-    )?;
+    root_attrs.set_item("scan_name", format!("VCP-{}", pattern_number))?;
     if let Ok(name) = vcps.get_item("instrument_name") {
         if !name.is_none() {
             if let Ok(val) = name.extract::<String>() {
@@ -446,7 +448,10 @@ fn raystack_dict_to_datatree(py: Python<'_>, raystack_dict: &Bound<'_, PyDict>) 
         let end_index = start_index + n_radials;
 
         // Slice arrays for this sweep using Python slice objects
-        let slice_obj = py.import("builtins")?.getattr("slice")?.call1((start_index, end_index))?;
+        let slice_obj = py
+            .import("builtins")?
+            .getattr("slice")?
+            .call1((start_index, end_index))?;
         let sweep_azimuth = azimuth_arr.get_item(&slice_obj)?;
         let sweep_elevation = elevation_arr.get_item(&slice_obj)?;
         let sweep_time = time_arr.get_item(&slice_obj)?;
@@ -477,9 +482,7 @@ fn raystack_dict_to_datatree(py: Python<'_>, raystack_dict: &Bound<'_, PyDict>) 
                 // Create range coordinate if not exists
                 if !range_added {
                     // Default range values (would need actual metadata for accuracy)
-                    let range_data: Vec<f64> = (0..n_range)
-                        .map(|i| i as f64 * 250.0)
-                        .collect();
+                    let range_data: Vec<f64> = (0..n_range).map(|i| i as f64 * 250.0).collect();
                     let range_arr = range_data.into_pyarray(py);
                     coords.set_item("range", (("range",), range_arr))?;
                     range_added = true;
@@ -490,7 +493,11 @@ fn raystack_dict_to_datatree(py: Python<'_>, raystack_dict: &Bound<'_, PyDict>) 
         }
 
         // Create dataset
-        let kwargs = [("data_vars", data_vars.as_any()), ("coords", coords.as_any())].into_py_dict(py)?;
+        let kwargs = [
+            ("data_vars", data_vars.as_any()),
+            ("coords", coords.as_any()),
+        ]
+        .into_py_dict(py)?;
         let dataset = xr.call_method("Dataset", (), Some(&kwargs))?;
 
         // Set sweep attributes
@@ -664,7 +671,8 @@ fn raystack_dict_to_raystack_datatree(
     let return_time_dt = return_time_arr.call_method1("astype", ("datetime64[ms]",))?;
 
     let sweep_time_per_return_arr = np.call_method1("array", (&sweep_time_per_return,))?;
-    let sweep_time_per_return_dt = sweep_time_per_return_arr.call_method1("astype", ("datetime64[ms]",))?;
+    let sweep_time_per_return_dt =
+        sweep_time_per_return_arr.call_method1("astype", ("datetime64[ms]",))?;
 
     // Build vcps dataset
     let vcps_coords = PyDict::new(py);
@@ -684,7 +692,10 @@ fn raystack_dict_to_raystack_datatree(
         (("vcp_time",), vec![format!("VCP-{}", pattern_number)]),
     )?;
     vcps_vars.set_item("vcp_duration", (("vcp_time",), vcp_duration_dt))?;
-    vcps_vars.set_item("num_sweeps", (("vcp_time",), vec![sweeps_list.len() as u32]))?;
+    vcps_vars.set_item(
+        "num_sweeps",
+        (("vcp_time",), vec![sweeps_list.len() as u32]),
+    )?;
     vcps_vars.set_item("instrument_type", (("vcp_time",), vec!["radar"]))?;
     vcps_vars.set_item("platform_type", (("vcp_time",), vec!["fixed"]))?;
     if let Ok(lat) = vcps.get_item("latitude") {
@@ -712,7 +723,13 @@ fn raystack_dict_to_raystack_datatree(
     let vcps_ds = xr.call_method(
         "Dataset",
         (),
-        Some(&[("data_vars", vcps_vars.as_any()), ("coords", vcps_coords.as_any())].into_py_dict(py)?),
+        Some(
+            &[
+                ("data_vars", vcps_vars.as_any()),
+                ("coords", vcps_coords.as_any()),
+            ]
+            .into_py_dict(py)?,
+        ),
     )?;
 
     // Build sweeps dataset
@@ -731,30 +748,24 @@ fn raystack_dict_to_raystack_datatree(
     if let Ok(lat) = vcps.get_item("latitude") {
         if !lat.is_none() {
             if let Ok(val) = lat.extract::<f32>() {
-                sweeps_coords.set_item(
-                    "latitude",
-                    (("sweep_time",), vec![val; sweeps_list.len()]),
-                )?;
+                sweeps_coords
+                    .set_item("latitude", (("sweep_time",), vec![val; sweeps_list.len()]))?;
             }
         }
     }
     if let Ok(lon) = vcps.get_item("longitude") {
         if !lon.is_none() {
             if let Ok(val) = lon.extract::<f32>() {
-                sweeps_coords.set_item(
-                    "longitude",
-                    (("sweep_time",), vec![val; sweeps_list.len()]),
-                )?;
+                sweeps_coords
+                    .set_item("longitude", (("sweep_time",), vec![val; sweeps_list.len()]))?;
             }
         }
     }
     if let Ok(alt) = vcps.get_item("altitude") {
         if !alt.is_none() {
             if let Ok(val) = alt.extract::<f32>() {
-                sweeps_coords.set_item(
-                    "altitude",
-                    (("sweep_time",), vec![val; sweeps_list.len()]),
-                )?;
+                sweeps_coords
+                    .set_item("altitude", (("sweep_time",), vec![val; sweeps_list.len()]))?;
             }
         }
     }
@@ -765,7 +776,9 @@ fn raystack_dict_to_raystack_datatree(
     let mut range_step_per_return = vec![f32::NAN; n_returns];
 
     for (idx, start_index) in start_indices.iter().enumerate() {
-        let end = start_index.saturating_add(n_radials_list[idx]).min(n_returns);
+        let end = start_index
+            .saturating_add(n_radials_list[idx])
+            .min(n_returns);
         for r in *start_index..end {
             sweep_number_per_return[r] = sweep_numbers[idx];
             elevation_number_per_return[r] = elevation_numbers[idx];
@@ -782,7 +795,10 @@ fn raystack_dict_to_raystack_datatree(
     sweeps_vars.set_item("start_index", (("sweep_time",), start_indices))?;
     sweeps_vars.set_item(
         "sweep_mode",
-        (("sweep_time",), vec!["azimuth_surveillance"; sweeps_list.len()]),
+        (
+            ("sweep_time",),
+            vec!["azimuth_surveillance"; sweeps_list.len()],
+        ),
     )?;
     sweeps_vars.set_item(
         "prt_mode",
@@ -800,7 +816,13 @@ fn raystack_dict_to_raystack_datatree(
     let sweeps_ds = xr.call_method(
         "Dataset",
         (),
-        Some(&[("data_vars", sweeps_vars.as_any()), ("coords", sweeps_coords.as_any())].into_py_dict(py)?),
+        Some(
+            &[
+                ("data_vars", sweeps_vars.as_any()),
+                ("coords", sweeps_coords.as_any()),
+            ]
+            .into_py_dict(py)?,
+        ),
     )?;
 
     // Build returns dataset
@@ -825,30 +847,21 @@ fn raystack_dict_to_raystack_datatree(
     if let Ok(lat) = vcps.get_item("latitude") {
         if !lat.is_none() {
             if let Ok(val) = lat.extract::<f32>() {
-                returns_coords.set_item(
-                    "latitude",
-                    (("return_time",), vec![val; n_returns]),
-                )?;
+                returns_coords.set_item("latitude", (("return_time",), vec![val; n_returns]))?;
             }
         }
     }
     if let Ok(lon) = vcps.get_item("longitude") {
         if !lon.is_none() {
             if let Ok(val) = lon.extract::<f32>() {
-                returns_coords.set_item(
-                    "longitude",
-                    (("return_time",), vec![val; n_returns]),
-                )?;
+                returns_coords.set_item("longitude", (("return_time",), vec![val; n_returns]))?;
             }
         }
     }
     if let Ok(alt) = vcps.get_item("altitude") {
         if !alt.is_none() {
             if let Ok(val) = alt.extract::<f32>() {
-                returns_coords.set_item(
-                    "altitude",
-                    (("return_time",), vec![val; n_returns]),
-                )?;
+                returns_coords.set_item("altitude", (("return_time",), vec![val; n_returns]))?;
             }
         }
     }
@@ -856,10 +869,7 @@ fn raystack_dict_to_raystack_datatree(
     if let Ok(sweep_number_arr) = returns.get_item("sweep_number") {
         returns_coords.set_item("sweep_number", (("return_time",), sweep_number_arr))?;
     } else {
-        returns_coords.set_item(
-            "sweep_number",
-            (("return_time",), sweep_number_per_return),
-        )?;
+        returns_coords.set_item("sweep_number", (("return_time",), sweep_number_per_return))?;
     }
     if let Ok(elevation_number_arr) = returns.get_item("elevation_number") {
         returns_coords.set_item("elevation_number", (("return_time",), elevation_number_arr))?;
@@ -884,10 +894,7 @@ fn raystack_dict_to_raystack_datatree(
         "sweep_time",
         (("return_time",), sweep_time_per_return_dt.clone()),
     )?;
-    returns_coords.set_item(
-        "vcp_time",
-        (("return_time",), vec![vcp_time; n_returns]),
-    )?;
+    returns_coords.set_item("vcp_time", (("return_time",), vec![vcp_time; n_returns]))?;
 
     if let Ok(range_arr) = returns.get_item("range") {
         returns_coords.set_item("range", (("range",), range_arr))?;
@@ -906,7 +913,13 @@ fn raystack_dict_to_raystack_datatree(
     let returns_ds = xr.call_method(
         "Dataset",
         (),
-        Some(&[("data_vars", returns_vars.as_any()), ("coords", returns_coords.as_any())].into_py_dict(py)?),
+        Some(
+            &[
+                ("data_vars", returns_vars.as_any()),
+                ("coords", returns_coords.as_any()),
+            ]
+            .into_py_dict(py)?,
+        ),
     )?;
 
     let mut qc_ds = None;
@@ -914,7 +927,10 @@ fn raystack_dict_to_raystack_datatree(
         if let Ok(qc_dict) = qc_any.cast::<PyDict>() {
             let qc_coords = PyDict::new(py);
             qc_coords.set_item("return_time", (("return_time",), return_time_dt.clone()))?;
-            qc_coords.set_item("sweep_time", (("return_time",), sweep_time_per_return_dt.clone()))?;
+            qc_coords.set_item(
+                "sweep_time",
+                (("return_time",), sweep_time_per_return_dt.clone()),
+            )?;
             qc_coords.set_item("vcp_time", (("return_time",), vec![vcp_time; n_returns]))?;
             if let Ok(range_arr) = returns.get_item("range") {
                 qc_coords.set_item("range", (("range",), range_arr))?;
@@ -932,7 +948,13 @@ fn raystack_dict_to_raystack_datatree(
             let ds = xr.call_method(
                 "Dataset",
                 (),
-                Some(&[("data_vars", qc_vars.as_any()), ("coords", qc_coords.as_any())].into_py_dict(py)?),
+                Some(
+                    &[
+                        ("data_vars", qc_vars.as_any()),
+                        ("coords", qc_coords.as_any()),
+                    ]
+                    .into_py_dict(py)?,
+                ),
             )?;
             qc_ds = Some(ds);
         }
@@ -972,8 +994,11 @@ fn raystack_dict_to_raystack_datatree(
             "Dataset",
             (),
             Some(
-                &[("data_vars", activity_vars.as_any()), ("coords", activity_coords.as_any())]
-                    .into_py_dict(py)?,
+                &[
+                    ("data_vars", activity_vars.as_any()),
+                    ("coords", activity_coords.as_any()),
+                ]
+                .into_py_dict(py)?,
             ),
         )?;
         activity_ds = Some(ds);
@@ -985,10 +1010,7 @@ fn raystack_dict_to_raystack_datatree(
     root_attrs.set_item("instrument_type", "radar")?;
     root_attrs.set_item("platform_type", "fixed")?;
     root_attrs.set_item("volume_coverage_pattern", pattern_number)?;
-    root_attrs.set_item(
-        "scan_name",
-        format!("VCP-{}", pattern_number),
-    )?;
+    root_attrs.set_item("scan_name", format!("VCP-{}", pattern_number))?;
     if let Some(ref name) = instrument_name {
         root_attrs.set_item("instrument_name", name.as_str())?;
     }
