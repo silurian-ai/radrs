@@ -50,5 +50,8 @@ futures = "0.3"
 # Gzip decompression
 flate2 = "1.1"
 
+# Zero-copy parsing (needed for nexrad header parsing)
+zerocopy = "0.8"
+
 [features]
 default = []

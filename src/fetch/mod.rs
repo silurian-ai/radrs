@@ -1,8 +1,8 @@
 //! S3 access for NEXRAD data (internal)
 
 use crate::error::Result;
-use object_store::aws::AmazonS3Builder;
 use object_store::ObjectStore;
+use object_store::aws::AmazonS3Builder;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -19,17 +19,15 @@ pub use realtime::poll_realtime_chunks;
 pub const ARCHIVE_BUCKET: &str = "unidata-nexrad-level2";
 
 /// Global Tokio runtime (reuse across calls).
-pub static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
-    Runtime::new().expect("failed to create global tokio runtime")
-});
+pub static RUNTIME: Lazy<Runtime> =
+    Lazy::new(|| Runtime::new().expect("failed to create global tokio runtime"));
 
 /// Limit concurrent S3 requests.
 pub static FETCH_SEMAPHORE: Lazy<Arc<Semaphore>> = Lazy::new(|| Arc::new(Semaphore::new(50)));
 
 /// Shared archive S3 client.
-pub static ARCHIVE_STORE: Lazy<Arc<dyn ObjectStore>> = Lazy::new(|| {
-    build_store(ARCHIVE_BUCKET).expect("failed to create archive S3 client")
-});
+pub static ARCHIVE_STORE: Lazy<Arc<dyn ObjectStore>> =
+    Lazy::new(|| build_store(ARCHIVE_BUCKET).expect("failed to create archive S3 client"));
 
 static STORE_CACHE: Lazy<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> = Lazy::new(|| {
     let mut map = HashMap::new();
