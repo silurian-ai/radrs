@@ -26,10 +26,17 @@
 //!     process(dt)
 //! ```
 
+// Use mimalloc for better multi-threaded allocation performance on Linux
+#[cfg(feature = "fast-alloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub mod error;
 pub mod fetch;
 pub mod iter;
+pub mod constants;
 pub mod metadata;
+pub mod metadata_build;
 pub mod ops;
 pub mod parse;
 pub mod qc;
