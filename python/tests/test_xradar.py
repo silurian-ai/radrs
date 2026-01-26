@@ -100,11 +100,13 @@ class TestOpenDatatree:
         root_ds = dt.dataset
         for var in [
             "volume_number",
-            "platform_number",
+            "platform_type",
             "instrument_type",
             "latitude",
             "longitude",
             "altitude",
+            "time_coverage_start",
+            "time_coverage_end",
         ]:
             assert var in root_ds, f"Missing root metadata variable: {var}"
 

@@ -144,6 +144,9 @@ pub(crate) fn scan_to_datatree(
     let xr = py.import("xarray")?;
     let np = py.import("numpy")?;
 
+    // Compute time coverage from all radials
+    let (time_start, time_end) = compute_time_coverage(scan);
+
     // Build root attributes
     let root_attrs = PyDict::new(py);
     root_attrs.set_item("Conventions", "CF-1.8")?;
@@ -164,7 +167,7 @@ pub(crate) fn scan_to_datatree(
         root_vars.set_item("volume_number", volume_number)?;
     }
     // NEXRAD is a fixed platform; platform_number is not provided in the file format.
-    root_vars.set_item("platform_number", 0)?;
+    root_vars.set_item("platform_type", "fixed")?;
     root_vars.set_item("instrument_type", "radar")?;
     if let Some(lat) = meta.latitude {
         root_vars.set_item("latitude", lat)?;
@@ -174,6 +177,13 @@ pub(crate) fn scan_to_datatree(
     }
     if let Some(alt) = meta.altitude {
         root_vars.set_item("altitude", alt)?;
+    }
+    // Add time coverage (as ISO 8601 strings, matching xradar)
+    if let Some(ts) = time_start {
+        root_vars.set_item("time_coverage_start", format_timestamp_iso(ts))?;
+    }
+    if let Some(ts) = time_end {
+        root_vars.set_item("time_coverage_end", format_timestamp_iso(ts))?;
     }
 
     // Build the DataTree structure - create root with attrs and vars
@@ -185,16 +195,69 @@ pub(crate) fn scan_to_datatree(
     let tree_dict = PyDict::new(py);
     tree_dict.set_item("/", root_ds)?;
 
+    // Add sweep datasets
     for (sweep_idx, sweep) in scan.sweeps().iter().enumerate() {
         let sweep_name = format!("/sweep_{}", sweep_idx);
         let dataset = sweep_to_dataset(py, &xr, &np, sweep, sweep_idx, meta, sort_by_azimuth)?;
         tree_dict.set_item(&sweep_name, dataset)?;
     }
 
+    // Add CF-radial metadata groups (empty datasets with coordinates, for compatibility)
+    let metadata_ds = create_metadata_dataset(py, &xr, meta)?;
+    tree_dict.set_item("/radar_parameters", &metadata_ds)?;
+    tree_dict.set_item("/georeferencing_correction", &metadata_ds)?;
+    // radar_calibration has no coordinates in xradar
+    let empty_ds = xr.call_method1("Dataset", (PyDict::new(py),))?;
+    tree_dict.set_item("/radar_calibration", empty_ds)?;
+
     let datatree_class = xr.getattr("DataTree")?;
     let datatree = datatree_class.call_method1("from_dict", (tree_dict,))?;
 
     Ok(datatree.unbind())
+}
+
+/// Compute min/max timestamps across all sweeps
+fn compute_time_coverage(scan: &Scan) -> (Option<i64>, Option<i64>) {
+    let mut min_ts: Option<i64> = None;
+    let mut max_ts: Option<i64> = None;
+
+    for sweep in scan.sweeps() {
+        for radial in sweep.radials() {
+            let ts = radial.collection_timestamp();
+            min_ts = Some(min_ts.map_or(ts, |m| m.min(ts)));
+            max_ts = Some(max_ts.map_or(ts, |m| m.max(ts)));
+        }
+    }
+
+    (min_ts, max_ts)
+}
+
+/// Format millisecond timestamp as ISO 8601 string
+fn format_timestamp_iso(timestamp_ms: i64) -> String {
+    use chrono::{TimeZone, Utc};
+    let dt = Utc.timestamp_millis_opt(timestamp_ms).unwrap();
+    dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+}
+
+/// Create a metadata dataset with just coordinates (for radar_parameters, georeferencing_correction)
+fn create_metadata_dataset<'py>(
+    py: Python<'py>,
+    xr: &Bound<'py, PyModule>,
+    meta: &ScanMeta,
+) -> PyResult<Bound<'py, PyAny>> {
+    let coords = PyDict::new(py);
+    if let Some(lat) = meta.latitude {
+        coords.set_item("latitude", lat)?;
+    }
+    if let Some(lon) = meta.longitude {
+        coords.set_item("longitude", lon)?;
+    }
+    if let Some(alt) = meta.altitude {
+        coords.set_item("altitude", alt)?;
+    }
+
+    let kwargs = [("coords", coords.as_any())].into_py_dict(py)?;
+    xr.call_method("Dataset", (), Some(&kwargs))
 }
 
 /// Convert a Sweep to an xarray Dataset
