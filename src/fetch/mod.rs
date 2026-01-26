@@ -1,6 +1,7 @@
 //! S3 access for NEXRAD data (internal)
 
 use crate::error::Result;
+use object_store::ClientOptions;
 use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use once_cell::sync::Lazy;
@@ -36,10 +37,18 @@ static STORE_CACHE: Lazy<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> = Lazy::n
 });
 
 fn build_store(bucket: &str) -> Result<Arc<dyn ObjectStore>> {
+    // Configure HTTP client for high throughput:
+    // - Larger connection pool per host for parallel downloads
+    // - HTTP/1.1 (faster than HTTP/2 for object storage per object_store benchmarks)
+    let client_options = ClientOptions::new()
+        .with_pool_max_idle_per_host(100)
+        .with_pool_idle_timeout(std::time::Duration::from_secs(60));
+
     let store = AmazonS3Builder::new()
         .with_bucket_name(bucket)
         .with_region("us-east-1")
         .with_skip_signature(true)
+        .with_client_options(client_options)
         .build()?;
 
     Ok(Arc::new(store))
