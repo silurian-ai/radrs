@@ -27,7 +27,7 @@
 //! ```
 
 // Use mimalloc for better multi-threaded allocation performance on Linux
-#[cfg(feature = "fast-alloc")]
+#[cfg(all(feature = "fast-alloc", target_os = "linux"))]
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
