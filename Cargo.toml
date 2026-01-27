@@ -12,13 +12,13 @@ crate-type = ["cdylib", "rlib"]
 pyo3 = { version = "0.27", features = ["extension-module"] }
 numpy = "0.27"
 
-# NEXRAD parsing (from fork with dual-pole fixes)
-nexrad-data = { git = "https://github.com/rejuvyesh/nexrad", branch = "jkg/dual-pole-parsing", default-features = false, features = ["nexrad-model", "parallel"] }
-nexrad-decode = { git = "https://github.com/rejuvyesh/nexrad", branch = "jkg/dual-pole-parsing" }
-nexrad-model = { git = "https://github.com/rejuvyesh/nexrad", branch = "jkg/dual-pole-parsing" }
+# NEXRAD parsing (from fork for stability)
+nexrad-data = { git = "https://github.com/rejuvyesh/nexrad", branch = "main", default-features = false, features = ["nexrad-model", "parallel"] }
+nexrad-decode = { git = "https://github.com/rejuvyesh/nexrad", branch = "main" }
+nexrad-model = { git = "https://github.com/rejuvyesh/nexrad", branch = "main" }
 
 # S3 access
-object_store = { version = "0.11", features = ["aws"] }
+object_store = { version = "0.13", features = ["aws"] }
 
 # Async
 tokio = { version = "1", features = ["full"] }
@@ -41,6 +41,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Globals
 once_cell = "1.19"
 
+# Memory allocator (better multi-threaded performance on Linux)
+mimalloc = { version = "0.1", default-features = false, optional = true }
+
 # URL parsing
 url = "2"
 
@@ -55,3 +58,4 @@ zerocopy = "0.8"
 
 [features]
 default = []
+fast-alloc = ["mimalloc"]
