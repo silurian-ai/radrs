@@ -62,11 +62,44 @@ def _pair_sweeps(radrs_sweeps, radar):
 def _align_by_azimuth(
     rs_vals: np.ndarray,
     rs_az: np.ndarray,
+    rs_time: np.ndarray | None,
     pa_vals: np.ndarray,
     pa_az: np.ndarray,
+    pa_time: np.ndarray | None,
     *,
     decimals: int = 2,
+    time_tol_s: float = 2.0,
 ) -> tuple[np.ndarray, np.ndarray] | None:
+    # Prefer azimuth + time alignment when time is available.
+    if rs_time is not None and pa_time is not None:
+        rs_time = np.asarray(rs_time)
+        pa_time = np.asarray(pa_time)
+        # Convert radrs epoch ms to seconds relative to sweep
+        rs_t = (rs_time - rs_time[0]) / 1000.0
+        # Py-ART time is already seconds since volume start; use relative per sweep
+        pa_t = pa_time - pa_time[0]
+
+        az_tol = 10 ** (-decimals)
+        matched_rs = []
+        matched_pa = []
+        for i, az in enumerate(rs_az):
+            az_diff = np.abs(pa_az - az)
+            cand = np.where(az_diff <= az_tol)[0]
+            if cand.size == 0:
+                continue
+            # choose closest time among candidates
+            dt = np.abs(pa_t[cand] - rs_t[i])
+            best = int(np.argmin(dt))
+            if dt[best] > time_tol_s:
+                continue
+            j = int(cand[best])
+            matched_rs.append(rs_vals[i])
+            matched_pa.append(pa_vals[j])
+
+        if matched_rs:
+            return np.asarray(matched_rs), np.asarray(matched_pa)
+
+    # Fallback: azimuth-only alignment
     scale = 10**decimals
     rs_az_r = np.round(rs_az * scale).astype(np.int32)
     pa_az_r = np.round(pa_az * scale).astype(np.int32)
@@ -140,10 +173,12 @@ def test_parse_vs_pyart_azimuth_alignment(test_file_path, test_file_bytes):
         n_radials = int(rs_sweep["n_radials"])
 
         rs_az = np.asarray(returns["azimuth"][start : start + n_radials])
+        rs_time = np.asarray(returns["time"][start : start + n_radials])
 
         pa_start = int(radar.sweep_start_ray_index["data"][pa_idx])
         pa_end = int(radar.sweep_end_ray_index["data"][pa_idx])
         pa_az = np.asarray(az_all[pa_start : pa_end + 1])
+        pa_time = np.asarray(radar.time["data"][pa_start : pa_end + 1])
 
         max_min_diff = 0.0
         for az in rs_az:
@@ -184,10 +219,12 @@ def test_parse_vs_pyart_moment_values(test_file_path, test_file_bytes):
         n_radials = int(rs_sweep["n_radials"])
 
         rs_az = np.asarray(returns["azimuth"][start : start + n_radials])
+        rs_time = np.asarray(returns["time"][start : start + n_radials])
 
         pa_start = int(radar.sweep_start_ray_index["data"][pa_idx])
         pa_end = int(radar.sweep_end_ray_index["data"][pa_idx])
         pa_az = np.asarray(az_all[pa_start : pa_end + 1])
+        pa_time = np.asarray(radar.time["data"][pa_start : pa_end + 1])
 
         for rs_field, pa_field in field_map.items():
             if rs_field not in returns:
@@ -199,7 +236,7 @@ def test_parse_vs_pyart_moment_values(test_file_path, test_file_bytes):
             rs_vals = np.asarray(returns[rs_field][start : start + n_radials])
             pa_vals = np.asarray(pa_vals[pa_start : pa_end + 1])
 
-            aligned = _align_by_azimuth(rs_vals, rs_az, pa_vals, pa_az)
+            aligned = _align_by_azimuth(rs_vals, rs_az, rs_time, pa_vals, pa_az, pa_time)
             if aligned is None:
                 continue
             r_aligned, p_aligned = aligned
@@ -229,7 +266,6 @@ def test_parse_vs_pyart_dualpol_moment_values(test_file_path, test_file_bytes):
     field_map = {
         "ZDR": "differential_reflectivity",
         "PHIDP": "differential_phase",
-        "KDP": "specific_differential_phase",
     }
 
     az_all = np.asarray(radar.azimuth["data"])
@@ -240,10 +276,12 @@ def test_parse_vs_pyart_dualpol_moment_values(test_file_path, test_file_bytes):
         n_radials = int(rs_sweep["n_radials"])
 
         rs_az = np.asarray(returns["azimuth"][start : start + n_radials])
+        rs_time = np.asarray(returns["time"][start : start + n_radials])
 
         pa_start = int(radar.sweep_start_ray_index["data"][pa_idx])
         pa_end = int(radar.sweep_end_ray_index["data"][pa_idx])
         pa_az = np.asarray(az_all[pa_start : pa_end + 1])
+        pa_time = np.asarray(radar.time["data"][pa_start : pa_end + 1])
 
         for rs_field, pa_field in field_map.items():
             if rs_field not in returns:
@@ -255,7 +293,7 @@ def test_parse_vs_pyart_dualpol_moment_values(test_file_path, test_file_bytes):
             rs_vals = np.asarray(returns[rs_field][start : start + n_radials])
             pa_vals = np.asarray(pa_vals[pa_start : pa_end + 1])
 
-            aligned = _align_by_azimuth(rs_vals, rs_az, pa_vals, pa_az)
+            aligned = _align_by_azimuth(rs_vals, rs_az, rs_time, pa_vals, pa_az, pa_time)
             if aligned is None:
                 continue
             r_aligned, p_aligned = aligned

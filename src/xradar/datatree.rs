@@ -372,6 +372,7 @@ fn sweep_to_dataset<'py>(
                             MomentValue::Value(v) => *v,
                             MomentValue::BelowThreshold => f32::NAN,
                             MomentValue::RangeFolded => f32::NAN,
+                            MomentValue::CfpStatus(_) => f32::NAN,
                         };
                     }
                 }
@@ -417,7 +418,7 @@ fn get_moment_data<'a>(
         name if name == XRADAR_MOMENT_NAMES[3].0 => radial.differential_reflectivity(),
         name if name == XRADAR_MOMENT_NAMES[4].0 => radial.differential_phase(),
         name if name == XRADAR_MOMENT_NAMES[5].0 => radial.correlation_coefficient(),
-        name if name == XRADAR_MOMENT_NAMES[6].0 => radial.specific_differential_phase(),
+        name if name == XRADAR_MOMENT_NAMES[6].0 => radial.clutter_filter_power(),
         _ => None,
     }
 }

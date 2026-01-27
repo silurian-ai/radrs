@@ -143,7 +143,7 @@ DataTree('root')
         "vradh_winding_number": ndarray(n_returns, fold_size),
     },
     "activity": {
-        "moment": ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"],
+        "moment": ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"],
         "ray_valid_count": ndarray(n_moments, n_returns),
         "ray_valid_fraction": ndarray(n_moments, n_returns),
         "sweep_valid_count": ndarray(n_moments, n_sweeps),
@@ -156,7 +156,7 @@ DataTree('root')
 
 ### Activity Metrics
 
-Activity metrics summarize data availability for each radar moment (DBZH, VRADH, WRADH, ZDR, PHIDP, RHOHV, KDP) at three levels:
+Activity metrics summarize data availability for each radar moment (DBZH, VRADH, WRADH, ZDR, PHIDP, RHOHV, CCORH) at three levels:
 
 | Metric | Shape | Description |
 |--------|-------|-------------|
@@ -184,7 +184,7 @@ Raystack parsing can emit QC outputs under a dedicated `qc` node/dict:
 
 - **Sweep ordering:** radrs preserves native sweep order from the file. Some VCPs reuse elevation angles, so pairing by elevation alone can misalign sweeps. When comparing against Py-ART/xradar, align by sweep index when sweep counts match.
 - **Raystack folding semantics:** raystack folding uses physical range alignment (first gate + gate spacing) against the sweep grid, which can differ from simple gate-index folding if moments have different gate geometries.
-- **Dual-pol decoding:** ZDR/PHIDP/KDP decoding depends on the upstream `nexrad` crate. If you see NaNs or mismatches for these moments, check the `nexrad` decode status; DBZH/VRADH/WRADH/RHOHV are expected to match.
+- **Dual-pol decoding:** ZDR/PHIDP decoding depends on the upstream `nexrad` crate. If you see NaNs or mismatches for these moments, check the `nexrad` decode status; DBZH/VRADH/WRADH/RHOHV are expected to match.
 - **Azimuth alignment in tests:** floating-point rounding can make exact azimuth equality brittle; radrs tests align by rounded azimuth or nearest-neighbor to avoid false mismatches.
 
 ```python

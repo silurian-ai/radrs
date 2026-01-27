@@ -880,7 +880,7 @@ dependencies = [
 [[package]]
 name = "nexrad-data"
 version = "1.0.0-rc.4"
-source = "git+https://github.com/rejuvyesh/nexrad?branch=main#cfb77a8b90294a7e0d61c1b622bd1642403182f7"
+source = "git+https://github.com/rejuvyesh/nexrad?branch=momentdata-kind-cfp#e7385b2211b00bddc5a94f7bc7c419e13322291f"
 dependencies = [
  "bzip2",
  "chrono",
@@ -895,7 +895,7 @@ dependencies = [
 [[package]]
 name = "nexrad-decode"
 version = "1.0.0-rc.2"
-source = "git+https://github.com/rejuvyesh/nexrad?branch=main#cfb77a8b90294a7e0d61c1b622bd1642403182f7"
+source = "git+https://github.com/rejuvyesh/nexrad?branch=momentdata-kind-cfp#e7385b2211b00bddc5a94f7bc7c419e13322291f"
 dependencies = [
  "chrono",
  "hex",
@@ -910,7 +910,7 @@ dependencies = [
 [[package]]
 name = "nexrad-model"
 version = "1.0.0-rc.1"
-source = "git+https://github.com/rejuvyesh/nexrad?branch=main#cfb77a8b90294a7e0d61c1b622bd1642403182f7"
+source = "git+https://github.com/rejuvyesh/nexrad?branch=momentdata-kind-cfp#e7385b2211b00bddc5a94f7bc7c419e13322291f"
 dependencies = [
  "thiserror",
 ]

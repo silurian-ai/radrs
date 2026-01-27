@@ -13,9 +13,9 @@ pyo3 = { version = "0.27", features = ["extension-module"] }
 numpy = "0.27"
 
 # NEXRAD parsing (from fork for stability)
-nexrad-data = { git = "https://github.com/rejuvyesh/nexrad", branch = "main", default-features = false, features = ["nexrad-model", "parallel"] }
-nexrad-decode = { git = "https://github.com/rejuvyesh/nexrad", branch = "main" }
-nexrad-model = { git = "https://github.com/rejuvyesh/nexrad", branch = "main" }
+nexrad-data = { git = "https://github.com/rejuvyesh/nexrad", branch = "momentdata-kind-cfp", default-features = false, features = ["nexrad-model", "parallel"] }
+nexrad-decode = { git = "https://github.com/rejuvyesh/nexrad", branch = "momentdata-kind-cfp" }
+nexrad-model = { git = "https://github.com/rejuvyesh/nexrad", branch = "momentdata-kind-cfp" }
 
 # S3 access
 object_store = { version = "0.13", features = ["aws"] }
