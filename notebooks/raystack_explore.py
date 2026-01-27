@@ -225,7 +225,7 @@ def _(mo):
 
 @app.cell
 def _(mo, returns):
-    _moment_vars = [v for v in returns.data_vars if v in {"DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"}]
+    _moment_vars = [v for v in returns.data_vars if v in {"DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"}]
     moment_selector = mo.ui.dropdown(
         options=_moment_vars,
         value=_moment_vars[0] if _moment_vars else None,

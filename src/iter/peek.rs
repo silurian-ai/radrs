@@ -256,6 +256,9 @@ fn scan_record_for_extras(
                     if drd.correlation_coefficient_data_block().is_some() {
                         moments.push("RHOHV".to_string());
                     }
+                    if drd.clutter_filter_power_data_block().is_some() {
+                        moments.push("CCORH".to_string());
+                    }
                     if !moments.is_empty() {
                         extras.moments = Some(moments);
                     }

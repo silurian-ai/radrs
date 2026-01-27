@@ -19,7 +19,7 @@ pub const DEFAULT_PRT_MODE: &str = "not_set";
 pub const DEFAULT_FOLLOW_MODE: &str = "not_set";
 
 /// Standard NEXRAD moment names (raystack/radar outputs).
-pub const MOMENT_NAMES: [&str; 7] = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"];
+pub const MOMENT_NAMES: [&str; 7] = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"];
 
 /// Mapping of NEXRAD moments to xradar/CF variable names.
 pub const XRADAR_MOMENT_NAMES: [(&str, &str); 7] = [
@@ -29,5 +29,5 @@ pub const XRADAR_MOMENT_NAMES: [(&str, &str); 7] = [
     ("differential_reflectivity", "ZDR"),
     ("differential_phase", "PHIDP"),
     ("correlation_coefficient", "RHOHV"),
-    ("specific_differential_phase", "KDP"),
+    ("clutter_filter_power", "CCORH"),
 ];

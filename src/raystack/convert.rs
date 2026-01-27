@@ -249,7 +249,7 @@ fn datatree_to_raystack(
             zdr: Vec::new(),
             phidp: Vec::new(),
             rhohv: Vec::new(),
-            kdp: Vec::new(),
+            ccorh: Vec::new(),
         });
     }
 
@@ -274,7 +274,7 @@ fn datatree_to_raystack(
         zdr: vec![f32::NAN; moment_len],
         phidp: vec![f32::NAN; moment_len],
         rhohv: vec![f32::NAN; moment_len],
-        kdp: vec![f32::NAN; moment_len],
+        ccorh: vec![f32::NAN; moment_len],
     };
 
     // Build sweep info
@@ -356,7 +356,7 @@ fn datatree_to_raystack(
                         3 => &mut raystack.zdr[dest_start..dest_start + fold_size],
                         4 => &mut raystack.phidp[dest_start..dest_start + fold_size],
                         5 => &mut raystack.rhohv[dest_start..dest_start + fold_size],
-                        6 => &mut raystack.kdp[dest_start..dest_start + fold_size],
+                        6 => &mut raystack.ccorh[dest_start..dest_start + fold_size],
                         _ => unreachable!(),
                     };
                     fold_ranges_into(row, dest);

@@ -13,7 +13,7 @@ import numpy as np
 
 import radrs.raystack as rrs
 
-MOMENT_NAMES = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"]
+MOMENT_NAMES = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"]
 DEFAULT_SOURCE = (
     "s3://unidata-nexrad-level2/2024/07/02/KABR/"
     "KABR20240702_000016_V06"

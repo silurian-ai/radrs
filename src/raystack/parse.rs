@@ -34,7 +34,7 @@ const MOMENT_WRADH: usize = 2;
 const MOMENT_ZDR: usize = 3;
 const MOMENT_PHIDP: usize = 4;
 const MOMENT_RHOHV: usize = 5;
-const MOMENT_KDP: usize = 6;
+const MOMENT_CCORH: usize = 6;
 
 /// Decompress outer gzip if present. Uses Cow to avoid allocation when not gzipped.
 fn ungzip_if_needed(data: &[u8]) -> Result<Cow<'_, [u8]>> {
@@ -91,7 +91,7 @@ pub struct RaystackData {
     pub zdr: Vec<f32>,
     pub phidp: Vec<f32>,
     pub rhohv: Vec<f32>,
-    pub kdp: Vec<f32>,
+    pub ccorh: Vec<f32>,
 }
 
 struct ActivityData {
@@ -114,7 +114,7 @@ fn compute_activity(raystack: &RaystackData) -> ActivityData {
         &raystack.zdr,
         &raystack.phidp,
         &raystack.rhohv,
-        &raystack.kdp,
+        &raystack.ccorh,
     ];
     let n_moments = MOMENT_NAMES.len();
     let n_returns = raystack.n_radials;
@@ -299,7 +299,7 @@ impl RaystackData {
             zdr: vec![f32::NAN; moment_len],
             phidp: vec![f32::NAN; moment_len],
             rhohv: vec![f32::NAN; moment_len],
-            kdp: vec![f32::NAN; moment_len],
+            ccorh: vec![f32::NAN; moment_len],
         }
     }
 
@@ -315,7 +315,7 @@ impl RaystackData {
             MOMENT_ZDR => &mut self.zdr[start..end],
             MOMENT_PHIDP => &mut self.phidp[start..end],
             MOMENT_RHOHV => &mut self.rhohv[start..end],
-            MOMENT_KDP => &mut self.kdp[start..end],
+            MOMENT_CCORH => &mut self.ccorh[start..end],
             _ => unreachable!(),
         }
     }
@@ -678,7 +678,7 @@ fn collect_metadata(scan: &Scan) -> VolumeMeta {
             update_grid(radial.differential_reflectivity());
             update_grid(radial.differential_phase());
             update_grid(radial.correlation_coefficient());
-            update_grid(radial.specific_differential_phase());
+            update_grid(radial.clutter_filter_power());
         }
 
         sweeps.push(SweepMeta {
@@ -789,8 +789,8 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
             fill_moment(
                 raystack,
                 radial_idx,
-                MOMENT_KDP,
-                radial.specific_differential_phase(),
+                MOMENT_CCORH,
+                radial.clutter_filter_power(),
                 fold_size,
                 sweep_info.max_gates,
                 sweep_info.range_first_km,
@@ -1420,7 +1420,7 @@ fn raystack_data_to_raystack_datatree(
         (MOMENT_NAMES[MOMENT_ZDR], raystack.zdr),
         (MOMENT_NAMES[MOMENT_PHIDP], raystack.phidp),
         (MOMENT_NAMES[MOMENT_RHOHV], raystack.rhohv),
-        (MOMENT_NAMES[MOMENT_KDP], raystack.kdp),
+        (MOMENT_NAMES[MOMENT_CCORH], raystack.ccorh),
     ];
     for (name, data) in moments {
         add_moment(name, data, &returns_vars)?;
@@ -1705,7 +1705,7 @@ pub fn raystack_to_python(
         (MOMENT_NAMES[MOMENT_ZDR], raystack.zdr),
         (MOMENT_NAMES[MOMENT_PHIDP], raystack.phidp),
         (MOMENT_NAMES[MOMENT_RHOHV], raystack.rhohv),
-        (MOMENT_NAMES[MOMENT_KDP], raystack.kdp),
+        (MOMENT_NAMES[MOMENT_CCORH], raystack.ccorh),
     ];
     for (name, data) in moments {
         add_moment(name, data, &returns)?;
