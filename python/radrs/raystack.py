@@ -446,7 +446,14 @@ else:
             vcps_dict = rs_dict["vcps"]
 
             def _astype(arr: np.ndarray, dtype):
-                return arr if dtype is None else arr.astype(dtype)
+                # NOTE that we use the vectorized conversion here - ideally we would not
+                # need to convert at all and raystacks would be datetime[ms] by convention
+                if dtype == "datetime64[ms->ns]":
+                    return arr.astype("datetime64[ms]").astype("datetime64[ns]")
+                elif dtype == "timedelta64[ms->ns]":
+                    return arr.astype("timedelta64[ms]").astype("timedelta64[ns]")
+                else:
+                    return arr if dtype is None else arr.astype(dtype)
 
             vcps_ds = xr.Dataset(
                 data_vars={
@@ -460,13 +467,13 @@ else:
                         ("altitude", None),
                         ("vcp_name", None),
                         ("vcp_number", None),
-                        ("vcp_duration", "timedelta64[ms]"),
+                        ("vcp_duration", "timedelta64[ms->ns]"),
                         ("num_sweeps", None),
                     ]
                 },
                 coords={
                     c: xr.Variable([c], _astype(vcps_dict[c], dtype))
-                    for c, dtype in [("vcp_time", "datetime64[ms]")]
+                    for c, dtype in [("vcp_time", "datetime64[ms->ns]")]
                 },
             )
 
@@ -476,21 +483,26 @@ else:
                 data_vars={
                     dv: xr.Variable(["sweep_time"], _astype(sweeps_dict[dv], dtype))
                     for dv, dtype in [
-                        ("vcp_time", "datetime64[ms]"),
+                        ("vcp_time", "datetime64[ms->ns]"),
                         ("sweep_number", None),
-                        ("sweep_duration", "timedelta64[ms]"),
+                        ("sweep_duration", "timedelta64[ms->ns]"),
                         ("elevation_angle", None),
                         ("elevation_number", None),
+                        ("range_start", None),
+                        ("range_step", None),
+                        ("max_range", None),
                         ("max_gates", None),
-                        ("range_first_km", None),
-                        ("gate_interval_km", None),
                         ("num_returns", None),
                     ]
                 },
                 coords={
                     c: xr.Variable([c], _astype(sweeps_dict[c], dtype))
-                    for c, dtype in [("sweep_time", "datetime64[ms]")]
+                    for c, dtype in [("sweep_time", "datetime64[ms->ns]")]
                 },
+            )
+            # Aliases
+            sweeps_ds = sweeps_ds.assign(
+                sweep_fixed_angle=sweeps_ds.variables["elevation_angle"]
             )
 
             returns_dict = rs_dict["returns"]
@@ -507,9 +519,9 @@ else:
                             ["return_time"], _astype(returns_dict[dv], dtype)
                         )
                         for dv, dtype in [
-                            ("vcp_time", "datetime64[ms]"),
+                            ("vcp_time", "datetime64[ms->ns]"),
                             ("sweep_number", None),
-                            ("sweep_time", "datetime64[ms]"),
+                            ("sweep_time", "datetime64[ms->ns]"),
                             ("base_range", None),
                             ("range_step", None),
                             ("azimuth", None),
@@ -535,7 +547,10 @@ else:
                 ),
                 coords={
                     c: xr.Variable([c], _astype(returns_dict[c], dtype))
-                    for c, dtype in [("return_time", "datetime64[ms]"), ("range", None)]
+                    for c, dtype in [
+                        ("return_time", "datetime64[ms->ns]"),
+                        ("range", None),
+                    ]
                 },
             )
 

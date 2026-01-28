@@ -58,9 +58,10 @@ pub struct RaystackBatchData {
     sweep_duration: Vec<i64>,
     sweep_elevation_angle: Vec<f32>,
     sweep_elevation_number: Vec<u8>,
+    sweep_range_start_m: Vec<f32>,
+    sweep_range_step_m: Vec<f32>,
+    sweep_max_range_m: Vec<f32>,
     sweep_max_gates: Vec<u32>,
-    sweep_range_first_km: Vec<f32>,
-    sweep_gate_interval_km: Vec<f32>,
     sweep_num_returns: Vec<u32>,
 
     // Return/radial coordinate data (grown incrementally, extended to max_returns if truncate=false)
@@ -68,8 +69,8 @@ pub struct RaystackBatchData {
     return_sweep_number: Vec<u32>, // Which sweep this return belongs to
     return_sweep_time: Vec<i64>,   // Parent sweep time for this return
     return_time: Vec<i64>,
-    return_base_range: Vec<f32>,
-    return_range_step: Vec<f32>,
+    return_base_range_m: Vec<f32>,
+    return_range_step_m: Vec<f32>,
     return_azimuth: Vec<f32>,
     return_elevation: Vec<f32>,
 
@@ -142,9 +143,10 @@ impl RaystackBatchData {
             sweep_duration: Vec::with_capacity(max_sweeps),
             sweep_elevation_angle: Vec::with_capacity(max_sweeps),
             sweep_elevation_number: Vec::with_capacity(max_sweeps),
+            sweep_range_start_m: Vec::with_capacity(max_sweeps),
+            sweep_range_step_m: Vec::with_capacity(max_sweeps),
+            sweep_max_range_m: Vec::with_capacity(max_sweeps),
             sweep_max_gates: Vec::with_capacity(max_sweeps),
-            sweep_range_first_km: Vec::with_capacity(max_sweeps),
-            sweep_gate_interval_km: Vec::with_capacity(max_sweeps),
             sweep_num_returns: Vec::with_capacity(max_sweeps),
 
             // Pre-allocate return coordinate arrays (capacity only, will grow as needed)
@@ -152,8 +154,8 @@ impl RaystackBatchData {
             return_sweep_number: Vec::with_capacity(max_returns),
             return_sweep_time: Vec::with_capacity(max_returns),
             return_time: Vec::with_capacity(max_returns),
-            return_base_range: Vec::with_capacity(max_returns),
-            return_range_step: Vec::with_capacity(max_returns),
+            return_base_range_m: Vec::with_capacity(max_returns),
+            return_range_step_m: Vec::with_capacity(max_returns),
             return_azimuth: Vec::with_capacity(max_returns),
             return_elevation: Vec::with_capacity(max_returns),
 
@@ -413,10 +415,15 @@ impl RaystackBatchData {
                 .push(sweep_meta.elevation_number);
             self.sweep_elevation_angle.push(sweep_meta.elevation_angle);
             self.sweep_max_gates.push(sweep_meta.max_gates as u32);
-            self.sweep_range_first_km.push(sweep_meta.range_first_km as f32);
-            self.sweep_gate_interval_km
-                .push(sweep_meta.gate_interval_km as f32);
-
+            self.sweep_range_start_m
+                .push((sweep_meta.range_first_km * 1000.0) as f32);
+            self.sweep_range_step_m
+                .push((sweep_meta.gate_interval_km * 1000.0) as f32);
+            self.sweep_max_range_m.push(
+                ((sweep_meta.range_first_km
+                    + sweep_meta.gate_interval_km * (sweep_meta.max_gates as f64))
+                    * 1000.0) as f32,
+            );
             self.sweep_num_returns.push(sweep_meta.n_radials as u32);
 
             //
@@ -436,10 +443,12 @@ impl RaystackBatchData {
             self.return_elevation.resize(new_return_len, f32::NAN);
 
             // TODO: Actually implement folding
-            self.return_base_range
-                .resize(new_return_len, sweep_meta.range_first_km as f32);
-            self.return_range_step
-                .resize(new_return_len, sweep_meta.gate_interval_km as f32);
+            self.return_base_range_m
+                .resize(new_return_len, (sweep_meta.range_first_km * 1000.0) as f32);
+            self.return_range_step_m.resize(
+                new_return_len,
+                (sweep_meta.gate_interval_km * 1000.0) as f32,
+            );
 
             // Grow moment arrays to accommodate new returns
             let new_moment_len = new_return_len * self.fold_size;
@@ -707,9 +716,9 @@ impl RaystackBatchData {
             self.sweep_elevation_angle.resize(self.max_sweeps, f32::NAN);
             self.sweep_elevation_number.resize(self.max_sweeps, 0);
             self.sweep_max_gates.resize(self.max_sweeps, 0);
-            self.sweep_range_first_km.resize(self.max_sweeps, f32::NAN);
-            self.sweep_gate_interval_km
-                .resize(self.max_sweeps, f32::NAN);
+            self.sweep_range_start_m.resize(self.max_sweeps, f32::NAN);
+            self.sweep_range_step_m.resize(self.max_sweeps, f32::NAN);
+            self.sweep_max_range_m.resize(self.max_sweeps, f32::NAN);
             self.sweep_num_returns.resize(self.max_sweeps, 0);
 
             // Extend return coordinate arrays to max capacity with fill values
@@ -717,8 +726,8 @@ impl RaystackBatchData {
             self.return_sweep_number.resize(self.max_returns, 0);
             self.return_sweep_time.resize(self.max_returns, i64::MIN); // NaT for numpy datetime64
             self.return_time.resize(self.max_returns, i64::MIN); // NaT for numpy datetime64
-            self.return_base_range.resize(self.max_returns, f32::NAN);
-            self.return_range_step.resize(self.max_returns, f32::NAN);
+            self.return_base_range_m.resize(self.max_returns, f32::NAN);
+            self.return_range_step_m.resize(self.max_returns, f32::NAN);
             self.return_azimuth.resize(self.max_returns, f32::NAN);
             self.return_elevation.resize(self.max_returns, f32::NAN);
 
@@ -862,12 +871,10 @@ impl RaystackBatchData {
             "elevation_number",
             self.sweep_elevation_number.into_pyarray(py),
         )?;
+        sweeps_dict.set_item("range_start", self.sweep_range_start_m.into_pyarray(py))?;
+        sweeps_dict.set_item("range_step", self.sweep_range_step_m.into_pyarray(py))?;
+        sweeps_dict.set_item("max_range", self.sweep_max_range_m.into_pyarray(py))?;
         sweeps_dict.set_item("max_gates", self.sweep_max_gates.into_pyarray(py))?;
-        sweeps_dict.set_item("range_first_km", self.sweep_range_first_km.into_pyarray(py))?;
-        sweeps_dict.set_item(
-            "gate_interval_km",
-            self.sweep_gate_interval_km.into_pyarray(py),
-        )?;
         sweeps_dict.set_item("num_returns", self.sweep_num_returns.into_pyarray(py))?;
 
         dict.set_item("sweeps", sweeps_dict)?;
@@ -880,8 +887,8 @@ impl RaystackBatchData {
         returns_dict.set_item("sweep_time", self.return_sweep_time.into_pyarray(py))?;
         returns_dict.set_item("return_time", self.return_time.into_pyarray(py))?;
 
-        returns_dict.set_item("base_range", self.return_base_range.into_pyarray(py))?;
-        returns_dict.set_item("range_step", self.return_range_step.into_pyarray(py))?;
+        returns_dict.set_item("base_range", self.return_base_range_m.into_pyarray(py))?;
+        returns_dict.set_item("range_step", self.return_range_step_m.into_pyarray(py))?;
         returns_dict.set_item("azimuth", self.return_azimuth.into_pyarray(py))?;
         returns_dict.set_item("elevation", self.return_elevation.into_pyarray(py))?;
 
@@ -934,9 +941,8 @@ impl BatchedRaystackPy {
         fold_size: usize,
         truncate: bool,
     ) -> PyResult<Self> {
-        let inner =
-            RaystackBatchData::new(max_vcps, max_sweeps, max_returns, fold_size, truncate)
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        let inner = RaystackBatchData::new(max_vcps, max_sweeps, max_returns, fold_size, truncate)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner: Some(inner) })
     }
 

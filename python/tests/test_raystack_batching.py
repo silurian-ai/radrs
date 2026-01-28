@@ -118,7 +118,7 @@ class TestBatching:
 
         assert raystack["/vcps"].dataset["vcp_time"].values[0].astype(
             np.int64
-        ) == pytest.approx(np.datetime64("2024-08-15T00:01:14", "ms").astype(np.int64))
+        ) == pytest.approx(np.datetime64("2024-08-15T00:01:14", "ns").astype(np.int64))
         assert (
             raystack["/sweeps"].dataset["sweep_time"].values[0]
             == raystack["/vcps"].dataset["vcp_time"].values[0]
