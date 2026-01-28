@@ -15,6 +15,7 @@ use crate::fetch::extract_base_path;
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use futures::stream::{self, StreamExt};
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::path::Path as ObjectPath;
 use pyo3::prelude::*;
 use pyo3::types::PyDateTime;

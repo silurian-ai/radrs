@@ -5,7 +5,6 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::RUNTIME;
-use crate::fetch::extract_object_path_from_url;
 use crate::metadata::extract_scan_meta;
 use crate::qc;
 use crate::raystack::QcOp;
@@ -82,7 +81,7 @@ pub struct RaystackBatchData {
     zdr: Vec<f32>,
     phidp: Vec<f32>,
     rhohv: Vec<f32>,
-    kdp: Vec<f32>,
+    ccorh: Vec<f32>,
 
     qc_outputs: Vec<(String, QcArray)>,
 
@@ -165,7 +164,7 @@ impl RaystackBatchData {
             zdr: Vec::with_capacity(moment_capacity),
             phidp: Vec::with_capacity(moment_capacity),
             rhohv: Vec::with_capacity(moment_capacity),
-            kdp: Vec::with_capacity(moment_capacity),
+            ccorh: Vec::with_capacity(moment_capacity),
 
             qc_outputs: Vec::new(),
 
@@ -204,18 +203,8 @@ impl RaystackBatchData {
         url: &str,
         storage_options: Option<std::collections::HashMap<String, String>>,
     ) -> Result<()> {
-        use object_store::path::Path as ObjectPath;
-
-        // Build ObjectStore from URL
-        let store = crate::fetch::build_store_from_uri(url, storage_options)?;
-
-        // Extract object path from full URL
-        let object_path = extract_object_path_from_url(url)?;
-        let path = ObjectPath::from(object_path);
-
-        // Fetch the object
-        let get_result = store.get(&path).await?;
-        let bytes = get_result.bytes().await?;
+        // Fetch the object from URL
+        let bytes = crate::fetch::fetch_bytes_from_url(url, storage_options).await?;
 
         // Add to batch
         self.add_volume_bytes(&bytes)
@@ -460,7 +449,7 @@ impl RaystackBatchData {
             self.zdr.resize(new_moment_len, f32::NAN);
             self.phidp.resize(new_moment_len, f32::NAN);
             self.rhohv.resize(new_moment_len, f32::NAN);
-            self.kdp.resize(new_moment_len, f32::NAN);
+            self.ccorh.resize(new_moment_len, f32::NAN);
 
             let max_gates = sweep_meta.max_gates;
             let range_first_km = sweep_meta.range_first_km as f32;
@@ -527,7 +516,7 @@ impl RaystackBatchData {
                 self.fill_moment(
                     return_idx,
                     6,
-                    radial.specific_differential_phase(),
+                    radial.clutter_filter_power(),
                     max_gates,
                     range_first_km as f32,
                     gate_interval_km as f32,
@@ -661,7 +650,7 @@ impl RaystackBatchData {
             3 => &mut self.zdr[start..end],
             4 => &mut self.phidp[start..end],
             5 => &mut self.rhohv[start..end],
-            6 => &mut self.kdp[start..end],
+            6 => &mut self.ccorh[start..end],
             _ => unreachable!("Invalid moment index: {}", moment_idx),
         }
     }
@@ -741,7 +730,7 @@ impl RaystackBatchData {
             self.zdr.resize(max_moment_len, f32::NAN);
             self.phidp.resize(max_moment_len, f32::NAN);
             self.rhohv.resize(max_moment_len, f32::NAN);
-            self.kdp.resize(max_moment_len, f32::NAN);
+            self.ccorh.resize(max_moment_len, f32::NAN);
 
             for (_name, arr) in &mut self.qc_outputs {
                 match arr {
@@ -909,7 +898,7 @@ impl RaystackBatchData {
         returns_dict.set_item("ZDR", self.zdr.into_pyarray(py))?;
         returns_dict.set_item("PHIDP", self.phidp.into_pyarray(py))?;
         returns_dict.set_item("RHOHV", self.rhohv.into_pyarray(py))?;
-        returns_dict.set_item("KDP", self.kdp.into_pyarray(py))?;
+        returns_dict.set_item("CCORH", self.ccorh.into_pyarray(py))?;
 
         for (name, arr) in self.qc_outputs {
             match arr {
@@ -937,16 +926,16 @@ pub struct BatchedRaystackPy {
 #[pymethods]
 impl BatchedRaystackPy {
     #[new]
-    #[pyo3(signature = (max_patterns, max_sweeps, max_returns, fold_size=DEFAULT_FOLD_SIZE, truncate=true))]
+    #[pyo3(signature = (max_vcps, max_sweeps, max_returns, fold_size=DEFAULT_FOLD_SIZE, truncate=true))]
     fn new(
-        max_patterns: usize,
+        max_vcps: usize,
         max_sweeps: usize,
         max_returns: usize,
         fold_size: usize,
         truncate: bool,
     ) -> PyResult<Self> {
         let inner =
-            RaystackBatchData::new(max_patterns, max_sweeps, max_returns, fold_size, truncate)
+            RaystackBatchData::new(max_vcps, max_sweeps, max_returns, fold_size, truncate)
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner: Some(inner) })
     }

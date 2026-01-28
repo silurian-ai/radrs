@@ -33,7 +33,7 @@ class TestBatching:
         max_returns = max_sweeps * 540  # Conservative estimate
 
         batch = rrs.BatchedRaystack(
-            max_patterns=max_vcps,
+            max_vcps=max_vcps,
             max_sweeps=max_sweeps,
             max_returns=max_returns,
             fold_size=1832,
