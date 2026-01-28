@@ -3,10 +3,12 @@
 //! This module provides tools for converting NEXRAD data to the raystack format,
 //! which is optimized for machine learning training pipelines.
 
+mod batch;
 mod convert;
 mod fold;
 mod parse;
 
+pub use batch::BatchedRaystackPy;
 pub use convert::{from_xradar_datatree_py, to_xradar_datatree_py};
 pub use fold::{fold_ranges, fold_ranges_into};
 pub use parse::{QcOp, RaystackData, SweepInfo, parse_optimized, parse_py};
@@ -39,6 +41,8 @@ pub fn register_module(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
         convert::to_raystack_datatree_py,
         &raystack_module
     )?)?;
+
+    raystack_module.add_class::<batch::BatchedRaystackPy>()?;
 
     parent_module.add_submodule(&raystack_module)?;
     Ok(())

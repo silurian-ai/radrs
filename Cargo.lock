@@ -959,6 +959,7 @@ dependencies = [
  "bytes",
  "chrono",
  "futures",
+ "httparse",
  "humantime",
  "hyper",
  "itertools",
@@ -969,6 +970,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "ring",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "snafu",
@@ -1232,6 +1234,7 @@ name = "radrs"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "bytes",
  "chrono",
  "flate2",
  "futures",
@@ -1244,6 +1247,7 @@ dependencies = [
  "pyo3",
  "pyo3-async-runtimes",
  "rayon",
+ "regex",
  "thiserror",
  "tokio",
  "tracing",
@@ -1344,6 +1348,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "regex"
+version = "1.12.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "843bc0191f75f3e22651ae5f1e72939ab2f72a4bc30fa80a066bd66edefc24d4"
+dependencies = [
+ "aho-corasick",
+ "memchr",
+ "regex-automata",
+ "regex-syntax",
 ]
 
 [[package]]
@@ -1449,6 +1465,15 @@ dependencies = [
  "rustls-pki-types",
  "schannel",
  "security-framework",
+]
+
+[[package]]
+name = "rustls-pemfile"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]
