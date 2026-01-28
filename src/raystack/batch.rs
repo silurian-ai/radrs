@@ -350,6 +350,8 @@ impl RaystackBatchData {
             )));
         }
 
+        let elevation_cuts = scan.coverage_pattern().elevation_cuts();
+
         //
         // VCP
         //
@@ -413,7 +415,15 @@ impl RaystackBatchData {
 
             self.sweep_elevation_number
                 .push(sweep_meta.elevation_number);
-            self.sweep_elevation_angle.push(sweep_meta.elevation_angle);
+            // Nominal sweep angles are stored in VCP-level metadata "elevation cuts"
+            self.sweep_elevation_angle.push(
+                if elevation_cuts.len() <= (sweep_meta.elevation_number as usize) {
+                    elevation_cuts[(sweep_meta.elevation_number - 1) as usize]
+                        .elevation_angle_degrees() as f32
+                } else {
+                    sweep_meta.elevation_angle
+                },
+            );
             self.sweep_max_gates.push(sweep_meta.max_gates as u32);
             self.sweep_range_start_m
                 .push((sweep_meta.range_first_km * 1000.0) as f32);
