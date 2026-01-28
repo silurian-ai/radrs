@@ -160,7 +160,7 @@ def _(dt_radrs, dt_xradar, mo, sweep_selector):
 
 @app.cell
 def _(common_vars, mo):
-    moments = sorted([v for v in common_vars if v in {"DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"}])
+    moments = sorted([v for v in common_vars if v in {"DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"}])
     moment_selector = mo.ui.dropdown(
         options=moments if moments else ["(none)"],
         value=moments[0] if moments else None,

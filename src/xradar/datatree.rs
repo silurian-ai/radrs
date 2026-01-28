@@ -1,8 +1,10 @@
 //! DataTree conversion for xradar compatibility
 
+use crate::constants::XRADAR_MOMENT_NAMES;
 use crate::error::{RadrsError, Result};
 use crate::fetch::{RUNTIME, fetch_s3_url};
 use crate::metadata::{ScanMeta, extract_scan_meta};
+use crate::metadata_build::{build_root_attrs, build_root_vars, set_sweep_mode_scalars};
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentValue, Radial, Scan, Sweep};
 use numpy::IntoPyArray;
@@ -12,17 +14,8 @@ use pyo3::types::{IntoPyDict, PyBytes, PyDict};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
 use std::fs;
+use std::time::Instant;
 
-/// Standard NEXRAD variable names (following xradar/CF-radial conventions)
-const MOMENT_NAMES: [(&str, &str); 7] = [
-    ("reflectivity", "DBZH"),
-    ("velocity", "VRADH"),
-    ("spectrum_width", "WRADH"),
-    ("differential_reflectivity", "ZDR"),
-    ("differential_phase", "PHIDP"),
-    ("correlation_coefficient", "RHOHV"),
-    ("specific_differential_phase", "KDP"),
-];
 
 /// Open a NEXRAD Level 2 file and return an xarray DataTree
 ///
@@ -92,9 +85,28 @@ pub fn open_datatree(source: Vec<u8>) -> Result<(Scan, ScanMeta)> {
 
 /// Parse raw NEXRAD data into a Scan
 fn parse_nexrad_data(data: Vec<u8>) -> Result<(Scan, ScanMeta)> {
+    let bytes_len = data.len();
+    let start = Instant::now();
     let volume = VolumeFile::new(data);
     let meta = extract_scan_meta(&volume);
-    let scan = volume.scan()?;
+    let scan = volume.scan().map_err(|err| {
+        tracing::warn!(
+            target: "radrs::parse",
+            format = "xradar",
+            bytes = bytes_len,
+            error = %err
+        );
+        err
+    })?;
+    let elapsed = start.elapsed();
+    tracing::info!(
+        target: "radrs::parse",
+        format = "xradar",
+        bytes = bytes_len,
+        vcp = scan.coverage_pattern_number(),
+        n_sweeps = scan.sweeps().len(),
+        elapsed_ms = elapsed.as_millis() as u64
+    );
     Ok((scan, meta))
 }
 
@@ -148,43 +160,14 @@ pub(crate) fn scan_to_datatree(
     let (time_start, time_end) = compute_time_coverage(scan);
 
     // Build root attributes
-    let root_attrs = PyDict::new(py);
-    root_attrs.set_item("Conventions", "CF-1.8")?;
-    root_attrs.set_item("instrument_type", "radar")?;
-    root_attrs.set_item("platform_type", "fixed")?;
-    root_attrs.set_item("volume_coverage_pattern", scan.coverage_pattern_number())?;
-    root_attrs.set_item(
-        "scan_name",
-        format!("VCP-{}", scan.coverage_pattern_number()),
+    let root_attrs = build_root_attrs(
+        py,
+        scan.coverage_pattern_number(),
+        meta.instrument_name.as_deref(),
     )?;
-    if let Some(ref name) = meta.instrument_name {
-        root_attrs.set_item("instrument_name", name.as_str())?;
-    }
 
     // Root data variables (xradar-style metadata)
-    let root_vars = PyDict::new(py);
-    if let Some(volume_number) = meta.volume_number {
-        root_vars.set_item("volume_number", volume_number)?;
-    }
-    // NEXRAD is a fixed platform; platform_number is not provided in the file format.
-    root_vars.set_item("platform_type", "fixed")?;
-    root_vars.set_item("instrument_type", "radar")?;
-    if let Some(lat) = meta.latitude {
-        root_vars.set_item("latitude", lat)?;
-    }
-    if let Some(lon) = meta.longitude {
-        root_vars.set_item("longitude", lon)?;
-    }
-    if let Some(alt) = meta.altitude {
-        root_vars.set_item("altitude", alt)?;
-    }
-    // Add time coverage (as ISO 8601 strings, matching xradar)
-    if let Some(ts) = time_start {
-        root_vars.set_item("time_coverage_start", format_timestamp_iso(ts))?;
-    }
-    if let Some(ts) = time_end {
-        root_vars.set_item("time_coverage_end", format_timestamp_iso(ts))?;
-    }
+    let root_vars = build_root_vars(py, meta, time_start, time_end)?;
 
     // Build the DataTree structure - create root with attrs and vars
     let root_kwargs = [("data_vars", root_vars.as_any())].into_py_dict(py)?;
@@ -230,13 +213,6 @@ fn compute_time_coverage(scan: &Scan) -> (Option<i64>, Option<i64>) {
     }
 
     (min_ts, max_ts)
-}
-
-/// Format millisecond timestamp as ISO 8601 string
-fn format_timestamp_iso(timestamp_ms: i64) -> String {
-    use chrono::{TimeZone, Utc};
-    let dt = Utc.timestamp_millis_opt(timestamp_ms).unwrap();
-    dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 /// Create a metadata dataset with just coordinates (for radar_parameters, georeferencing_correction)
@@ -297,7 +273,7 @@ fn sweep_to_dataset<'py>(
     let mut max_range_info: Option<(f64, f64)> = None;
 
     for radial in radials {
-        for (moment_getter, cf_name) in &MOMENT_NAMES {
+        for (moment_getter, cf_name) in &XRADAR_MOMENT_NAMES {
             if let Some(moment) = get_moment_data(radial, moment_getter) {
                 let n_gates = moment.gate_count() as usize;
                 let first_range = moment.first_gate_range_km();
@@ -378,7 +354,7 @@ fn sweep_to_dataset<'py>(
     }
 
     // Process each moment type - pad all to max_n_gates
-    for (moment_getter, cf_name) in &MOMENT_NAMES {
+    for (moment_getter, cf_name) in &XRADAR_MOMENT_NAMES {
         if moment_info.contains_key(*cf_name) {
             // Create 2D data array (time, range) filled with NaN, padded to max_n_gates
             let mut moment_data: Vec<f32> = vec![f32::NAN; n_rays * max_n_gates];
@@ -396,6 +372,7 @@ fn sweep_to_dataset<'py>(
                             MomentValue::Value(v) => *v,
                             MomentValue::BelowThreshold => f32::NAN,
                             MomentValue::RangeFolded => f32::NAN,
+                            MomentValue::CfpStatus(_) => f32::NAN,
                         };
                     }
                 }
@@ -416,9 +393,7 @@ fn sweep_to_dataset<'py>(
     if let Some(first_radial) = radials.first() {
         data_vars.set_item("sweep_fixed_angle", first_radial.elevation_angle_degrees())?;
     }
-    data_vars.set_item("sweep_mode", "azimuth_surveillance")?;
-    data_vars.set_item("prt_mode", "not_set")?;
-    data_vars.set_item("follow_mode", "not_set")?;
+    set_sweep_mode_scalars(&data_vars)?;
 
     // Create Dataset
     let kwargs = [
@@ -437,13 +412,13 @@ fn get_moment_data<'a>(
     moment_name: &str,
 ) -> Option<&'a nexrad_model::data::MomentData> {
     match moment_name {
-        "reflectivity" => radial.reflectivity(),
-        "velocity" => radial.velocity(),
-        "spectrum_width" => radial.spectrum_width(),
-        "differential_reflectivity" => radial.differential_reflectivity(),
-        "differential_phase" => radial.differential_phase(),
-        "correlation_coefficient" => radial.correlation_coefficient(),
-        "specific_differential_phase" => radial.specific_differential_phase(),
+        name if name == XRADAR_MOMENT_NAMES[0].0 => radial.reflectivity(),
+        name if name == XRADAR_MOMENT_NAMES[1].0 => radial.velocity(),
+        name if name == XRADAR_MOMENT_NAMES[2].0 => radial.spectrum_width(),
+        name if name == XRADAR_MOMENT_NAMES[3].0 => radial.differential_reflectivity(),
+        name if name == XRADAR_MOMENT_NAMES[4].0 => radial.differential_phase(),
+        name if name == XRADAR_MOMENT_NAMES[5].0 => radial.correlation_coefficient(),
+        name if name == XRADAR_MOMENT_NAMES[6].0 => radial.clutter_filter_power(),
         _ => None,
     }
 }

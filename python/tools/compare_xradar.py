@@ -17,7 +17,7 @@ from typing import Iterable
 import numpy as np
 
 
-MOMENTS = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"]
+MOMENTS = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"]
 
 
 def _as_float_array(values) -> np.ndarray:

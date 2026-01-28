@@ -13,7 +13,7 @@ pub enum MomentType {
     DifferentialReflectivity,
     DifferentialPhase,
     CorrelationCoefficient,
-    SpecificDifferentialPhase,
+    ClutterFilterPower,
 }
 
 impl MomentType {
@@ -26,7 +26,7 @@ impl MomentType {
             MomentType::DifferentialReflectivity => "ZDR",
             MomentType::DifferentialPhase => "PHIDP",
             MomentType::CorrelationCoefficient => "RHOHV",
-            MomentType::SpecificDifferentialPhase => "KDP",
+            MomentType::ClutterFilterPower => "CCORH",
         }
     }
 
@@ -39,7 +39,7 @@ impl MomentType {
             MomentType::DifferentialReflectivity,
             MomentType::DifferentialPhase,
             MomentType::CorrelationCoefficient,
-            MomentType::SpecificDifferentialPhase,
+            MomentType::ClutterFilterPower,
         ]
     }
 }
@@ -55,6 +55,7 @@ pub fn decode_moment_values(moment: &MomentData) -> Vec<f32> {
             MomentValue::Value(x) => *x,
             MomentValue::BelowThreshold => f32::NAN,
             MomentValue::RangeFolded => f32::NAN,
+            MomentValue::CfpStatus(_) => f32::NAN,
         })
         .collect()
 }
@@ -77,6 +78,10 @@ pub fn decode_moment_values_with_flags(moment: &MomentData) -> (Vec<f32>, Vec<u8
             MomentValue::RangeFolded => {
                 values.push(f32::NAN);
                 flags.push(2); // Range folded
+            }
+            MomentValue::CfpStatus(_) => {
+                values.push(f32::NAN);
+                flags.push(3); // CFP status (non-numeric)
             }
         }
     }

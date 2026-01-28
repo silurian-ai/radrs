@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use nexrad_data::volume::{Header, Record};
 use nexrad_decode::messages::MessageContents;
 use object_store::path::Path as ObjectPath;
-use object_store::{GetOptions, GetRange, ObjectStore};
+use object_store::{GetOptions, GetRange, ObjectStore, ObjectStoreExt};
 use pyo3::prelude::*;
 use pyo3::types::PyDateTime;
 use std::sync::Arc;
@@ -256,6 +256,9 @@ fn scan_record_for_extras(
                     if drd.correlation_coefficient_data_block().is_some() {
                         moments.push("RHOHV".to_string());
                     }
+                    if drd.clutter_filter_power_data_block().is_some() {
+                        moments.push("CCORH".to_string());
+                    }
                     if !moments.is_empty() {
                         extras.moments = Some(moments);
                     }
@@ -448,7 +451,7 @@ async fn fetch_range(
     let _permit = FETCH_SEMAPHORE.acquire().await.expect("semaphore closed");
 
     let options = GetOptions {
-        range: Some(GetRange::Bounded(start..end)),
+        range: Some(GetRange::Bounded(start as u64..end as u64)),
         ..Default::default()
     };
 

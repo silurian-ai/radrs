@@ -2,8 +2,11 @@
 //!
 //! Supports S3, GCS, Azure Blob Storage, and local filesystems.
 
-use crate::error::{RadrsError, Result};
+use crate::error::RadrsError;
+use crate::error::Result;
+use object_store::ClientOptions;
 use object_store::ObjectStore;
+use object_store::ObjectStoreExt;
 use object_store::aws::AmazonS3Builder;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -38,10 +41,18 @@ static STORE_CACHE: Lazy<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> = Lazy::n
 });
 
 fn build_store(bucket: &str) -> Result<Arc<dyn ObjectStore>> {
+    // Configure HTTP client for high throughput:
+    // - Larger connection pool per host for parallel downloads
+    // - HTTP/1.1 (faster than HTTP/2 for object storage per object_store benchmarks)
+    let client_options = ClientOptions::new()
+        .with_pool_max_idle_per_host(100)
+        .with_pool_idle_timeout(std::time::Duration::from_secs(60));
+
     let store = AmazonS3Builder::new()
         .with_bucket_name(bucket)
         .with_region("us-east-1")
         .with_skip_signature(true)
+        .with_client_options(client_options)
         .build()?;
 
     Ok(Arc::new(store))
@@ -320,6 +331,52 @@ pub(crate) fn extract_base_path(uri: &str) -> Result<String> {
         "Unsupported URI scheme: {}",
         uri
     )))
+}
+
+/// Fetch bytes from a URL using object_store
+///
+/// Supports S3, GCS, Azure Blob Storage, and local filesystems.
+///
+/// # Arguments
+/// * `url` - Full URL to the object (e.g., "s3://bucket/path/to/file", "/local/path/file")
+/// * `storage_options` - Optional storage credentials and configuration
+///
+/// # Examples
+///
+/// ```ignore
+/// // S3 with anonymous access
+/// let bytes = fetch_bytes_from_url(
+///     "s3://noaa-nexrad-level2/2024/03/15/KTLX/KTLX20240315_120000_V06",
+///     Some(hashmap!{"anon" => "true"})
+/// ).await?;
+///
+/// // GCS with service account
+/// let bytes = fetch_bytes_from_url(
+///     "gs://my-bucket/nexrad/KTLX20240315_120000_V06",
+///     Some(hashmap!{"service_account_path" => "/path/to/key.json"})
+/// ).await?;
+///
+/// // Local filesystem
+/// let bytes = fetch_bytes_from_url("/data/nexrad/KTLX20240315_120000_V06", None).await?;
+/// ```
+pub async fn fetch_bytes_from_url(
+    url: &str,
+    storage_options: Option<HashMap<String, String>>,
+) -> Result<bytes::Bytes> {
+    use object_store::path::Path as ObjectPath;
+
+    // Build ObjectStore from URL
+    let store = build_store_from_uri(url, storage_options)?;
+
+    // Extract object path from full URL
+    let object_path = extract_object_path_from_url(url)?;
+    let path = ObjectPath::from(object_path);
+
+    // Fetch the object
+    let get_result = store.get(&path).await?;
+    let bytes = get_result.bytes().await?;
+
+    Ok(bytes)
 }
 
 #[cfg(test)]

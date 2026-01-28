@@ -6,7 +6,7 @@ import radrs.raystack as rrs
 import radrs.xradar as rxr
 
 S3_TEST_FILE = "s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06"
-MOMENT_NAMES = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"]
+MOMENT_NAMES = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"]
 
 
 def _compute_activity_python(returns_ds, sweeps_ds, moments=None):
@@ -106,7 +106,7 @@ class TestParse:
         returns = rs["returns"]
 
         # Should have at least reflectivity
-        moment_names = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"]
+        moment_names = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"]
         found = [m for m in moment_names if m in returns]
         assert len(found) > 0, "Should have at least one moment variable"
 

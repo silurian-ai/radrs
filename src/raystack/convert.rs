@@ -1,5 +1,7 @@
 //! Conversion between DataTree and Raystack formats
 
+use crate::constants::{INSTRUMENT_TYPE, MOMENT_NAMES, PLATFORM_TYPE};
+use crate::metadata_build::{build_root_attrs, set_sweep_mode_vars};
 use crate::raystack::fold::fold_ranges_into;
 use crate::raystack::parse::{DEFAULT_FOLD_SIZE, RaystackData, SweepInfo, raystack_to_python};
 use numpy::IntoPyArray;
@@ -247,7 +249,7 @@ fn datatree_to_raystack(
             zdr: Vec::new(),
             phidp: Vec::new(),
             rhohv: Vec::new(),
-            kdp: Vec::new(),
+            ccorh: Vec::new(),
         });
     }
 
@@ -272,7 +274,7 @@ fn datatree_to_raystack(
         zdr: vec![f32::NAN; moment_len],
         phidp: vec![f32::NAN; moment_len],
         rhohv: vec![f32::NAN; moment_len],
-        kdp: vec![f32::NAN; moment_len],
+        ccorh: vec![f32::NAN; moment_len],
     };
 
     // Build sweep info
@@ -338,7 +340,7 @@ fn datatree_to_raystack(
         }
 
         // Extract and fold moment data
-        let moment_names = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"];
+        let moment_names = MOMENT_NAMES;
 
         for (moment_idx, moment_name) in moment_names.iter().enumerate() {
             if let Ok(moment_var) = dataset.get_item(*moment_name) {
@@ -354,7 +356,7 @@ fn datatree_to_raystack(
                         3 => &mut raystack.zdr[dest_start..dest_start + fold_size],
                         4 => &mut raystack.phidp[dest_start..dest_start + fold_size],
                         5 => &mut raystack.rhohv[dest_start..dest_start + fold_size],
-                        6 => &mut raystack.kdp[dest_start..dest_start + fold_size],
+                        6 => &mut raystack.ccorh[dest_start..dest_start + fold_size],
                         _ => unreachable!(),
                     };
                     fold_ranges_into(row, dest);
@@ -392,20 +394,13 @@ fn raystack_dict_to_datatree(
     let pattern_number: u16 = vcps.get_item("pattern_number")?.extract()?;
     let sweeps_list: Vec<Bound<'_, PyAny>> = sweeps.extract()?;
 
+    let instrument_name = vcps
+        .get_item("instrument_name")
+        .ok()
+        .and_then(|name| if name.is_none() { None } else { name.extract::<String>().ok() });
+
     // Create root attributes
-    let root_attrs = PyDict::new(py);
-    root_attrs.set_item("Conventions", "CF-1.8")?;
-    root_attrs.set_item("instrument_type", "radar")?;
-    root_attrs.set_item("platform_type", "fixed")?;
-    root_attrs.set_item("volume_coverage_pattern", pattern_number)?;
-    root_attrs.set_item("scan_name", format!("VCP-{}", pattern_number))?;
-    if let Ok(name) = vcps.get_item("instrument_name") {
-        if !name.is_none() {
-            if let Ok(val) = name.extract::<String>() {
-                root_attrs.set_item("instrument_name", val)?;
-            }
-        }
-    }
+    let root_attrs = build_root_attrs(py, pattern_number, instrument_name.as_deref())?;
 
     // Build tree dict
     let tree_dict = PyDict::new(py);
@@ -421,7 +416,7 @@ fn raystack_dict_to_datatree(
     let time_arr = returns.get_item("time")?;
 
     // Get moment names from returns
-    let moment_names = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"];
+    let moment_names = MOMENT_NAMES;
 
     // Process each sweep
     for (sweep_idx, sweep_info) in sweeps_list.iter().enumerate() {
@@ -537,7 +532,7 @@ fn raystack_dict_to_raystack_datatree(
     })?;
 
     // Determine fold size from first available moment
-    let moment_names = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"];
+    let moment_names = MOMENT_NAMES;
     let mut fold_size = None;
     for moment_name in &moment_names {
         if let Ok(moment_arr) = returns.get_item(*moment_name) {
@@ -696,8 +691,8 @@ fn raystack_dict_to_raystack_datatree(
         "num_sweeps",
         (("vcp_time",), vec![sweeps_list.len() as u32]),
     )?;
-    vcps_vars.set_item("instrument_type", (("vcp_time",), vec!["radar"]))?;
-    vcps_vars.set_item("platform_type", (("vcp_time",), vec!["fixed"]))?;
+    vcps_vars.set_item("instrument_type", (("vcp_time",), vec![INSTRUMENT_TYPE]))?;
+    vcps_vars.set_item("platform_type", (("vcp_time",), vec![PLATFORM_TYPE]))?;
     if let Ok(lat) = vcps.get_item("latitude") {
         if !lat.is_none() {
             if let Ok(val) = lat.extract::<f32>() {
@@ -793,21 +788,7 @@ fn raystack_dict_to_raystack_datatree(
     sweeps_vars.set_item("sweep_fixed_angle", (("sweep_time",), elevation_angles))?;
     sweeps_vars.set_item("n_radials", (("sweep_time",), n_radials_list))?;
     sweeps_vars.set_item("start_index", (("sweep_time",), start_indices))?;
-    sweeps_vars.set_item(
-        "sweep_mode",
-        (
-            ("sweep_time",),
-            vec!["azimuth_surveillance"; sweeps_list.len()],
-        ),
-    )?;
-    sweeps_vars.set_item(
-        "prt_mode",
-        (("sweep_time",), vec!["not_set"; sweeps_list.len()]),
-    )?;
-    sweeps_vars.set_item(
-        "follow_mode",
-        (("sweep_time",), vec!["not_set"; sweeps_list.len()]),
-    )?;
+    set_sweep_mode_vars(&sweeps_vars, sweeps_list.len())?;
     sweeps_vars.set_item("sweep_duration", (("sweep_time",), sweep_duration_dt))?;
     sweeps_vars.set_item("max_range", (("sweep_time",), max_ranges))?;
     sweeps_vars.set_item("range_start", (("sweep_time",), range_starts))?;
@@ -1005,15 +986,7 @@ fn raystack_dict_to_raystack_datatree(
     }
 
     // Root dataset with minimal attrs
-    let root_attrs = PyDict::new(py);
-    root_attrs.set_item("Conventions", "CF-1.8")?;
-    root_attrs.set_item("instrument_type", "radar")?;
-    root_attrs.set_item("platform_type", "fixed")?;
-    root_attrs.set_item("volume_coverage_pattern", pattern_number)?;
-    root_attrs.set_item("scan_name", format!("VCP-{}", pattern_number))?;
-    if let Some(ref name) = instrument_name {
-        root_attrs.set_item("instrument_name", name.as_str())?;
-    }
+    let root_attrs = build_root_attrs(py, pattern_number, instrument_name.as_deref())?;
 
     let root_ds = xr.call_method1("Dataset", (PyDict::new(py),))?;
     root_ds.setattr("attrs", root_attrs)?;

@@ -3,9 +3,11 @@
 //! Uses two-pass parsing with preallocation for minimal allocations.
 //! Supports parallel BZ2 decompression via rayon.
 
+use crate::constants::{INSTRUMENT_TYPE, MOMENT_NAMES, PLATFORM_TYPE};
 use crate::error::{RadrsError, Result};
 use crate::fetch::{RUNTIME, fetch_s3_url};
 use crate::metadata::{ScanMeta, extract_scan_meta};
+use crate::metadata_build::{build_root_attrs, set_sweep_mode_vars};
 use crate::qc;
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentValue, Scan};
@@ -18,6 +20,7 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use std::borrow::Cow;
 use std::fs;
 use std::io::Read;
+use std::time::Instant;
 
 /// Default fold size for raystack format
 pub const DEFAULT_FOLD_SIZE: usize = 128;
@@ -31,8 +34,7 @@ const MOMENT_WRADH: usize = 2;
 const MOMENT_ZDR: usize = 3;
 const MOMENT_PHIDP: usize = 4;
 const MOMENT_RHOHV: usize = 5;
-const MOMENT_KDP: usize = 6;
-const MOMENT_NAMES: [&str; 7] = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "KDP"];
+const MOMENT_CCORH: usize = 6;
 
 /// Decompress outer gzip if present. Uses Cow to avoid allocation when not gzipped.
 pub(crate) fn ungzip_if_needed(data: &[u8]) -> Result<Cow<'_, [u8]>> {
@@ -93,7 +95,7 @@ pub struct RaystackData {
     pub zdr: Vec<f32>,
     pub phidp: Vec<f32>,
     pub rhohv: Vec<f32>,
-    pub kdp: Vec<f32>,
+    pub ccorh: Vec<f32>,
 }
 
 struct ActivityData {
@@ -116,7 +118,7 @@ fn compute_activity(raystack: &RaystackData) -> ActivityData {
         &raystack.zdr,
         &raystack.phidp,
         &raystack.rhohv,
-        &raystack.kdp,
+        &raystack.ccorh,
     ];
     let n_moments = MOMENT_NAMES.len();
     let n_returns = raystack.n_radials;
@@ -301,7 +303,7 @@ impl RaystackData {
             zdr: vec![f32::NAN; moment_len],
             phidp: vec![f32::NAN; moment_len],
             rhohv: vec![f32::NAN; moment_len],
-            kdp: vec![f32::NAN; moment_len],
+            ccorh: vec![f32::NAN; moment_len],
         }
     }
 
@@ -317,7 +319,7 @@ impl RaystackData {
             MOMENT_ZDR => &mut self.zdr[start..end],
             MOMENT_PHIDP => &mut self.phidp[start..end],
             MOMENT_RHOHV => &mut self.rhohv[start..end],
-            MOMENT_KDP => &mut self.kdp[start..end],
+            MOMENT_CCORH => &mut self.ccorh[start..end],
             _ => unreachable!(),
         }
     }
@@ -685,7 +687,7 @@ pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
             update_grid(radial.differential_reflectivity());
             update_grid(radial.differential_phase());
             update_grid(radial.correlation_coefficient());
-            update_grid(radial.specific_differential_phase());
+            update_grid(radial.clutter_filter_power());
 
             vcp_min_time = vcp_min_time.min(radial.collection_timestamp());
             vcp_max_time = vcp_max_time.max(radial.collection_timestamp());
@@ -805,8 +807,8 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
             fill_moment(
                 raystack,
                 radial_idx,
-                MOMENT_KDP,
-                radial.specific_differential_phase(),
+                MOMENT_CCORH,
+                radial.clutter_filter_power(),
                 fold_size,
                 sweep_info.max_gates,
                 sweep_info.range_first_km,
@@ -1000,9 +1002,33 @@ pub fn parse_py<'py>(
 ) -> PyResult<Py<PyAny>> {
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
     let qc_ops = parse_qc_ops(py, qc)?;
+    let bytes_len = data.len();
+    let start = Instant::now();
 
     // Release GIL during parsing
-    let raystack = py.detach(|| parse_optimized(data, fold_size))?;
+    let raystack = match py.detach(|| parse_optimized(data, fold_size)) {
+        Ok(raystack) => raystack,
+        Err(err) => {
+            tracing::warn!(
+                target: "radrs::parse",
+                format = "raystack",
+                bytes = bytes_len,
+                fold_size,
+                error = %err
+            );
+            return Err(err.into());
+        }
+    };
+    let elapsed = start.elapsed();
+    tracing::info!(
+        target: "radrs::parse",
+        format = "raystack",
+        bytes = bytes_len,
+        fold_size,
+        n_radials = raystack.n_radials,
+        n_sweeps = raystack.sweeps.len(),
+        elapsed_ms = elapsed.as_millis() as u64
+    );
 
     raystack_to_python(py, raystack, &qc_ops, include_activity)
 }
@@ -1031,7 +1057,31 @@ pub fn open_raystack_datatree_py<'py>(
         }
     };
 
-    let raystack: RaystackData = py.detach(|| parse_optimized(&data, fold_size))?;
+    let bytes_len = data.len();
+    let start = Instant::now();
+    let raystack = match py.detach(|| parse_optimized(&data, fold_size)) {
+        Ok(raystack) => raystack,
+        Err(err) => {
+            tracing::warn!(
+                target: "radrs::parse",
+                format = "raystack",
+                bytes = bytes_len,
+                fold_size,
+                error = %err
+            );
+            return Err(err.into());
+        }
+    };
+    let elapsed = start.elapsed();
+    tracing::info!(
+        target: "radrs::parse",
+        format = "raystack",
+        bytes = bytes_len,
+        fold_size,
+        n_radials = raystack.n_radials,
+        n_sweeps = raystack.sweeps.len(),
+        elapsed_ms = elapsed.as_millis() as u64
+    );
     raystack_data_to_raystack_datatree(py, raystack, &qc_ops, include_activity)
 }
 
@@ -1052,9 +1102,21 @@ pub fn open_raystack_datatree_async_py<'py>(
     let awaitable = future_into_py(py, async move {
         let data = fetch_source_bytes_async(source).await?;
 
+        let bytes_len = data.len();
+        let start = Instant::now();
         let raystack = tokio::task::spawn_blocking(move || parse_optimized(&data, fold_size))
             .await
             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
+        let elapsed = start.elapsed();
+        tracing::info!(
+            target: "radrs::parse",
+            format = "raystack",
+            bytes = bytes_len,
+            fold_size,
+            n_radials = raystack.n_radials,
+            n_sweeps = raystack.sweeps.len(),
+            elapsed_ms = elapsed.as_millis() as u64
+        );
 
         Python::attach(|py| {
             raystack_data_to_raystack_datatree(py, raystack, &qc_ops, include_activity)
@@ -1220,8 +1282,8 @@ fn raystack_data_to_raystack_datatree(
         "num_sweeps",
         (("vcp_time",), vec![raystack.sweeps.len() as u32]),
     )?;
-    vcps_vars.set_item("instrument_type", (("vcp_time",), vec!["radar"]))?;
-    vcps_vars.set_item("platform_type", (("vcp_time",), vec!["fixed"]))?;
+    vcps_vars.set_item("instrument_type", (("vcp_time",), vec![INSTRUMENT_TYPE]))?;
+    vcps_vars.set_item("platform_type", (("vcp_time",), vec![PLATFORM_TYPE]))?;
     if let Some(lat) = raystack.latitude {
         vcps_vars.set_item("latitude", (("vcp_time",), vec![lat]))?;
     }
@@ -1282,21 +1344,7 @@ fn raystack_data_to_raystack_datatree(
     sweeps_vars.set_item("sweep_fixed_angle", (("sweep_time",), elevation_angles))?;
     sweeps_vars.set_item("n_radials", (("sweep_time",), n_radials_list))?;
     sweeps_vars.set_item("start_index", (("sweep_time",), start_indices))?;
-    sweeps_vars.set_item(
-        "sweep_mode",
-        (
-            ("sweep_time",),
-            vec!["azimuth_surveillance"; raystack.sweeps.len()],
-        ),
-    )?;
-    sweeps_vars.set_item(
-        "prt_mode",
-        (("sweep_time",), vec!["not_set"; raystack.sweeps.len()]),
-    )?;
-    sweeps_vars.set_item(
-        "follow_mode",
-        (("sweep_time",), vec!["not_set"; raystack.sweeps.len()]),
-    )?;
+    set_sweep_mode_vars(&sweeps_vars, raystack.sweeps.len())?;
     sweeps_vars.set_item("sweep_duration", (("sweep_time",), sweep_duration_dt))?;
     sweeps_vars.set_item("max_range", (("sweep_time",), max_ranges))?;
     sweeps_vars.set_item("range_start", (("sweep_time",), range_starts))?;
@@ -1383,13 +1431,18 @@ fn raystack_data_to_raystack_datatree(
         Ok(())
     };
 
-    add_moment("DBZH", raystack.dbzh, &returns_vars)?;
-    add_moment("VRADH", raystack.vradh, &returns_vars)?;
-    add_moment("WRADH", raystack.wradh, &returns_vars)?;
-    add_moment("ZDR", raystack.zdr, &returns_vars)?;
-    add_moment("PHIDP", raystack.phidp, &returns_vars)?;
-    add_moment("RHOHV", raystack.rhohv, &returns_vars)?;
-    add_moment("KDP", raystack.kdp, &returns_vars)?;
+    let moments: [(&str, Vec<f32>); 7] = [
+        (MOMENT_NAMES[MOMENT_DBZH], raystack.dbzh),
+        (MOMENT_NAMES[MOMENT_VRADH], raystack.vradh),
+        (MOMENT_NAMES[MOMENT_WRADH], raystack.wradh),
+        (MOMENT_NAMES[MOMENT_ZDR], raystack.zdr),
+        (MOMENT_NAMES[MOMENT_PHIDP], raystack.phidp),
+        (MOMENT_NAMES[MOMENT_RHOHV], raystack.rhohv),
+        (MOMENT_NAMES[MOMENT_CCORH], raystack.ccorh),
+    ];
+    for (name, data) in moments {
+        add_moment(name, data, &returns_vars)?;
+    }
 
     let returns_ds = xr.call_method(
         "Dataset",
@@ -1527,15 +1580,11 @@ fn raystack_data_to_raystack_datatree(
         None
     };
 
-    let root_attrs = PyDict::new(py);
-    root_attrs.set_item("Conventions", "CF-1.8")?;
-    root_attrs.set_item("instrument_type", "radar")?;
-    root_attrs.set_item("platform_type", "fixed")?;
-    root_attrs.set_item("volume_coverage_pattern", raystack.pattern_number)?;
-    root_attrs.set_item("scan_name", format!("VCP-{}", raystack.pattern_number))?;
-    if let Some(ref name) = instrument_name {
-        root_attrs.set_item("instrument_name", name.as_str())?;
-    }
+    let root_attrs = build_root_attrs(
+        py,
+        raystack.pattern_number,
+        instrument_name.as_deref(),
+    )?;
 
     let root_ds = xr.call_method1("Dataset", (PyDict::new(py),))?;
     root_ds.setattr("attrs", root_attrs)?;
@@ -1583,8 +1632,8 @@ pub fn raystack_to_python(
     let vcp_end = raystack.time.iter().copied().max().unwrap_or(vcp_time);
     vcps.set_item("vcp_duration", vcp_end - vcp_time)?;
     vcps.set_item("num_sweeps", raystack.sweeps.len() as u32)?;
-    vcps.set_item("instrument_type", "radar")?;
-    vcps.set_item("platform_type", "fixed")?;
+    vcps.set_item("instrument_type", INSTRUMENT_TYPE)?;
+    vcps.set_item("platform_type", PLATFORM_TYPE)?;
     if let Some(lat) = raystack.latitude {
         vcps.set_item("latitude", lat)?;
     }
@@ -1667,13 +1716,18 @@ pub fn raystack_to_python(
         Ok(())
     };
 
-    add_moment("DBZH", raystack.dbzh, &returns)?;
-    add_moment("VRADH", raystack.vradh, &returns)?;
-    add_moment("WRADH", raystack.wradh, &returns)?;
-    add_moment("ZDR", raystack.zdr, &returns)?;
-    add_moment("PHIDP", raystack.phidp, &returns)?;
-    add_moment("RHOHV", raystack.rhohv, &returns)?;
-    add_moment("KDP", raystack.kdp, &returns)?;
+    let moments: [(&str, Vec<f32>); 7] = [
+        (MOMENT_NAMES[MOMENT_DBZH], raystack.dbzh),
+        (MOMENT_NAMES[MOMENT_VRADH], raystack.vradh),
+        (MOMENT_NAMES[MOMENT_WRADH], raystack.wradh),
+        (MOMENT_NAMES[MOMENT_ZDR], raystack.zdr),
+        (MOMENT_NAMES[MOMENT_PHIDP], raystack.phidp),
+        (MOMENT_NAMES[MOMENT_RHOHV], raystack.rhohv),
+        (MOMENT_NAMES[MOMENT_CCORH], raystack.ccorh),
+    ];
+    for (name, data) in moments {
+        add_moment(name, data, &returns)?;
+    }
 
     result.set_item("returns", returns)?;
 

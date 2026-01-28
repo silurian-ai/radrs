@@ -5,6 +5,56 @@ import numpy as np
 import radrs.xradar as rxr
 
 
+def _align_by_azimuth_time(
+    rust_vals: np.ndarray,
+    rust_az: np.ndarray,
+    rust_time: np.ndarray | None,
+    xrad_vals: np.ndarray,
+    xrad_az: np.ndarray,
+    xrad_time: np.ndarray | None,
+    *,
+    az_tol: float,
+    time_tol_s: float = 2.0,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Align rows by azimuth, then disambiguate using closest time."""
+    use_time = rust_time is not None and xrad_time is not None
+    if use_time:
+        rust_time = np.asarray(rust_time)
+        xrad_time = np.asarray(xrad_time)
+
+    matched_r = []
+    matched_x = []
+
+    for i, az in enumerate(rust_az):
+        az_diff = np.abs(xrad_az - az)
+        cand = np.where(az_diff <= az_tol)[0]
+        if cand.size == 0:
+            continue
+
+        j = None
+        if use_time and rust_time is not None and xrad_time is not None:
+            t = rust_time[i]
+            if not np.isnat(t):
+                valid = ~np.isnat(xrad_time[cand])
+                cand_t = cand[valid]
+                if cand_t.size > 0:
+                    dt = np.abs(xrad_time[cand_t] - t) / np.timedelta64(1, "s")
+                    best = int(np.argmin(dt))
+                    if dt[best] <= time_tol_s:
+                        j = int(cand_t[best])
+
+        if j is None:
+            j = int(cand[np.argmin(az_diff[cand])])
+
+        matched_r.append(rust_vals[i])
+        matched_x.append(xrad_vals[j])
+
+    if not matched_r:
+        return None
+
+    return np.asarray(matched_r), np.asarray(matched_x)
+
+
 class TestOpenDatatree:
     """Tests for open_datatree function."""
 
@@ -249,7 +299,10 @@ class TestXradarCompatibility:
 
             rust_az = rust_dt[key]["azimuth"].values
             xrad_az = xradar_datatree[key]["azimuth"].values
+            rust_time = rust_dt[key]["time"].values if "time" in rust_dt[key].dataset else None
+            xrad_time = xradar_datatree[key]["time"].values if "time" in xradar_datatree[key].dataset else None
             az_spacing = 360.0 / len(xrad_az)
+            az_tol = az_spacing * 0.55
 
             for moment in ["DBZH", "VRADH", "RHOHV"]:
                 if moment not in rust_dt[key].dataset or moment not in xradar_datatree[key].dataset:
@@ -258,23 +311,81 @@ class TestXradarCompatibility:
                 rust_vals = rust_dt[key][moment].values
                 xrad_vals = xradar_datatree[key][moment].values
 
-                # Match rows by closest azimuth
-                matched_diffs = []
-                for i, az in enumerate(rust_az):
-                    j = np.argmin(np.abs(xrad_az - az))
-                    if np.abs(xrad_az[j] - az) > az_spacing * 0.55:
-                        continue
+                # Treat xradar below-threshold sentinel as NaN
+                xrad_vals = np.where(np.isclose(xrad_vals, -33.0, atol=0.01), np.nan, xrad_vals)
 
-                    rust_row = rust_vals[i]
-                    xrad_row = xrad_vals[j]
-                    xrad_row = np.where(np.isclose(xrad_row, -33.0, atol=0.01), np.nan, xrad_row)
+                aligned = _align_by_azimuth_time(
+                    rust_vals,
+                    rust_az,
+                    rust_time,
+                    xrad_vals,
+                    xrad_az,
+                    xrad_time,
+                    az_tol=az_tol,
+                )
+                if aligned is None:
+                    continue
+                r_aligned, x_aligned = aligned
+                mask = np.isfinite(r_aligned) & np.isfinite(x_aligned)
+                if not np.any(mask):
+                    continue
+                matched_diffs = np.abs(r_aligned[mask] - x_aligned[mask])
 
-                    mask = np.isfinite(rust_row) & np.isfinite(xrad_row)
-                    if np.any(mask):
-                        matched_diffs.extend(np.abs(rust_row[mask] - xrad_row[mask]).tolist())
+                if matched_diffs.size > 0:
+                    assert float(np.max(matched_diffs)) < 0.01, \
+                        f"{key}/{moment}: max diff = {float(np.max(matched_diffs))}"
 
-                if matched_diffs:
-                    assert max(matched_diffs) < 0.01, f"{key}/{moment}: max diff = {max(matched_diffs)}"
+    def test_ccorh_values_match(self, test_file_path, xradar_datatree):
+        """Test that CCORH values match xradar when aligned by azimuth.
+
+        CCORH can include CFP status codes which radrs treats as NaN. We compare
+        only finite values and allow a very small number of outliers due to
+        azimuth alignment edge cases.
+        """
+        rust_dt = rxr.open_datatree(test_file_path, sort_by_azimuth=True)
+
+        for key in rust_dt.children:
+            if not key.startswith("sweep_"):
+                continue
+            if key not in xradar_datatree.children:
+                continue
+            if "CCORH" not in rust_dt[key].dataset or "CCORH" not in xradar_datatree[key].dataset:
+                continue
+
+            rust_az = rust_dt[key]["azimuth"].values
+            xrad_az = xradar_datatree[key]["azimuth"].values
+            rust_time = rust_dt[key]["time"].values if "time" in rust_dt[key].dataset else None
+            xrad_time = xradar_datatree[key]["time"].values if "time" in xradar_datatree[key].dataset else None
+            az_spacing = 360.0 / len(xrad_az)
+            az_tol = az_spacing * 0.55
+
+            rust_vals = rust_dt[key]["CCORH"].values
+            xrad_vals = xradar_datatree[key]["CCORH"].values
+
+            aligned = _align_by_azimuth_time(
+                rust_vals,
+                rust_az,
+                rust_time,
+                xrad_vals,
+                xrad_az,
+                xrad_time,
+                az_tol=az_tol,
+            )
+            if aligned is None:
+                continue
+            r_aligned, x_aligned = aligned
+            mask = np.isfinite(r_aligned) & np.isfinite(x_aligned)
+            if not np.any(mask):
+                continue
+            diffs = np.abs(r_aligned[mask] - x_aligned[mask])
+            mean = float(np.mean(diffs))
+            p99 = float(np.quantile(diffs, 0.99))
+            outliers = int(np.count_nonzero(diffs > 1.0))
+
+            assert mean < 0.05 and p99 < 0.5, \
+                f"{key}/CCORH: mean {mean:.3f}, p99 {p99:.3f} too large"
+            assert outliers <= 1, \
+                f"{key}/CCORH: too many outliers > 1.0 ({outliers})"
 
 
 class TestPerformance:

@@ -178,13 +178,13 @@ else:
         """
 
         def __init__(
-            self, max_patterns, max_sweeps, max_returns, fold_size=128, truncate=True
+            self, max_vcps, max_sweeps, max_returns, fold_size=128, truncate=True
         ):
             """Initialize batched raystack accumulator.
 
             Parameters
             ----------
-            max_patterns : int
+            max_vcps : int
                 Maximum number of VCP patterns
             max_sweeps : int
                 Maximum total number of sweeps
@@ -197,7 +197,7 @@ else:
                 If False, output arrays remain at max_returns size with NaN/0 fill.
             """
             self._inner = _raystack.BatchedRaystack(
-                max_patterns=max_patterns,
+                max_vcps=max_vcps,
                 max_sweeps=max_sweeps,
                 max_returns=max_returns,
                 fold_size=fold_size,
@@ -528,7 +528,7 @@ else:
                             ("ZDR", None),
                             ("PHIDP", None),
                             ("RHOHV", None),
-                            ("KDP", None),
+                            ("CCORH", None),
                         ]
                         + [(qcv, None) for qcv in qc_vars]
                     },

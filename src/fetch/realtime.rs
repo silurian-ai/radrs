@@ -3,7 +3,7 @@
 use crate::error::Result;
 use crate::fetch::{FETCH_SEMAPHORE, store_for_bucket};
 use futures::stream::StreamExt;
-use object_store::ObjectStore;
+use object_store::{ObjectStore, ObjectStoreExt};
 use object_store::path::Path as ObjectPath;
 use std::collections::HashSet;
 

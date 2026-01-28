@@ -243,8 +243,13 @@ pub async fn list_volumes_with_info(site: &str, date: NaiveDate) -> Result<Vec<V
             Ok(meta) => {
                 let path = meta.location.to_string();
                 if let Some(filename) = path.rsplit('/').next() {
+                    // Filter to actual volume files:
+                    // - Must start with site name
+                    // - Must contain version indicator (_V0 or _V1)
+                    // - Exclude metadata-only files (_MDM suffix)
                     if filename.starts_with(site)
                         && (filename.contains("_V0") || filename.contains("_V1"))
+                        && !filename.ends_with("_MDM")
                     {
                         volumes.push(VolumeInfo {
                             name: filename.to_string(),
