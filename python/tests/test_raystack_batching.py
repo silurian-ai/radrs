@@ -131,7 +131,7 @@ class TestBatching:
         assert raystack["/vcps"].dataset["vcp_number"].values[0] == 212
         assert raystack["/sweeps"].dataset["elevation_angle"].values[
             0
-        ] == pytest.approx(0.2884, abs=0.01)
+        ] == pytest.approx(0.4834, abs=0.01)
         assert raystack["/returns"].dataset["azimuth"].values[0] == pytest.approx(
             60.23, abs=0.01
         )

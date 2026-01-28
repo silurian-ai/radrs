@@ -417,7 +417,7 @@ impl RaystackBatchData {
                 .push(sweep_meta.elevation_number);
             // Nominal sweep angles are stored in VCP-level metadata "elevation cuts"
             self.sweep_elevation_angle.push(
-                if elevation_cuts.len() <= (sweep_meta.elevation_number as usize) {
+                if (sweep_meta.elevation_number as usize) <= elevation_cuts.len() {
                     elevation_cuts[(sweep_meta.elevation_number - 1) as usize]
                         .elevation_angle_degrees() as f32
                 } else {
