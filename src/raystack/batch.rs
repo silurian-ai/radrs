@@ -419,9 +419,10 @@ impl RaystackBatchData {
                 .push((sweep_meta.range_first_km * 1000.0) as f32);
             self.sweep_range_step_m
                 .push((sweep_meta.gate_interval_km * 1000.0) as f32);
+            // Computation is to sum the distance of the first + (all but the first) gates
             self.sweep_max_range_m.push(
                 ((sweep_meta.range_first_km
-                    + sweep_meta.gate_interval_km * (sweep_meta.max_gates as f64))
+                    + sweep_meta.gate_interval_km * ((sweep_meta.max_gates - 1) as f64))
                     * 1000.0) as f32,
             );
             self.sweep_num_returns.push(sweep_meta.n_radials as u32);
