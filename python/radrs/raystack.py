@@ -117,8 +117,9 @@ else:
         """Pre-allocated raystack batch accumulator for incremental filling.
 
         Pre-allocates flat arrays for P patterns (VCPs), S sweeps, and R returns,
-        then fills incrementally from volumes added to the batch. Each return tracks
-        both its parent sweep_time and vcp_time for temporal organization.
+        then fills incrementally from volumes added to the batch. Returns represent
+        folded range segments (radials × folds); each return tracks its parent
+        sweep_time/vcp_time and includes base_range/range_step metadata.
 
         Parameters
         ----------
@@ -127,9 +128,9 @@ else:
         max_sweeps : int
             Maximum total number of sweeps across all patterns
         max_returns : int
-            Maximum total number of returns/radials
+            Maximum total number of returns after folding (radials × folds)
         fold_size : int, default=128
-            Range fold size
+            Range fold size (number of gates per segment)
         truncate : bool, default=True
             If True, output arrays are truncated to actual filled size.
             If False, output arrays remain at max_returns size with NaN/0 fill.
@@ -189,9 +190,9 @@ else:
             max_sweeps : int
                 Maximum total number of sweeps
             max_returns : int
-                Maximum total number of returns
+                Maximum total number of returns after folding (radials × folds)
             fold_size : int, default=128
-                Range fold size
+                Range fold size (number of gates per segment)
             truncate : bool, default=True
                 If True, output arrays are truncated to actual filled size.
                 If False, output arrays remain at max_returns size with NaN/0 fill.

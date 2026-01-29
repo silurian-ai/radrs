@@ -31,8 +31,11 @@ def _compute_activity_python(returns_ds, sweeps_ds, moments=None):
     sweep_valid_fraction = np.full((len(moments), n_sweeps), np.nan, dtype=np.float32)
 
     starts = np.asarray(sweeps_ds["start_index"].values, dtype=np.int64)
-    n_radials = np.asarray(sweeps_ds["n_radials"].values, dtype=np.int64)
-    for s_idx, (start, count) in enumerate(zip(starts, n_radials, strict=False)):
+    if "n_returns" in sweeps_ds:
+        n_per_sweep = np.asarray(sweeps_ds["n_returns"].values, dtype=np.int64)
+    else:
+        n_per_sweep = np.asarray(sweeps_ds["n_radials"].values, dtype=np.int64)
+    for s_idx, (start, count) in enumerate(zip(starts, n_per_sweep, strict=False)):
         end = min(start + count, n_returns)
         denom = max(0, end - start) * fold_size
         sweep_counts = ray_valid_count[:, start:end].sum(axis=1).astype(np.uint32)
@@ -110,6 +113,34 @@ class TestParse:
         found = [m for m in moment_names if m in returns]
         assert len(found) > 0, "Should have at least one moment variable"
 
+    def test_parse_folding_splits_returns(self, test_file_bytes):
+        """Ensure folding increases return count and base_range steps per fold."""
+
+        rs = rrs.parse(test_file_bytes, fold_size=128)
+        if not rs["sweeps"]:
+            pytest.skip("No sweeps found in test file")
+
+        sweep0 = rs["sweeps"][0]
+        n_radials = int(sweep0["n_radials"])
+        n_returns = int(sweep0.get("n_returns", n_radials))
+        n_folds = int(sweep0.get("n_folds", max(1, n_returns // max(1, n_radials))))
+        if n_returns == n_radials or n_folds <= 1:
+            pytest.skip("No folding detected for this volume/fold_size")
+
+        start = int(sweep0["start_index"])
+        if "base_range" not in rs["returns"] or "range_step" not in rs["returns"]:
+            pytest.skip("base_range/range_step not present in returns")
+        base_range = np.asarray(rs["returns"]["base_range"][start : start + n_returns])
+        range_step = float(rs["returns"]["range_step"][start])
+        if not np.isfinite(range_step) or range_step <= 0:
+            pytest.skip("Invalid range_step for folding check")
+        fold_size = int(len(rs["returns"]["range"]))
+
+        first_radial = base_range[:n_folds]
+        expected_step = range_step * fold_size
+        diffs = np.diff(first_radial)
+        np.testing.assert_allclose(diffs, expected_step, rtol=1e-5)
+
     def test_parse_has_activity(self, test_file_bytes):
         """Test that activity metrics are present and aligned."""
 
@@ -155,8 +186,9 @@ class TestParse:
         # Verify radial counts match
         for i, sweep in enumerate(sweeps):
             radials_in_sweep = np.sum(sweep_idx == i)
-            assert radials_in_sweep == sweep["n_radials"], \
-                f"Sweep {i}: expected {sweep['n_radials']} radials, got {radials_in_sweep}"
+            expected = sweep.get("n_returns", sweep["n_radials"])
+            assert radials_in_sweep == expected, \
+                f"Sweep {i}: expected {expected} returns, got {radials_in_sweep}"
 
     def test_parse_sweeps_metadata(self, test_file_bytes):
         """Test that sweeps metadata is correctly extracted."""
@@ -167,10 +199,14 @@ class TestParse:
             assert "elevation_number" in sweep
             assert "elevation_angle" in sweep
             assert "n_radials" in sweep
+            assert "n_returns" in sweep
+            assert "n_folds" in sweep
             assert "start_index" in sweep
 
             # Basic sanity checks
             assert sweep["n_radials"] > 0
+            assert sweep["n_returns"] >= sweep["n_radials"]
+            assert sweep["n_folds"] >= 1
             assert sweep["elevation_angle"] >= -1.0  # Some sweeps can be slightly negative
             assert sweep["elevation_angle"] <= 90.0
 
@@ -183,17 +219,17 @@ class TestParse:
         if not sweeps:
             pytest.skip("No sweeps found in test file")
 
-        # start_index should be cumulative sum of prior n_radials
+        # start_index should be cumulative sum of prior n_returns
         expected_start = 0
         for sweep in sweeps:
             assert sweep["start_index"] == expected_start, \
                 f"Expected start_index {expected_start}, got {sweep['start_index']}"
-            expected_start += sweep["n_radials"]
+            expected_start += sweep.get("n_returns", sweep["n_radials"])
 
         # Final index should match total radial count
-        n_radials = len(rs["returns"]["azimuth"])
-        assert expected_start == n_radials, \
-            f"Expected total radials {expected_start}, got {n_radials}"
+        n_returns = len(rs["returns"]["azimuth"])
+        assert expected_start == n_returns, \
+            f"Expected total returns {expected_start}, got {n_returns}"
 
     def test_parse_azimuth_range(self, test_file_bytes):
         """Test that azimuth values are in valid range."""
@@ -285,8 +321,19 @@ class TestParse:
 
         dt_time = np.concatenate(times)
         rs_time = rs["returns"]["time"]
-        assert len(dt_time) == len(rs_time)
-        np.testing.assert_array_equal(rs_time, dt_time)
+
+        expanded = []
+        offset = 0
+        for sweep in rs["sweeps"]:
+            n_radials = int(sweep["n_radials"])
+            n_folds = int(sweep.get("n_folds", 1))
+            sweep_times = dt_time[offset : offset + n_radials]
+            expanded.append(np.repeat(sweep_times, n_folds))
+            offset += n_radials
+
+        dt_time_expanded = np.concatenate(expanded) if expanded else dt_time
+        assert len(dt_time_expanded) == len(rs_time)
+        np.testing.assert_array_equal(rs_time, dt_time_expanded)
 
 
 def test_parse_accepts_gzip_bytes(test_file_bytes):
@@ -495,7 +542,7 @@ class TestRoundtrip:
     def test_roundtrip_preserves_moment_values(self, test_file_path):
         """Test that roundtrip preserves moment data values.
 
-        Note: raystack output always has shape (n_radials, fold_size), so we compare
+        Note: raystack output always has shape (n_returns, fold_size), so we compare
         values at the overlapping range indices, not expect exact shapes.
         """
 

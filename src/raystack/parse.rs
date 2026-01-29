@@ -27,6 +27,17 @@ pub const DEFAULT_FOLD_SIZE: usize = 128;
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
+#[inline]
+fn fold_count(max_gates: usize, fold_size: usize) -> usize {
+    if fold_size == 0 {
+        return 0;
+    }
+    if max_gates == 0 {
+        return 1;
+    }
+    (max_gates + fold_size - 1) / fold_size
+}
+
 /// Moment indices for fixed-size arrays
 const MOMENT_DBZH: usize = 0;
 const MOMENT_VRADH: usize = 1;
@@ -54,6 +65,8 @@ pub struct SweepMeta {
     pub elevation_number: u8,
     pub elevation_angle: f32,
     pub n_radials: usize,
+    pub n_returns: usize,
+    pub n_folds: usize,
     pub max_gates: usize,      // Max gate count across all moments in this sweep
     pub range_first_km: f64,   // First gate range for sweep grid (km)
     pub gate_interval_km: f64, // Gate interval for sweep grid (km)
@@ -65,7 +78,7 @@ pub struct SweepMeta {
 pub struct VolumeMeta {
     pub pattern_number: u16,
     pub sweeps: Vec<SweepMeta>,
-    pub total_radials: usize,
+    pub total_returns: usize,
     pub min_time: i64,
     pub max_time: i64,
 }
@@ -78,16 +91,16 @@ pub struct RaystackData {
     pub longitude: Option<f32>,
     pub altitude: Option<f32>,
     pub sweeps: Vec<SweepInfo>,
-    pub n_radials: usize,
+    pub n_returns: usize,
     pub fold_size: usize,
 
-    // Flat coordinate arrays (length = n_radials)
+    // Flat coordinate arrays (length = n_returns)
     pub azimuth: Vec<f32>,
     pub elevation: Vec<f32>,
     pub time: Vec<i64>,
     pub sweep_idx: Vec<u32>,
 
-    // Flat moment arrays (length = n_radials * fold_size)
+    // Flat moment arrays (length = n_returns * fold_size)
     // Using flat arrays avoids Vec<Vec<>> overhead
     pub dbzh: Vec<f32>,
     pub vradh: Vec<f32>,
@@ -121,7 +134,7 @@ fn compute_activity(raystack: &RaystackData) -> ActivityData {
         &raystack.ccorh,
     ];
     let n_moments = MOMENT_NAMES.len();
-    let n_returns = raystack.n_radials;
+    let n_returns = raystack.n_returns;
     let n_sweeps = raystack.sweeps.len();
     let fold_size = raystack.fold_size;
 
@@ -147,9 +160,9 @@ fn compute_activity(raystack: &RaystackData) -> ActivityData {
     if fold_size > 0 && n_sweeps > 0 {
         for (s_idx, sweep) in raystack.sweeps.iter().enumerate() {
             let start = sweep.start_index.min(n_returns);
-            let end = (start + sweep.n_radials).min(n_returns);
-            let sweep_radials = end.saturating_sub(start);
-            let denom = sweep_radials * fold_size;
+            let end = (start + sweep.n_returns).min(n_returns);
+            let sweep_returns = end.saturating_sub(start);
+            let denom = sweep_returns * fold_size;
             for m_idx in 0..n_moments {
                 let base = m_idx * n_returns;
                 let count: u32 = ray_valid_count[base + start..base + end]
@@ -204,6 +217,8 @@ pub struct SweepInfo {
     pub elevation_number: u8,
     pub elevation_angle: f32,
     pub n_radials: usize,
+    pub n_returns: usize,
+    pub n_folds: usize,
     pub start_index: usize,
     pub max_gates: usize,
     pub range_first_km: f64,
@@ -243,20 +258,15 @@ pub enum QcArray {
     Float(Vec<f32>),
 }
 
-fn sweep_range_metrics(sweep: &SweepInfo, fold_size: usize) -> (f32, f32, f32) {
+fn sweep_range_metrics(sweep: &SweepInfo) -> (f32, f32, f32) {
     let range_start_m = (sweep.range_first_km * 1000.0) as f32;
     let gate_interval_m = (sweep.gate_interval_km * 1000.0) as f32;
 
-    if fold_size == 0 || sweep.max_gates == 0 || gate_interval_m <= 0.0 {
+    if sweep.max_gates == 0 || gate_interval_m <= 0.0 {
         return (range_start_m, f32::NAN, f32::NAN);
     }
 
-    let range_step_m = if sweep.max_gates <= fold_size {
-        gate_interval_m
-    } else {
-        gate_interval_m * (sweep.max_gates as f32 / fold_size as f32)
-    };
-
+    let range_step_m = gate_interval_m;
     let max_range_m = range_start_m + gate_interval_m * ((sweep.max_gates - 1) as f32);
 
     (range_start_m, range_step_m, max_range_m)
@@ -265,7 +275,7 @@ fn sweep_range_metrics(sweep: &SweepInfo, fold_size: usize) -> (f32, f32, f32) {
 impl RaystackData {
     /// Allocate with known sizes
     fn with_capacity(meta: &VolumeMeta, fold_size: usize, meta_info: &ScanMeta) -> Self {
-        let n = meta.total_radials;
+        let n = meta.total_returns;
         let moment_len = n * fold_size;
 
         let mut sweeps = Vec::with_capacity(meta.sweeps.len());
@@ -276,12 +286,14 @@ impl RaystackData {
                 elevation_number: sm.elevation_number,
                 elevation_angle: sm.elevation_angle,
                 n_radials: sm.n_radials,
+                n_returns: sm.n_returns,
+                n_folds: sm.n_folds,
                 start_index,
                 max_gates: sm.max_gates,
                 range_first_km: sm.range_first_km,
                 gate_interval_km: sm.gate_interval_km,
             });
-            start_index += sm.n_radials;
+            start_index += sm.n_returns;
         }
 
         Self {
@@ -291,7 +303,7 @@ impl RaystackData {
             longitude: meta_info.longitude,
             altitude: meta_info.altitude,
             sweeps,
-            n_radials: n,
+            n_returns: n,
             fold_size,
             azimuth: vec![0.0; n],
             elevation: vec![0.0; n],
@@ -307,19 +319,16 @@ impl RaystackData {
         }
     }
 
-    /// Get mutable slice for a moment at given radial index
     #[inline]
-    fn moment_slice_mut(&mut self, moment_idx: usize, radial_idx: usize) -> &mut [f32] {
-        let start = radial_idx * self.fold_size;
-        let end = start + self.fold_size;
+    fn moment_flat_mut(&mut self, moment_idx: usize) -> &mut [f32] {
         match moment_idx {
-            MOMENT_DBZH => &mut self.dbzh[start..end],
-            MOMENT_VRADH => &mut self.vradh[start..end],
-            MOMENT_WRADH => &mut self.wradh[start..end],
-            MOMENT_ZDR => &mut self.zdr[start..end],
-            MOMENT_PHIDP => &mut self.phidp[start..end],
-            MOMENT_RHOHV => &mut self.rhohv[start..end],
-            MOMENT_CCORH => &mut self.ccorh[start..end],
+            MOMENT_DBZH => &mut self.dbzh,
+            MOMENT_VRADH => &mut self.vradh,
+            MOMENT_WRADH => &mut self.wradh,
+            MOMENT_ZDR => &mut self.zdr,
+            MOMENT_PHIDP => &mut self.phidp,
+            MOMENT_RHOHV => &mut self.rhohv,
+            MOMENT_CCORH => &mut self.ccorh,
             _ => unreachable!(),
         }
     }
@@ -561,7 +570,7 @@ fn build_qc_outputs(raystack: &RaystackData, qc_ops: &[QcOp]) -> Vec<(String, Qc
             } => {
                 let mask = qc::sun_spike(
                     &raystack.dbzh,
-                    raystack.n_radials,
+                    raystack.n_returns,
                     raystack.fold_size,
                     *dbzh_threshold,
                     *fill_threshold,
@@ -583,12 +592,12 @@ fn build_qc_outputs(raystack: &RaystackData, qc_ops: &[QcOp]) -> Vec<(String, Qc
                 fill_tolerance,
                 vname,
             } => {
-                let mut out = vec![f32::NAN; raystack.n_radials * raystack.fold_size];
+                let mut out = vec![f32::NAN; raystack.n_returns * raystack.fold_size];
                 for sweep in &raystack.sweeps {
                     let start = sweep.start_index;
-                    let n_radials = sweep.n_radials;
+                    let n_returns = sweep.n_returns;
                     let fold_size = raystack.fold_size;
-                    let slice_len = n_radials * fold_size;
+                    let slice_len = n_returns * fold_size;
                     let offset = start * fold_size;
                     let vradh = &raystack.vradh[offset..offset + slice_len];
                     let dbzh = &raystack.dbzh[offset..offset + slice_len];
@@ -606,7 +615,7 @@ fn build_qc_outputs(raystack: &RaystackData, qc_ops: &[QcOp]) -> Vec<(String, Qc
                         fill_tolerance: *fill_tolerance,
                     };
                     let sweep_out =
-                        qc::vradh_winding_number(vradh, Some(dbzh), n_radials, fold_size, params);
+                        qc::vradh_winding_number(vradh, Some(dbzh), n_returns, fold_size, params);
                     out[offset..offset + slice_len].copy_from_slice(&sweep_out);
                 }
                 outputs.push((vname.clone(), QcArray::Float(out)));
@@ -623,6 +632,11 @@ fn build_qc_outputs(raystack: &RaystackData, qc_ops: &[QcOp]) -> Vec<(String, Qc
 /// 2. Preallocate arrays
 /// 3. Second pass: decode data into preallocated buffers
 pub fn parse_optimized(data: &[u8], fold_size: usize) -> Result<RaystackData> {
+    if fold_size == 0 {
+        return Err(RadrsError::InvalidInput(
+            "fold_size must be greater than 0".into(),
+        ));
+    }
     // Handle outer gzip
     let data = ungzip_if_needed(data)?;
 
@@ -633,7 +647,7 @@ pub fn parse_optimized(data: &[u8], fold_size: usize) -> Result<RaystackData> {
     let scan = volume.scan()?;
 
     // First pass: collect metadata
-    let meta = collect_metadata(&scan);
+    let meta = collect_metadata(&scan, fold_size);
 
     // Allocate output
     let mut raystack = RaystackData::with_capacity(&meta, fold_size, &meta_info);
@@ -645,11 +659,11 @@ pub fn parse_optimized(data: &[u8], fold_size: usize) -> Result<RaystackData> {
 }
 
 /// First pass: collect metadata without allocating moment data
-pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
+pub fn collect_metadata(scan: &Scan, fold_size: usize) -> VolumeMeta {
     let mut vcp_min_time = i64::MAX;
     let mut vcp_max_time = i64::MIN;
     let mut sweeps = Vec::new();
-    let mut total_radials = 0;
+    let mut total_returns = 0;
 
     for sweep in scan.sweeps() {
         let radials = sweep.radials();
@@ -695,10 +709,15 @@ pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
             sweep_max_time = sweep_max_time.max(radial.collection_timestamp());
         }
 
+        let n_folds = fold_count(max_gates, fold_size);
+        let n_returns = n_radials * n_folds;
+
         sweeps.push(SweepMeta {
             elevation_number: sweep.elevation_number(),
             elevation_angle: first_radial.elevation_angle_degrees(),
             n_radials,
+            n_returns,
+            n_folds,
             max_gates,
             range_first_km,
             gate_interval_km,
@@ -706,13 +725,13 @@ pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
             max_time: sweep_max_time,
         });
 
-        total_radials += n_radials;
+        total_returns += n_returns;
     }
 
     VolumeMeta {
         pattern_number: scan.coverage_pattern_number(),
         sweeps,
-        total_radials,
+        total_returns,
         min_time: vcp_min_time,
         max_time: vcp_max_time,
     }
@@ -721,7 +740,7 @@ pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
 /// Second pass: fill preallocated buffers
 fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[SweepMeta]) {
     let fold_size = raystack.fold_size;
-    let mut radial_idx = 0;
+    let mut return_idx = 0;
     let mut meta_idx = 0;
     let mut sweep_counter: u32 = 0;
 
@@ -735,18 +754,24 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
         let sweep_info: SweepMeta = sweep_meta[meta_idx];
         meta_idx += 1;
 
+        let n_folds = sweep_info.n_folds.max(1);
+
         for radial in radials {
-            // Fill coordinates
-            raystack.azimuth[radial_idx] = radial.azimuth_angle_degrees();
-            raystack.elevation[radial_idx] = radial.elevation_angle_degrees();
-            raystack.time[radial_idx] = radial.collection_timestamp();
-            // Use sweep_counter to stay aligned with sweep_meta (which skips empty sweeps)
-            raystack.sweep_idx[radial_idx] = sweep_counter;
+            // Fill coordinates for each folded segment
+            for fold_idx in 0..n_folds {
+                let idx = return_idx + fold_idx;
+                raystack.azimuth[idx] = radial.azimuth_angle_degrees();
+                raystack.elevation[idx] = radial.elevation_angle_degrees();
+                raystack.time[idx] = radial.collection_timestamp();
+                // Use sweep_counter to stay aligned with sweep_meta (which skips empty sweeps)
+                raystack.sweep_idx[idx] = sweep_counter;
+            }
 
             // Fill moments with folding, using sweep grid metadata for physical alignment
             fill_moment(
                 raystack,
-                radial_idx,
+                return_idx,
+                n_folds,
                 MOMENT_DBZH,
                 radial.reflectivity(),
                 fold_size,
@@ -756,7 +781,8 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
             );
             fill_moment(
                 raystack,
-                radial_idx,
+                return_idx,
+                n_folds,
                 MOMENT_VRADH,
                 radial.velocity(),
                 fold_size,
@@ -766,7 +792,8 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
             );
             fill_moment(
                 raystack,
-                radial_idx,
+                return_idx,
+                n_folds,
                 MOMENT_WRADH,
                 radial.spectrum_width(),
                 fold_size,
@@ -776,7 +803,8 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
             );
             fill_moment(
                 raystack,
-                radial_idx,
+                return_idx,
+                n_folds,
                 MOMENT_ZDR,
                 radial.differential_reflectivity(),
                 fold_size,
@@ -786,7 +814,8 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
             );
             fill_moment(
                 raystack,
-                radial_idx,
+                return_idx,
+                n_folds,
                 MOMENT_PHIDP,
                 radial.differential_phase(),
                 fold_size,
@@ -796,7 +825,8 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
             );
             fill_moment(
                 raystack,
-                radial_idx,
+                return_idx,
+                n_folds,
                 MOMENT_RHOHV,
                 radial.correlation_coefficient(),
                 fold_size,
@@ -806,7 +836,8 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
             );
             fill_moment(
                 raystack,
-                radial_idx,
+                return_idx,
+                n_folds,
                 MOMENT_CCORH,
                 radial.clutter_filter_power(),
                 fold_size,
@@ -815,7 +846,7 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
                 sweep_info.gate_interval_km,
             );
 
-            radial_idx += 1;
+            return_idx += n_folds;
         }
 
         sweep_counter += 1;
@@ -826,7 +857,8 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
 #[inline]
 fn fill_moment(
     raystack: &mut RaystackData,
-    radial_idx: usize,
+    base_return_idx: usize,
+    n_folds: usize,
     moment_idx: usize,
     moment: Option<&nexrad_model::data::MomentData>,
     fold_size: usize,
@@ -834,15 +866,16 @@ fn fill_moment(
     sweep_first_km: f64,
     sweep_gate_interval_km: f64,
 ) {
-    let dest = raystack.moment_slice_mut(moment_idx, radial_idx);
-
     if let Some(m) = moment {
         let values = m.values();
-        // Convert to f32 and fold into destination
+        let dest_flat = raystack.moment_flat_mut(moment_idx);
+        // Convert to f32 and fold into destination segments
         // Use sweep grid metadata for physical range alignment
-        fold_moment_values_into(
+        fold_moment_segments_into(
             &values,
-            dest,
+            dest_flat,
+            base_return_idx,
+            n_folds,
             fold_size,
             sweep_gates,
             m.first_gate_range_km(),
@@ -854,11 +887,87 @@ fn fill_moment(
     // If None, dest is already filled with NaN from initialization
 }
 
-/// Fold moment values directly into destination buffer
+/// Fold moment values directly into destination buffer segments.
 ///
 /// Uses `max_gates` as the common range grid size for all moments in the radial.
 /// This ensures that moments with different native gate counts are mapped to
 /// the same physical ranges when folded (matching xradar's behavior).
+#[inline]
+fn fold_moment_segments_into(
+    values: &[MomentValue],
+    dest_flat: &mut [f32],
+    base_return_idx: usize,
+    n_folds: usize,
+    fold_size: usize,
+    sweep_gates: usize,
+    moment_first_km: f64,
+    moment_gate_interval_km: f64,
+    sweep_first_km: f64,
+    sweep_gate_interval_km: f64,
+) {
+    let n_gates = values.len();
+    if n_gates == 0 || sweep_gates == 0 || fold_size == 0 || n_folds == 0 {
+        return;
+    }
+
+    if moment_gate_interval_km <= 0.0 || sweep_gate_interval_km <= 0.0 {
+        return;
+    }
+
+    let same_grid = (moment_first_km - sweep_first_km).abs() < 1e-6
+        && (moment_gate_interval_km - sweep_gate_interval_km).abs() < 1e-6;
+
+    if same_grid {
+        for fold_idx in 0..n_folds {
+            let seg_start = fold_idx * fold_size;
+            if seg_start >= sweep_gates {
+                break;
+            }
+            let seg_end = (seg_start + fold_size).min(sweep_gates);
+            let copy_end = seg_end.min(n_gates);
+            let dest_base = (base_return_idx + fold_idx) * fold_size;
+
+            for i in seg_start..copy_end {
+                dest_flat[dest_base + (i - seg_start)] = match values[i] {
+                    MomentValue::Value(x) => x,
+                    _ => f32::NAN,
+                };
+            }
+        }
+        return;
+    }
+
+    for (gate_idx, value) in values.iter().enumerate() {
+        let val = match value {
+            MomentValue::Value(x) => *x,
+            _ => continue,
+        };
+
+        let range_km = moment_first_km + gate_idx as f64 * moment_gate_interval_km;
+        let sweep_pos = (range_km - sweep_first_km) / sweep_gate_interval_km;
+        if sweep_pos < 0.0 || sweep_pos >= sweep_gates as f64 {
+            continue;
+        }
+        let idx = sweep_pos.round() as isize;
+        if idx < 0 || idx >= sweep_gates as isize {
+            continue;
+        }
+        let uidx = idx as usize;
+        let fold_idx = uidx / fold_size;
+        if fold_idx >= n_folds {
+            continue;
+        }
+        let offset = uidx % fold_size;
+        let dest_base = (base_return_idx + fold_idx) * fold_size;
+        dest_flat[dest_base + offset] = val;
+    }
+}
+
+/// Fold moment values directly into destination buffer using bucket averaging.
+///
+/// Uses `max_gates` as the common range grid size for all moments in the radial.
+/// This preserves energy/power when collapsing to a smaller fold_size.
+#[allow(dead_code)]
 #[inline]
 fn fold_moment_values_into(
     values: &[MomentValue],
@@ -1025,7 +1134,7 @@ pub fn parse_py<'py>(
         format = "raystack",
         bytes = bytes_len,
         fold_size,
-        n_radials = raystack.n_radials,
+        n_returns = raystack.n_returns,
         n_sweeps = raystack.sweeps.len(),
         elapsed_ms = elapsed.as_millis() as u64
     );
@@ -1078,7 +1187,7 @@ pub fn open_raystack_datatree_py<'py>(
         format = "raystack",
         bytes = bytes_len,
         fold_size,
-        n_radials = raystack.n_radials,
+        n_returns = raystack.n_returns,
         n_sweeps = raystack.sweeps.len(),
         elapsed_ms = elapsed.as_millis() as u64
     );
@@ -1113,7 +1222,7 @@ pub fn open_raystack_datatree_async_py<'py>(
             format = "raystack",
             bytes = bytes_len,
             fold_size,
-            n_radials = raystack.n_radials,
+            n_returns = raystack.n_returns,
             n_sweeps = raystack.sweeps.len(),
             elapsed_ms = elapsed.as_millis() as u64
         );
@@ -1172,7 +1281,7 @@ fn raystack_data_to_raystack_datatree(
     let xr = py.import("xarray")?;
     let np = py.import("numpy")?;
 
-    let n_returns = raystack.n_radials;
+    let n_returns = raystack.n_returns;
     let fold_size = raystack.fold_size;
     let instrument_name = raystack.instrument_name.clone();
     let qc_outputs = if !qc_ops.is_empty() && n_returns > 0 {
@@ -1202,6 +1311,8 @@ fn raystack_data_to_raystack_datatree(
     let mut elevation_numbers: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
     let mut elevation_angles: Vec<f32> = Vec::with_capacity(raystack.sweeps.len());
     let mut n_radials_list: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut n_returns_list: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
+    let mut n_folds_list: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
     let mut start_indices: Vec<u32> = Vec::with_capacity(raystack.sweeps.len());
     let mut range_starts: Vec<f32> = Vec::with_capacity(raystack.sweeps.len());
     let mut range_steps: Vec<f32> = Vec::with_capacity(raystack.sweeps.len());
@@ -1211,7 +1322,7 @@ fn raystack_data_to_raystack_datatree(
         let start = sweep.start_index;
         let sweep_time = raystack.time.get(start).copied().unwrap_or(vcp_time);
         sweep_times.push(sweep_time);
-        let end = (start + sweep.n_radials).min(n_returns);
+        let end = (start + sweep.n_returns).min(n_returns);
         let sweep_end = raystack
             .time
             .get(end.saturating_sub(1))
@@ -1219,22 +1330,27 @@ fn raystack_data_to_raystack_datatree(
             .unwrap_or(sweep_time);
         sweep_durations.push(sweep_end - sweep_time);
 
-        let (range_start_m, range_step_m, max_range_m) = sweep_range_metrics(sweep, fold_size);
+        let (range_start_m, range_step_m, max_range_m) = sweep_range_metrics(sweep);
 
         sweep_numbers.push(sweep.sweep_number);
         elevation_numbers.push(u32::from(sweep.elevation_number));
         elevation_angles.push(sweep.elevation_angle);
         n_radials_list.push(sweep.n_radials as u32);
+        n_returns_list.push(sweep.n_returns as u32);
+        n_folds_list.push(sweep.n_folds as u32);
         start_indices.push(sweep.start_index as u32);
         range_starts.push(range_start_m);
         range_steps.push(range_step_m);
         max_ranges.push(max_range_m);
 
+        let segment_step_m = range_step_m * fold_size as f32;
+        let n_folds = sweep.n_folds.max(1);
         for idx in start..end {
             sweep_time_per_return[idx] = sweep_time;
             sweep_number_per_return[idx] = sweep.sweep_number;
             elevation_number_per_return[idx] = u32::from(sweep.elevation_number);
-            base_range_per_return[idx] = range_start_m;
+            let fold_idx = (idx - start) % n_folds;
+            base_range_per_return[idx] = range_start_m + fold_idx as f32 * segment_step_m;
             range_step_per_return[idx] = range_step_m;
         }
     }
@@ -1343,6 +1459,8 @@ fn raystack_data_to_raystack_datatree(
     sweeps_vars.set_item("elevation_number", (("sweep_time",), elevation_numbers))?;
     sweeps_vars.set_item("sweep_fixed_angle", (("sweep_time",), elevation_angles))?;
     sweeps_vars.set_item("n_radials", (("sweep_time",), n_radials_list))?;
+    sweeps_vars.set_item("n_returns", (("sweep_time",), n_returns_list))?;
+    sweeps_vars.set_item("n_folds", (("sweep_time",), n_folds_list))?;
     sweeps_vars.set_item("start_index", (("sweep_time",), start_indices))?;
     set_sweep_mode_vars(&sweeps_vars, raystack.sweeps.len())?;
     sweeps_vars.set_item("sweep_duration", (("sweep_time",), sweep_duration_dt))?;
@@ -1655,6 +1773,8 @@ pub fn raystack_to_python(
             d.set_item("elevation_number", s.elevation_number).ok();
             d.set_item("elevation_angle", s.elevation_angle).ok();
             d.set_item("n_radials", s.n_radials).ok();
+            d.set_item("n_returns", s.n_returns).ok();
+            d.set_item("n_folds", s.n_folds).ok();
             d.set_item("start_index", s.start_index).ok();
             d.set_item("max_gates", s.max_gates).ok();
             d.set_item("range_first_km", s.range_first_km).ok();
@@ -1664,9 +1784,9 @@ pub fn raystack_to_python(
         .collect();
     result.set_item("sweeps", sweeps_list)?;
 
-    let n_radials = raystack.n_radials;
+    let n_returns = raystack.n_returns;
     let fold_size = raystack.fold_size;
-    let qc_outputs = if !qc_ops.is_empty() && n_radials > 0 {
+    let qc_outputs = if !qc_ops.is_empty() && n_returns > 0 {
         build_qc_outputs(&raystack, qc_ops)
     } else {
         Vec::new()
@@ -1680,20 +1800,23 @@ pub fn raystack_to_python(
     returns.set_item("sweep_idx", raystack.sweep_idx.into_pyarray(py))?;
     returns.set_item("range", (0..fold_size).collect::<Vec<usize>>())?;
 
-    let mut sweep_number_per_return = vec![0u32; n_radials];
-    let mut elevation_number_per_return = vec![0u32; n_radials];
-    let mut base_range_per_return = vec![f32::NAN; n_radials];
-    let mut range_step_per_return = vec![f32::NAN; n_radials];
+    let mut sweep_number_per_return = vec![0u32; n_returns];
+    let mut elevation_number_per_return = vec![0u32; n_returns];
+    let mut base_range_per_return = vec![f32::NAN; n_returns];
+    let mut range_step_per_return = vec![f32::NAN; n_returns];
 
     for sweep in &raystack.sweeps {
         let start = sweep.start_index;
-        let end = (start + sweep.n_radials).min(n_radials);
-        let (range_start_m, range_step_m, _max_range_m) = sweep_range_metrics(sweep, fold_size);
+        let end = (start + sweep.n_returns).min(n_returns);
+        let (range_start_m, range_step_m, _max_range_m) = sweep_range_metrics(sweep);
+        let segment_step_m = range_step_m * fold_size as f32;
+        let n_folds = sweep.n_folds.max(1);
 
         for idx in start..end {
             sweep_number_per_return[idx] = sweep.sweep_number;
             elevation_number_per_return[idx] = u32::from(sweep.elevation_number);
-            base_range_per_return[idx] = range_start_m;
+            let fold_idx = (idx - start) % n_folds;
+            base_range_per_return[idx] = range_start_m + fold_idx as f32 * segment_step_m;
             range_step_per_return[idx] = range_step_m;
         }
     }
@@ -1708,8 +1831,8 @@ pub fn raystack_to_python(
 
     // Moment arrays (2D) - reshape from flat
     let add_moment = |name: &str, data: Vec<f32>, returns: &Bound<'_, PyDict>| -> PyResult<()> {
-        if n_radials > 0 {
-            let arr = Array2::from_shape_vec((n_radials, fold_size), data)
+        if n_returns > 0 {
+            let arr = Array2::from_shape_vec((n_returns, fold_size), data)
                 .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
             returns.set_item(name, arr.into_pyarray(py))?;
         }
@@ -1731,17 +1854,17 @@ pub fn raystack_to_python(
 
     result.set_item("returns", returns)?;
 
-    if !qc_outputs.is_empty() && n_radials > 0 {
+    if !qc_outputs.is_empty() && n_returns > 0 {
         let qc = PyDict::new(py);
         for (name, output) in qc_outputs {
             match output {
                 QcArray::Mask(mask) => {
-                    let arr = Array2::from_shape_vec((n_radials, fold_size), mask)
+                    let arr = Array2::from_shape_vec((n_returns, fold_size), mask)
                         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
                     qc.set_item(name, arr.into_pyarray(py))?;
                 }
                 QcArray::Float(data) => {
-                    let arr = Array2::from_shape_vec((n_radials, fold_size), data)
+                    let arr = Array2::from_shape_vec((n_returns, fold_size), data)
                         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
                     qc.set_item(name, arr.into_pyarray(py))?;
                 }

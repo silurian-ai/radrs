@@ -62,6 +62,8 @@ pub struct RaystackBatchData {
     sweep_range_step_m: Vec<f32>,
     sweep_max_range_m: Vec<f32>,
     sweep_max_gates: Vec<u32>,
+    sweep_num_radials: Vec<u32>,
+    sweep_num_folds: Vec<u32>,
     sweep_num_returns: Vec<u32>,
 
     // Return/radial coordinate data (grown incrementally, extended to max_returns if truncate=false)
@@ -110,6 +112,11 @@ impl RaystackBatchData {
                 "All capacities must be greater than 0".into(),
             ));
         }
+        if fold_size == 0 {
+            return Err(RadrsError::InvalidInput(
+                "fold_size must be greater than 0".into(),
+            ));
+        }
 
         let moment_capacity = max_returns * fold_size;
 
@@ -147,6 +154,8 @@ impl RaystackBatchData {
             sweep_range_step_m: Vec::with_capacity(max_sweeps),
             sweep_max_range_m: Vec::with_capacity(max_sweeps),
             sweep_max_gates: Vec::with_capacity(max_sweeps),
+            sweep_num_radials: Vec::with_capacity(max_sweeps),
+            sweep_num_folds: Vec::with_capacity(max_sweeps),
             sweep_num_returns: Vec::with_capacity(max_sweeps),
 
             // Pre-allocate return coordinate arrays (capacity only, will grow as needed)
@@ -309,7 +318,7 @@ impl RaystackBatchData {
         let volume = VolumeFile::new(data.into_owned());
         let scan_meta = extract_scan_meta(&volume);
         let scan: Scan = volume.scan()?;
-        let vol_meta = collect_metadata(&scan);
+        let vol_meta = collect_metadata(&scan, self.fold_size);
 
         self.add_scan(&scan, &scan_meta, &vol_meta)?;
 
@@ -343,10 +352,10 @@ impl RaystackBatchData {
             )));
         }
 
-        if self.n_returns + vol_meta.total_radials > self.max_returns {
+        if self.n_returns + vol_meta.total_returns > self.max_returns {
             return Err(RadrsError::Capacity(format!(
                 "Return capacity exceeded: {} + {} > {}",
-                self.n_returns, vol_meta.total_radials, self.max_returns
+                self.n_returns, vol_meta.total_returns, self.max_returns
             )));
         }
 
@@ -435,14 +444,16 @@ impl RaystackBatchData {
                     + sweep_meta.gate_interval_km * ((sweep_meta.max_gates - 1) as f64))
                     * 1000.0) as f32,
             );
-            self.sweep_num_returns.push(sweep_meta.n_radials as u32);
+            self.sweep_num_radials.push(sweep_meta.n_radials as u32);
+            self.sweep_num_folds.push(sweep_meta.n_folds as u32);
+            self.sweep_num_returns.push(sweep_meta.n_returns as u32);
 
             //
             // Returns
             //
 
             // Grow return arrays to accommodate new returns
-            let new_return_len = self.n_returns + sweep_meta.n_radials;
+            let new_return_len = self.n_returns + sweep_meta.n_returns;
             // Static
             self.return_vcp_time.resize(new_return_len, vcp_time);
             self.return_sweep_number
@@ -453,13 +464,8 @@ impl RaystackBatchData {
             self.return_azimuth.resize(new_return_len, f32::NAN);
             self.return_elevation.resize(new_return_len, f32::NAN);
 
-            // TODO: Actually implement folding
-            self.return_base_range_m
-                .resize(new_return_len, (sweep_meta.range_first_km * 1000.0) as f32);
-            self.return_range_step_m.resize(
-                new_return_len,
-                (sweep_meta.gate_interval_km * 1000.0) as f32,
-            );
+            self.return_base_range_m.resize(new_return_len, f32::NAN);
+            self.return_range_step_m.resize(new_return_len, f32::NAN);
 
             // Grow moment arrays to accommodate new returns
             let new_moment_len = new_return_len * self.fold_size;
@@ -474,19 +480,30 @@ impl RaystackBatchData {
             let max_gates = sweep_meta.max_gates;
             let range_first_km = sweep_meta.range_first_km as f32;
             let gate_interval_km = sweep_meta.gate_interval_km as f32;
+            let gate_interval_m = gate_interval_km * 1000.0;
+            let range_first_m = range_first_km * 1000.0;
+            let n_folds = sweep_meta.n_folds.max(1);
+            let segment_step_m = gate_interval_m * self.fold_size as f32;
 
             // Fill return data for this sweep
             for (i, radial) in sweep.radials().iter().enumerate() {
-                let return_idx = self.n_returns + i;
+                let base_return_idx = self.n_returns + i * n_folds;
 
-                // Fill coordinates
-                self.return_time[return_idx] = radial.collection_timestamp();
-                self.return_azimuth[return_idx] = radial.azimuth_angle_degrees();
-                self.return_elevation[return_idx] = radial.elevation_angle_degrees();
+                for fold_idx in 0..n_folds {
+                    let return_idx = base_return_idx + fold_idx;
+                    // Fill coordinates
+                    self.return_time[return_idx] = radial.collection_timestamp();
+                    self.return_azimuth[return_idx] = radial.azimuth_angle_degrees();
+                    self.return_elevation[return_idx] = radial.elevation_angle_degrees();
+                    self.return_base_range_m[return_idx] =
+                        range_first_m + fold_idx as f32 * segment_step_m;
+                    self.return_range_step_m[return_idx] = gate_interval_m;
+                }
 
                 // Fill moments
                 self.fill_moment(
-                    return_idx,
+                    base_return_idx,
+                    n_folds,
                     0,
                     radial.reflectivity(),
                     max_gates,
@@ -494,7 +511,8 @@ impl RaystackBatchData {
                     gate_interval_km,
                 );
                 self.fill_moment(
-                    return_idx,
+                    base_return_idx,
+                    n_folds,
                     1,
                     radial.velocity(),
                     max_gates,
@@ -502,7 +520,8 @@ impl RaystackBatchData {
                     gate_interval_km,
                 );
                 self.fill_moment(
-                    return_idx,
+                    base_return_idx,
+                    n_folds,
                     2,
                     radial.spectrum_width(),
                     max_gates,
@@ -510,7 +529,8 @@ impl RaystackBatchData {
                     gate_interval_km,
                 );
                 self.fill_moment(
-                    return_idx,
+                    base_return_idx,
+                    n_folds,
                     3,
                     radial.differential_reflectivity(),
                     max_gates,
@@ -518,7 +538,8 @@ impl RaystackBatchData {
                     gate_interval_km,
                 );
                 self.fill_moment(
-                    return_idx,
+                    base_return_idx,
+                    n_folds,
                     4,
                     radial.differential_phase(),
                     max_gates,
@@ -526,7 +547,8 @@ impl RaystackBatchData {
                     gate_interval_km,
                 );
                 self.fill_moment(
-                    return_idx,
+                    base_return_idx,
+                    n_folds,
                     5,
                     radial.correlation_coefficient(),
                     max_gates,
@@ -534,16 +556,17 @@ impl RaystackBatchData {
                     gate_interval_km,
                 );
                 self.fill_moment(
-                    return_idx,
+                    base_return_idx,
+                    n_folds,
                     6,
                     radial.clutter_filter_power(),
                     max_gates,
-                    range_first_km as f32,
-                    gate_interval_km as f32,
+                    range_first_km,
+                    gate_interval_km,
                 );
             }
 
-            self.n_returns += sweep.radials().len();
+            self.n_returns += sweep_meta.n_returns;
             self.n_sweeps += 1;
         }
 
@@ -554,27 +577,26 @@ impl RaystackBatchData {
     #[inline]
     fn fill_moment(
         &mut self,
-        return_idx: usize,
+        base_return_idx: usize,
+        n_folds: usize,
         moment_idx: usize,
         moment: Option<&nexrad_model::data::MomentData>,
         sweep_gates: usize,
         sweep_first_km: f32,
         sweep_gate_interval_km: f32,
     ) {
-        let start = return_idx * self.fold_size;
-        let _end = start + self.fold_size;
-
         if let Some(m) = moment {
             let values = m.values();
             let moment_first_km = m.first_gate_range_km() as f32;
             let moment_gate_interval_km = m.gate_interval_km() as f32;
             let fold_size = self.fold_size;
+            let dest_flat = self.moment_flat_mut(moment_idx);
 
-            let dest = self.moment_slice_mut(moment_idx, return_idx);
-
-            Self::fold_moment_values_into_static(
+            Self::fold_moment_segments_into_static(
                 &values,
-                dest,
+                dest_flat,
+                base_return_idx,
+                n_folds,
                 fold_size,
                 sweep_gates,
                 moment_first_km,
@@ -586,11 +608,13 @@ impl RaystackBatchData {
         // If None, dest is already filled with NaN from initialization
     }
 
-    /// Fold moment values directly into destination buffer (like parse.rs)
+    /// Fold moment values directly into destination buffer segments (like parse.rs)
     #[inline]
-    fn fold_moment_values_into_static(
+    fn fold_moment_segments_into_static(
         values: &[MomentValue],
-        dest: &mut [f32],
+        dest_flat: &mut [f32],
+        base_return_idx: usize,
+        n_folds: usize,
         fold_size: usize,
         sweep_gates: usize,
         moment_first_km: f32,
@@ -599,7 +623,7 @@ impl RaystackBatchData {
         sweep_gate_interval_km: f32,
     ) {
         let n_gates = values.len();
-        if n_gates == 0 || sweep_gates == 0 || fold_size == 0 {
+        if n_gates == 0 || sweep_gates == 0 || fold_size == 0 || n_folds == 0 {
             return;
         }
 
@@ -611,66 +635,62 @@ impl RaystackBatchData {
             && (moment_gate_interval_km - sweep_gate_interval_km).abs() < 1e-6;
 
         if same_grid {
-            if sweep_gates <= fold_size {
-                //println!("Writing from {} to {} ", 0, fold_size.min(n_gates));
-                // No folding needed, just copy
-                for i in 0..fold_size.min(n_gates) {
-                    dest[i] = match values[i] {
+            for fold_idx in 0..n_folds {
+                let seg_start = fold_idx * fold_size;
+                if seg_start >= sweep_gates {
+                    break;
+                }
+                let seg_end = (seg_start + fold_size).min(sweep_gates);
+                let copy_end = seg_end.min(n_gates);
+                let dest_base = (base_return_idx + fold_idx) * fold_size;
+
+                for i in seg_start..copy_end {
+                    dest_flat[dest_base + (i - seg_start)] = match values[i] {
                         MomentValue::Value(x) => x,
                         _ => f32::NAN,
                     };
                 }
-            } else {
-                // Fold: average values into buckets
-                let bucket_size = sweep_gates as f32 / fold_size as f32;
-
-                for i in 0..fold_size {
-                    let start = (i as f32 * bucket_size) as usize;
-                    let end = ((i + 1) as f32 * bucket_size) as usize;
-                    let end = end.min(sweep_gates);
-
-                    let mut sum = 0.0f32;
-                    let mut count = 0u32;
-
-                    for j in start..end.min(n_gates) {
-                        if let MomentValue::Value(x) = values[j] {
-                            sum += x;
-                            count += 1;
-                        }
-                    }
-
-                    dest[i] = if count > 0 {
-                        sum / count as f32
-                    } else {
-                        f32::NAN
-                    };
-                }
             }
-        } else {
-            // Different grids - need to remap before folding (simplified for now)
-            // For now, just copy what we can
-            for i in 0..fold_size.min(n_gates) {
-                dest[i] = match values[i] {
-                    MomentValue::Value(x) => x,
-                    _ => f32::NAN,
-                };
+            return;
+        }
+
+        // Different grids - map to sweep grid indices by physical range
+        for (gate_idx, value) in values.iter().enumerate() {
+            let val = match value {
+                MomentValue::Value(x) => *x,
+                _ => continue,
+            };
+
+            let range_km = moment_first_km + gate_idx as f32 * moment_gate_interval_km;
+            let sweep_pos = (range_km - sweep_first_km) / sweep_gate_interval_km;
+            if sweep_pos < 0.0 || sweep_pos >= sweep_gates as f32 {
+                continue;
             }
+            let idx = sweep_pos.round() as isize;
+            if idx < 0 || idx >= sweep_gates as isize {
+                continue;
+            }
+            let uidx = idx as usize;
+            let fold_idx = uidx / fold_size;
+            if fold_idx >= n_folds {
+                continue;
+            }
+            let offset = uidx % fold_size;
+            let dest_base = (base_return_idx + fold_idx) * fold_size;
+            dest_flat[dest_base + offset] = val;
         }
     }
 
-    /// Get mutable slice for a moment at given return index
     #[inline]
-    fn moment_slice_mut(&mut self, moment_idx: usize, return_idx: usize) -> &mut [f32] {
-        let start = return_idx * self.fold_size;
-        let end = start + self.fold_size;
+    fn moment_flat_mut(&mut self, moment_idx: usize) -> &mut [f32] {
         match moment_idx {
-            0 => &mut self.dbzh[start..end],
-            1 => &mut self.vradh[start..end],
-            2 => &mut self.wradh[start..end],
-            3 => &mut self.zdr[start..end],
-            4 => &mut self.phidp[start..end],
-            5 => &mut self.rhohv[start..end],
-            6 => &mut self.ccorh[start..end],
+            0 => &mut self.dbzh,
+            1 => &mut self.vradh,
+            2 => &mut self.wradh,
+            3 => &mut self.zdr,
+            4 => &mut self.phidp,
+            5 => &mut self.rhohv,
+            6 => &mut self.ccorh,
             _ => unreachable!("Invalid moment index: {}", moment_idx),
         }
     }
@@ -730,6 +750,8 @@ impl RaystackBatchData {
             self.sweep_range_start_m.resize(self.max_sweeps, f32::NAN);
             self.sweep_range_step_m.resize(self.max_sweeps, f32::NAN);
             self.sweep_max_range_m.resize(self.max_sweeps, f32::NAN);
+            self.sweep_num_radials.resize(self.max_sweeps, 0);
+            self.sweep_num_folds.resize(self.max_sweeps, 0);
             self.sweep_num_returns.resize(self.max_sweeps, 0);
 
             // Extend return coordinate arrays to max capacity with fill values
@@ -809,10 +831,10 @@ impl RaystackBatchData {
                     let mut sweep_start_index = 0;
                     for sweep_idx in 0..self.sweep_time.len() {
                         let start = sweep_start_index;
-                        let n_radials = self.sweep_num_returns[sweep_idx] as usize;
-                        sweep_start_index += n_radials;
+                        let n_returns = self.sweep_num_returns[sweep_idx] as usize;
+                        sweep_start_index += n_returns;
                         let fold_size = self.fold_size;
-                        let slice_len = n_radials * fold_size;
+                        let slice_len = n_returns * fold_size;
                         let offset = start * fold_size;
                         let vradh = &self.vradh[offset..offset + slice_len];
                         let dbzh = &self.dbzh[offset..offset + slice_len];
@@ -832,7 +854,7 @@ impl RaystackBatchData {
                         let sweep_out = qc::vradh_winding_number(
                             vradh,
                             Some(dbzh),
-                            n_radials,
+                            n_returns,
                             fold_size,
                             params,
                         );
@@ -886,7 +908,11 @@ impl RaystackBatchData {
         sweeps_dict.set_item("range_step", self.sweep_range_step_m.into_pyarray(py))?;
         sweeps_dict.set_item("max_range", self.sweep_max_range_m.into_pyarray(py))?;
         sweeps_dict.set_item("max_gates", self.sweep_max_gates.into_pyarray(py))?;
-        sweeps_dict.set_item("num_returns", self.sweep_num_returns.into_pyarray(py))?;
+        sweeps_dict.set_item("n_radials", self.sweep_num_radials.into_pyarray(py))?;
+        sweeps_dict.set_item("n_folds", self.sweep_num_folds.into_pyarray(py))?;
+        let sweep_num_returns = self.sweep_num_returns.clone();
+        sweeps_dict.set_item("num_returns", sweep_num_returns.into_pyarray(py))?;
+        sweeps_dict.set_item("n_returns", self.sweep_num_returns.into_pyarray(py))?;
 
         dict.set_item("sweeps", sweeps_dict)?;
 

@@ -110,7 +110,7 @@ DataTree('root')
 ├── DataTree('vcps')
 │   └── Dataset: pattern_number, ...
 ├── DataTree('sweeps')
-│   └── Dataset: elevation_number, elevation_angle, n_radials, start_index, ...
+│   └── Dataset: elevation_number, elevation_angle, n_radials, n_returns, n_folds, start_index, ...
 ├── DataTree('qc')
 │   └── Dataset: rhohv_threshold_mask, sun_spike_mask, vradh_winding_number, ...
 ├── DataTree('activity')
@@ -125,7 +125,8 @@ DataTree('root')
 {
     "vcps": {"pattern_number": 215},
     "sweeps": [
-        {"elevation_number": 1, "elevation_angle": 0.5, "n_radials": 720, "start_index": 0},
+        {"elevation_number": 1, "elevation_angle": 0.5, "n_radials": 720,
+         "n_returns": 5760, "n_folds": 8, "start_index": 0},
         ...
     ],
     "returns": {
@@ -133,6 +134,8 @@ DataTree('root')
         "elevation": ndarray(n_returns,),
         "time": ndarray(n_returns,),
         "sweep_idx": ndarray(n_returns,),
+        "base_range": ndarray(n_returns,),
+        "range_step": ndarray(n_returns,),
         "DBZH": ndarray(n_returns, fold_size),
         "VRADH": ndarray(n_returns, fold_size),
         ...
@@ -163,7 +166,7 @@ Activity metrics summarize data availability for each radar moment (DBZH, VRADH,
 | `ray_valid_count` | (n_moments, n_returns) | Count of finite values per ray |
 | `ray_valid_fraction` | (n_moments, n_returns) | Fraction of valid gates per ray (count / fold_size) |
 | `sweep_valid_count` | (n_moments, n_sweeps) | Total valid values per sweep |
-| `sweep_valid_fraction` | (n_moments, n_sweeps) | Fraction valid per sweep (count / (n_radials * fold_size)) |
+| `sweep_valid_fraction` | (n_moments, n_sweeps) | Fraction valid per sweep (count / (n_returns * fold_size)) |
 | `volume_valid_count` | (n_moments, 1) | Total valid values in the volume |
 | `volume_valid_fraction` | (n_moments, 1) | Fraction valid across the volume |
 
@@ -183,7 +186,7 @@ Raystack parsing can emit QC outputs under a dedicated `qc` node/dict:
 ## Compatibility notes (xradar / Py-ART)
 
 - **Sweep ordering:** radrs preserves native sweep order from the file. Some VCPs reuse elevation angles, so pairing by elevation alone can misalign sweeps. When comparing against Py-ART/xradar, align by sweep index when sweep counts match.
-- **Raystack folding semantics:** raystack folding uses physical range alignment (first gate + gate spacing) against the sweep grid, which can differ from simple gate-index folding if moments have different gate geometries.
+- **Raystack folding semantics:** raystack folding splits each radial into fixed-size range segments (default 128 gates). `base_range` and `range_step` encode the segment offset and spacing, and moments are aligned to the sweep grid by physical range (first gate + gate spacing) when moments have different gate geometries.
 - **Dual-pol decoding:** ZDR/PHIDP decoding depends on the upstream `nexrad` crate. If you see NaNs or mismatches for these moments, check the `nexrad` decode status; DBZH/VRADH/WRADH/RHOHV are expected to match.
 - **Azimuth alignment in tests:** floating-point rounding can make exact azimuth equality brittle; radrs tests align by rounded azimuth or nearest-neighbor to avoid false mismatches.
 

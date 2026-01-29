@@ -2,7 +2,6 @@
 
 use crate::constants::{INSTRUMENT_TYPE, MOMENT_NAMES, PLATFORM_TYPE};
 use crate::metadata_build::{build_root_attrs, set_sweep_mode_vars};
-use crate::raystack::fold::fold_ranges_into;
 use crate::raystack::parse::{DEFAULT_FOLD_SIZE, RaystackData, SweepInfo, raystack_to_python};
 use numpy::IntoPyArray;
 use pyo3::prelude::*;
@@ -51,12 +50,25 @@ fn extract_sweep_number(name: &str) -> Option<usize> {
 struct SweepMeta {
     name: String,
     n_radials: usize,
+    n_returns: usize,
+    n_folds: usize,
     elevation_number: u8,
     elevation_angle: f32,
     sweep_number: u32,
     max_gates: usize,
     range_first_km: f64,
     gate_interval_km: f64,
+}
+
+#[inline]
+fn fold_count(max_gates: usize, fold_size: usize) -> usize {
+    if fold_size == 0 {
+        return 0;
+    }
+    if max_gates == 0 {
+        return 1;
+    }
+    (max_gates + fold_size - 1) / fold_size
 }
 
 fn extract_scalar_coord(
@@ -75,7 +87,8 @@ fn extract_scalar_coord(
 fn count_radials(
     py: Python<'_>,
     children_dict: &Bound<'_, PyDict>,
-) -> PyResult<(Vec<SweepMeta>, usize)> {
+    fold_size: usize,
+) -> PyResult<(Vec<SweepMeta>, usize, usize)> {
     let np = py.import("numpy")?;
 
     // Collect and sort sweep names numerically
@@ -94,6 +107,7 @@ fn count_radials(
 
     let mut sweep_info = Vec::new();
     let mut total_radials = 0;
+    let mut total_returns = 0;
     let mut sweep_counter: u8 = 0;
 
     for (key, child) in sweep_items.iter() {
@@ -158,9 +172,14 @@ fn count_radials(
             .map(|n| n as u32)
             .unwrap_or(sweep_counter as u32);
 
+        let n_folds = fold_count(max_gates, fold_size);
+        let n_returns = n_radials * n_folds;
+
         sweep_info.push(SweepMeta {
             name: sweep_name,
             n_radials,
+            n_returns,
+            n_folds,
             elevation_number,
             elevation_angle,
             sweep_number,
@@ -169,10 +188,11 @@ fn count_radials(
             gate_interval_km,
         });
         total_radials += n_radials;
+        total_returns += n_returns;
         sweep_counter += 1;
     }
 
-    Ok((sweep_info, total_radials))
+    Ok((sweep_info, total_returns, total_radials))
 }
 
 /// Convert DataTree to internal Raystack representation with preallocation
@@ -181,6 +201,11 @@ fn datatree_to_raystack(
     datatree: &Bound<'_, PyAny>,
     fold_size: usize,
 ) -> PyResult<RaystackData> {
+    if fold_size == 0 {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "fold_size must be greater than 0",
+        ));
+    }
     let np = py.import("numpy")?;
 
     // Get VCP and instrument_name from root attributes
@@ -214,7 +239,8 @@ fn datatree_to_raystack(
     let children_dict = children_dict.cast::<PyDict>()?;
 
     // First pass: count radials for preallocation
-    let (sweep_meta, total_radials) = count_radials(py, children_dict)?;
+    let (sweep_meta, total_returns, _total_radials) =
+        count_radials(py, children_dict, fold_size)?;
 
     if latitude.is_none() || longitude.is_none() || altitude.is_none() {
         if let Some(first) = sweep_meta.first() {
@@ -229,7 +255,7 @@ fn datatree_to_raystack(
         }
     }
 
-    if total_radials == 0 {
+    if total_returns == 0 {
         return Ok(RaystackData {
             pattern_number,
             instrument_name,
@@ -237,7 +263,7 @@ fn datatree_to_raystack(
             longitude,
             altitude,
             sweeps: Vec::new(),
-            n_radials: 0,
+            n_returns: 0,
             fold_size,
             azimuth: Vec::new(),
             elevation: Vec::new(),
@@ -254,7 +280,7 @@ fn datatree_to_raystack(
     }
 
     // Preallocate
-    let moment_len = total_radials * fold_size;
+    let moment_len = total_returns * fold_size;
     let mut raystack = RaystackData {
         pattern_number,
         instrument_name,
@@ -262,12 +288,12 @@ fn datatree_to_raystack(
         longitude,
         altitude,
         sweeps: Vec::with_capacity(sweep_meta.len()),
-        n_radials: total_radials,
+        n_returns: total_returns,
         fold_size,
-        azimuth: vec![0.0; total_radials],
-        elevation: vec![0.0; total_radials],
-        time: vec![0; total_radials],
-        sweep_idx: vec![0; total_radials],
+        azimuth: vec![0.0; total_returns],
+        elevation: vec![0.0; total_returns],
+        time: vec![0; total_returns],
+        sweep_idx: vec![0; total_returns],
         dbzh: vec![f32::NAN; moment_len],
         vradh: vec![f32::NAN; moment_len],
         wradh: vec![f32::NAN; moment_len],
@@ -285,16 +311,18 @@ fn datatree_to_raystack(
             elevation_number: meta.elevation_number,
             elevation_angle: meta.elevation_angle,
             n_radials: meta.n_radials,
+            n_returns: meta.n_returns,
+            n_folds: meta.n_folds,
             start_index,
             max_gates: meta.max_gates,
             range_first_km: meta.range_first_km,
             gate_interval_km: meta.gate_interval_km,
         });
-        start_index += meta.n_radials;
+        start_index += meta.n_returns;
     }
 
     // Second pass: fill data in sweep_meta order
-    let mut radial_idx = 0;
+    let mut return_idx = 0;
     let mut sweep_counter: u32 = 0;
     for meta in sweep_meta.iter() {
         let Some(child) = children_dict.get_item(meta.name.as_str())? else {
@@ -330,13 +358,18 @@ fn datatree_to_raystack(
         };
 
         let n_radials = azimuth_data.len();
+        let n_folds = meta.n_folds.max(1);
 
         // Fill coordinate arrays - use sweep_counter which only counts actual sweeps
         for i in 0..n_radials {
-            raystack.azimuth[radial_idx + i] = azimuth_data[i];
-            raystack.elevation[radial_idx + i] = elevation_data[i];
-            raystack.time[radial_idx + i] = time_data[i];
-            raystack.sweep_idx[radial_idx + i] = sweep_counter;
+            let base_idx = return_idx + i * n_folds;
+            for fold_idx in 0..n_folds {
+                let idx = base_idx + fold_idx;
+                raystack.azimuth[idx] = azimuth_data[i];
+                raystack.elevation[idx] = elevation_data[i];
+                raystack.time[idx] = time_data[i];
+                raystack.sweep_idx[idx] = sweep_counter;
+            }
         }
 
         // Extract and fold moment data
@@ -347,25 +380,37 @@ fn datatree_to_raystack(
                 let values = moment_var.getattr("values")?;
                 let arr: Vec<Vec<f32>> = values.extract()?;
 
+                let dest_vec: &mut [f32] = match moment_idx {
+                    0 => &mut raystack.dbzh,
+                    1 => &mut raystack.vradh,
+                    2 => &mut raystack.wradh,
+                    3 => &mut raystack.zdr,
+                    4 => &mut raystack.phidp,
+                    5 => &mut raystack.rhohv,
+                    6 => &mut raystack.ccorh,
+                    _ => unreachable!(),
+                };
+
                 for (row_idx, row) in arr.iter().enumerate() {
-                    let dest_start = (radial_idx + row_idx) * fold_size;
-                    let dest = match moment_idx {
-                        0 => &mut raystack.dbzh[dest_start..dest_start + fold_size],
-                        1 => &mut raystack.vradh[dest_start..dest_start + fold_size],
-                        2 => &mut raystack.wradh[dest_start..dest_start + fold_size],
-                        3 => &mut raystack.zdr[dest_start..dest_start + fold_size],
-                        4 => &mut raystack.phidp[dest_start..dest_start + fold_size],
-                        5 => &mut raystack.rhohv[dest_start..dest_start + fold_size],
-                        6 => &mut raystack.ccorh[dest_start..dest_start + fold_size],
-                        _ => unreachable!(),
-                    };
-                    fold_ranges_into(row, dest);
+                    let base_idx = return_idx + row_idx * n_folds;
+                    for fold_idx in 0..n_folds {
+                        let seg_start = fold_idx * fold_size;
+                        if seg_start >= row.len() {
+                            break;
+                        }
+                        let seg_end = (seg_start + fold_size).min(row.len());
+                        let dest_start = (base_idx + fold_idx) * fold_size;
+                        let dest = &mut dest_vec[dest_start..dest_start + fold_size];
+                        for i in seg_start..seg_end {
+                            dest[i - seg_start] = row[i];
+                        }
+                    }
                 }
             }
             // Missing moments stay as NaN (already initialized)
         }
 
-        radial_idx += n_radials;
+        return_idx += n_radials * n_folds;
         sweep_counter += 1;
     }
 
@@ -418,10 +463,61 @@ fn raystack_dict_to_datatree(
     // Get moment names from returns
     let moment_names = MOMENT_NAMES;
 
+    let mut fold_size = 0usize;
+    if let Ok(range_arr) = returns.get_item("range") {
+        if let Ok(shape) = range_arr.getattr("shape") {
+            if let Ok(shape_tuple) = shape.extract::<(usize,)>() {
+                fold_size = shape_tuple.0;
+            }
+        }
+    }
+    if fold_size == 0 {
+        for moment_name in &moment_names {
+            if let Ok(moment_arr) = returns.get_item(*moment_name) {
+                if let Ok(shape) = moment_arr.getattr("shape") {
+                    if let Ok(shape_tuple) = shape.extract::<(usize, usize)>() {
+                        fold_size = shape_tuple.1;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     // Process each sweep
     for (sweep_idx, sweep_info) in sweeps_list.iter().enumerate() {
         let start_index: usize = sweep_info.get_item("start_index")?.extract()?;
-        let n_radials: usize = sweep_info.get_item("n_radials")?.extract()?;
+        let mut n_radials: usize = sweep_info
+            .get_item("n_radials")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0);
+        let mut n_returns: usize = sweep_info
+            .get_item("n_returns")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .or_else(|| sweep_info.get_item("num_returns").ok().and_then(|v| v.extract().ok()))
+            .unwrap_or(0);
+        let mut n_folds: usize = sweep_info
+            .get_item("n_folds")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0);
+        let max_gates: usize = sweep_info
+            .get_item("max_gates")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0);
+        let range_first_km: f64 = sweep_info
+            .get_item("range_first_km")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0.0);
+        let gate_interval_km: f64 = sweep_info
+            .get_item("gate_interval_km")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0.0);
         let sweep_number: u32 = sweep_info
             .get_item("sweep_number")
             .ok()
@@ -440,16 +536,64 @@ fn raystack_dict_to_datatree(
             .unwrap_or(sweep_number as u8);
         let elevation_angle: f32 = sweep_info.get_item("elevation_angle")?.extract()?;
 
-        let end_index = start_index + n_radials;
+        if n_returns == 0 {
+            n_returns = n_radials;
+        }
+        if n_folds == 0 {
+            n_folds = if n_radials > 0 {
+                (n_returns + n_radials - 1) / n_radials
+            } else {
+                1
+            };
+        }
+        if n_radials == 0 && n_folds > 0 {
+            n_radials = n_returns / n_folds;
+        }
+        if n_folds == 0 {
+            n_folds = 1;
+        }
+        if n_returns == 0 {
+            n_returns = n_radials * n_folds;
+        }
+
+        let end_index = start_index + n_returns;
 
         // Slice arrays for this sweep using Python slice objects
         let slice_obj = py
             .import("builtins")?
             .getattr("slice")?
             .call1((start_index, end_index))?;
-        let sweep_azimuth = azimuth_arr.get_item(&slice_obj)?;
-        let sweep_elevation = elevation_arr.get_item(&slice_obj)?;
-        let sweep_time = time_arr.get_item(&slice_obj)?;
+        let sweep_azimuth_full = azimuth_arr.get_item(&slice_obj)?;
+        let sweep_elevation_full = elevation_arr.get_item(&slice_obj)?;
+        let sweep_time_full = time_arr.get_item(&slice_obj)?;
+
+        let sweep_azimuth = if n_folds > 1 {
+            let step_slice = py
+                .import("builtins")?
+                .getattr("slice")?
+                .call1((0, py.None(), n_folds))?;
+            sweep_azimuth_full.get_item(&step_slice)?
+        } else {
+            sweep_azimuth_full
+        };
+        let sweep_elevation = if n_folds > 1 {
+            let step_slice = py
+                .import("builtins")?
+                .getattr("slice")?
+                .call1((0, py.None(), n_folds))?;
+            sweep_elevation_full.get_item(&step_slice)?
+        } else {
+            sweep_elevation_full
+        };
+        let sweep_time = if n_folds > 1 {
+            let step_slice = py
+                .import("builtins")?
+                .getattr("slice")?
+                .call1((0, py.None(), n_folds))?;
+            sweep_time_full.get_item(&step_slice)?
+        } else {
+            sweep_time_full
+        };
 
         // Convert time to datetime64
         let sweep_time_arr = np.call_method1("array", (&sweep_time,))?;
@@ -461,27 +605,67 @@ fn raystack_dict_to_datatree(
         coords.set_item("elevation", (("time",), sweep_elevation))?;
         coords.set_item("time", (("time",), sweep_time_dt))?;
 
+        let mut range_len = if max_gates > 0 {
+            max_gates
+        } else {
+            n_folds * fold_size
+        };
+        if n_folds > 0 && fold_size > 0 {
+            range_len = range_len.min(n_folds * fold_size);
+        }
+        if range_len > 0 {
+            let range_data: Vec<f64> = if gate_interval_km > 0.0 {
+                let start_m = range_first_km * 1000.0;
+                let step_m = gate_interval_km * 1000.0;
+                (0..range_len)
+                    .map(|i| start_m + i as f64 * step_m)
+                    .collect()
+            } else {
+                (0..range_len).map(|i| i as f64).collect()
+            };
+            coords.set_item("range", (("range",), range_data.into_pyarray(py)))?;
+        }
+
         // Build data vars
         let data_vars = PyDict::new(py);
-        let mut range_added = false;
 
         for moment_name in &moment_names {
             if let Ok(moment_arr) = returns.get_item(*moment_name) {
-                let sweep_moment = moment_arr.get_item(&slice_obj)?;
+                let sweep_moment_full = moment_arr.get_item(&slice_obj)?;
 
-                // Get range dimension size
-                let shape = sweep_moment.getattr("shape")?;
-                let shape_tuple: (usize, usize) = shape.extract()?;
-                let n_range = shape_tuple.1;
-
-                // Create range coordinate if not exists
-                if !range_added {
-                    // Default range values (would need actual metadata for accuracy)
-                    let range_data: Vec<f64> = (0..n_range).map(|i| i as f64 * 250.0).collect();
-                    let range_arr = range_data.into_pyarray(py);
-                    coords.set_item("range", (("range",), range_arr))?;
-                    range_added = true;
-                }
+                let sweep_moment = if n_folds > 1 && fold_size > 0 && n_radials > 0 {
+                    let reshaped =
+                        sweep_moment_full.call_method1("reshape", (n_radials, n_folds, fold_size))?;
+                    let merged =
+                        reshaped.call_method1("reshape", (n_radials, n_folds * fold_size))?;
+                    if range_len > 0 && range_len < n_folds * fold_size {
+                        let time_slice = py
+                            .import("builtins")?
+                            .getattr("slice")?
+                            .call1((0, py.None()))?;
+                        let range_slice = py
+                            .import("builtins")?
+                            .getattr("slice")?
+                            .call1((0, range_len))?;
+                        let idx = pyo3::types::PyTuple::new(py, &[time_slice, range_slice])?;
+                        merged.get_item(idx)?
+                    } else {
+                        merged
+                    }
+                } else if range_len > 0 && fold_size > 0 && range_len < fold_size {
+                    let time_slice = py
+                        .import("builtins")?
+                        .getattr("slice")?
+                        .call1((0, py.None()))?;
+                    let range_slice = py
+                        .import("builtins")?
+                        .getattr("slice")?
+                        .call1((0, range_len))?;
+                    let idx = pyo3::types::PyTuple::new(py, &[time_slice, range_slice])?;
+                    sweep_moment_full.get_item(idx)?
+                } else {
+                    sweep_moment_full
+                };
 
                 data_vars.set_item(*moment_name, (("time", "range"), sweep_moment))?;
             }
@@ -551,7 +735,7 @@ fn raystack_dict_to_raystack_datatree(
     // Extract time array and derive sweep/return time coordinates
     let time_arr = returns.get_item("time")?;
     let time_vec: Vec<i64> = time_arr.extract().unwrap_or_default();
-    let n_returns = time_vec.len();
+    let total_returns = time_vec.len();
 
     let vcp_time = time_vec.iter().copied().min().unwrap_or(0);
     let vcp_end = time_vec.iter().copied().max().unwrap_or(vcp_time);
@@ -559,12 +743,14 @@ fn raystack_dict_to_raystack_datatree(
 
     let mut sweep_times: Vec<i64> = Vec::with_capacity(sweeps_list.len());
     let mut sweep_durations: Vec<i64> = Vec::with_capacity(sweeps_list.len());
-    let mut sweep_time_per_return = vec![vcp_time; n_returns];
+    let mut sweep_time_per_return = vec![vcp_time; total_returns];
 
     let mut sweep_numbers: Vec<u32> = Vec::with_capacity(sweeps_list.len());
     let mut elevation_numbers: Vec<u32> = Vec::with_capacity(sweeps_list.len());
     let mut elevation_angles: Vec<f32> = Vec::with_capacity(sweeps_list.len());
     let mut n_radials_list: Vec<usize> = Vec::with_capacity(sweeps_list.len());
+    let mut n_returns_list: Vec<usize> = Vec::with_capacity(sweeps_list.len());
+    let mut n_folds_list: Vec<usize> = Vec::with_capacity(sweeps_list.len());
     let mut start_indices: Vec<usize> = Vec::with_capacity(sweeps_list.len());
     let mut range_starts: Vec<f32> = Vec::with_capacity(sweeps_list.len());
     let mut range_steps: Vec<f32> = Vec::with_capacity(sweeps_list.len());
@@ -572,7 +758,22 @@ fn raystack_dict_to_raystack_datatree(
 
     for sweep_info in sweeps_list.iter() {
         let start_index: usize = sweep_info.get_item("start_index")?.extract()?;
-        let n_radials: usize = sweep_info.get_item("n_radials")?.extract()?;
+        let mut n_radials: usize = sweep_info
+            .get_item("n_radials")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0);
+        let mut sweep_returns: usize = sweep_info
+            .get_item("n_returns")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .or_else(|| sweep_info.get_item("num_returns").ok().and_then(|v| v.extract().ok()))
+            .unwrap_or(0);
+        let mut n_folds: usize = sweep_info
+            .get_item("n_folds")
+            .ok()
+            .and_then(|v| v.extract().ok())
+            .unwrap_or(0);
         let sweep_number: u32 = sweep_info
             .get_item("sweep_number")
             .ok()
@@ -595,8 +796,30 @@ fn raystack_dict_to_raystack_datatree(
             .and_then(|v| v.extract().ok())
             .unwrap_or(0.0);
 
+        if sweep_returns == 0 {
+            sweep_returns = n_radials;
+        }
+        if n_folds == 0 {
+            n_folds = if n_radials > 0 {
+                (sweep_returns + n_radials - 1) / n_radials
+            } else {
+                1
+            };
+        }
+        if n_radials == 0 && n_folds > 0 {
+            n_radials = sweep_returns / n_folds;
+        }
+        if n_folds == 0 {
+            n_folds = 1;
+        }
+        if sweep_returns == 0 {
+            sweep_returns = n_radials * n_folds;
+        }
+
         let sweep_time = time_vec.get(start_index).copied().unwrap_or(vcp_time);
-        let end_index = start_index.saturating_add(n_radials).min(n_returns);
+        let end_index = start_index
+            .saturating_add(sweep_returns)
+            .min(total_returns);
         let sweep_end = time_vec
             .get(end_index.saturating_sub(1))
             .copied()
@@ -626,12 +849,8 @@ fn raystack_dict_to_raystack_datatree(
 
         let range_start_m = (range_first_km * 1000.0) as f32;
         let gate_interval_m = (gate_interval_km * 1000.0) as f32;
-        let range_step_m = if let (Some(fold), true) = (fold_size, gate_interval_m > 0.0) {
-            if max_gates <= fold {
-                gate_interval_m
-            } else {
-                gate_interval_m * (max_gates as f32 / fold as f32)
-            }
+        let range_step_m = if gate_interval_m > 0.0 {
+            gate_interval_m
         } else {
             f32::NAN
         };
@@ -645,6 +864,8 @@ fn raystack_dict_to_raystack_datatree(
         elevation_numbers.push(elevation_number);
         elevation_angles.push(elevation_angle);
         n_radials_list.push(n_radials);
+        n_returns_list.push(sweep_returns);
+        n_folds_list.push(n_folds);
         start_indices.push(start_index);
         range_starts.push(range_start_m);
         range_steps.push(range_step_m);
@@ -765,20 +986,24 @@ fn raystack_dict_to_raystack_datatree(
         }
     }
 
-    let mut sweep_number_per_return = vec![0u32; n_returns];
-    let mut elevation_number_per_return = vec![0u32; n_returns];
-    let mut base_range_per_return = vec![f32::NAN; n_returns];
-    let mut range_step_per_return = vec![f32::NAN; n_returns];
+    let mut sweep_number_per_return = vec![0u32; total_returns];
+    let mut elevation_number_per_return = vec![0u32; total_returns];
+    let mut base_range_per_return = vec![f32::NAN; total_returns];
+    let mut range_step_per_return = vec![f32::NAN; total_returns];
 
     for (idx, start_index) in start_indices.iter().enumerate() {
         let end = start_index
-            .saturating_add(n_radials_list[idx])
-            .min(n_returns);
+            .saturating_add(n_returns_list[idx])
+            .min(total_returns);
         for r in *start_index..end {
             sweep_number_per_return[r] = sweep_numbers[idx];
             elevation_number_per_return[r] = elevation_numbers[idx];
-            base_range_per_return[r] = range_starts[idx];
-            range_step_per_return[r] = range_steps[idx];
+            let range_step_m = range_steps[idx];
+            let segment_step_m = range_step_m * fold_size.unwrap_or(0) as f32;
+            let n_folds = n_folds_list[idx].max(1);
+            let fold_idx = (r - start_index) % n_folds;
+            base_range_per_return[r] = range_starts[idx] + fold_idx as f32 * segment_step_m;
+            range_step_per_return[r] = range_step_m;
         }
     }
 
@@ -787,6 +1012,8 @@ fn raystack_dict_to_raystack_datatree(
     sweeps_vars.set_item("elevation_number", (("sweep_time",), elevation_numbers))?;
     sweeps_vars.set_item("sweep_fixed_angle", (("sweep_time",), elevation_angles))?;
     sweeps_vars.set_item("n_radials", (("sweep_time",), n_radials_list))?;
+    sweeps_vars.set_item("n_returns", (("sweep_time",), n_returns_list))?;
+    sweeps_vars.set_item("n_folds", (("sweep_time",), n_folds_list))?;
     sweeps_vars.set_item("start_index", (("sweep_time",), start_indices))?;
     set_sweep_mode_vars(&sweeps_vars, sweeps_list.len())?;
     sweeps_vars.set_item("sweep_duration", (("sweep_time",), sweep_duration_dt))?;
@@ -822,27 +1049,36 @@ fn raystack_dict_to_raystack_datatree(
     if let Some(ref name) = instrument_name {
         returns_coords.set_item(
             "instrument_name",
-            (("return_time",), vec![name.as_str(); n_returns]),
+            (("return_time",), vec![name.as_str(); total_returns]),
         )?;
     }
     if let Ok(lat) = vcps.get_item("latitude") {
         if !lat.is_none() {
             if let Ok(val) = lat.extract::<f32>() {
-                returns_coords.set_item("latitude", (("return_time",), vec![val; n_returns]))?;
+                returns_coords.set_item(
+                    "latitude",
+                    (("return_time",), vec![val; total_returns]),
+                )?;
             }
         }
     }
     if let Ok(lon) = vcps.get_item("longitude") {
         if !lon.is_none() {
             if let Ok(val) = lon.extract::<f32>() {
-                returns_coords.set_item("longitude", (("return_time",), vec![val; n_returns]))?;
+                returns_coords.set_item(
+                    "longitude",
+                    (("return_time",), vec![val; total_returns]),
+                )?;
             }
         }
     }
     if let Ok(alt) = vcps.get_item("altitude") {
         if !alt.is_none() {
             if let Ok(val) = alt.extract::<f32>() {
-                returns_coords.set_item("altitude", (("return_time",), vec![val; n_returns]))?;
+                returns_coords.set_item(
+                    "altitude",
+                    (("return_time",), vec![val; total_returns]),
+                )?;
             }
         }
     }
@@ -875,7 +1111,10 @@ fn raystack_dict_to_raystack_datatree(
         "sweep_time",
         (("return_time",), sweep_time_per_return_dt.clone()),
     )?;
-    returns_coords.set_item("vcp_time", (("return_time",), vec![vcp_time; n_returns]))?;
+    returns_coords.set_item(
+        "vcp_time",
+        (("return_time",), vec![vcp_time; total_returns]),
+    )?;
 
     if let Ok(range_arr) = returns.get_item("range") {
         returns_coords.set_item("range", (("range",), range_arr))?;
@@ -912,7 +1151,10 @@ fn raystack_dict_to_raystack_datatree(
                 "sweep_time",
                 (("return_time",), sweep_time_per_return_dt.clone()),
             )?;
-            qc_coords.set_item("vcp_time", (("return_time",), vec![vcp_time; n_returns]))?;
+            qc_coords.set_item(
+                "vcp_time",
+                (("return_time",), vec![vcp_time; total_returns]),
+            )?;
             if let Ok(range_arr) = returns.get_item("range") {
                 qc_coords.set_item("range", (("range",), range_arr))?;
             } else if let Some(fold) = fold_size {
