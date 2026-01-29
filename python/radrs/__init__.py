@@ -45,6 +45,11 @@ iter_meta_candidates_async = _radrs.iter_meta_candidates_async
 stream_realtime = _radrs.stream_realtime
 stream_archive = _radrs.stream_archive
 
+# L2 Archive iterators
+NexradL2ArchiveIter = _radrs.NexradL2ArchiveIter
+NexradL2ArchiveInfo = _radrs.NexradL2ArchiveInfo
+list_nexrad_l2_archive_volumes = _radrs.list_nexrad_l2_archive_volumes_py
+
 # Logging (opt-in, zero overhead by default)
 set_log_filter = _radrs.set_log_filter
 
@@ -67,6 +72,9 @@ __all__ = [
     "iter_meta_candidates_async",
     "stream_realtime",
     "stream_archive",
+    "NexradL2ArchiveIter",
+    "NexradL2ArchiveInfo",
+    "list_nexrad_l2_archive_volumes",
     "set_log_filter",
     "xradar",
     "raystack",

@@ -39,6 +39,12 @@ pub enum RadrsError {
 
     #[error("Parse error: {0}")]
     Parse(String),
+
+    #[error("Capacity exceeded: {0}")]
+    Capacity(String),
+
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
 }
 
 impl From<RadrsError> for PyErr {

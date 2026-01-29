@@ -17,8 +17,9 @@ nexrad-data = { git = "https://github.com/rejuvyesh/nexrad", branch = "momentdat
 nexrad-decode = { git = "https://github.com/rejuvyesh/nexrad", branch = "momentdata-kind-cfp" }
 nexrad-model = { git = "https://github.com/rejuvyesh/nexrad", branch = "momentdata-kind-cfp" }
 
-# S3 access
-object_store = { version = "0.13", features = ["aws"] }
+# Cloud storage access (S3, GCS, Azure, local)
+object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
+bytes = "1"
 
 # Async
 tokio = { version = "1", features = ["full"] }
@@ -46,6 +47,9 @@ mimalloc = { version = "0.1", default-features = false, optional = true }
 
 # URL parsing
 url = "2"
+
+# Regular expressions
+regex = "1"
 
 # Futures
 futures = "0.3"

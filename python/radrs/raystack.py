@@ -34,6 +34,8 @@ activity reflects only observed rays (normalized by observed rays × fold_size).
 """
 
 from radrs.qc import compile_qc_steps
+import xarray as xr
+import numpy as np
 
 # Import from the Rust extension
 try:
@@ -42,6 +44,7 @@ except ImportError:
     _raystack = None
 
 if _raystack is None:
+
     def parse(data, fold_size=None, qc=None, include_activity=True):
         """Parse NEXRAD data to raystack format."""
         raise NotImplementedError("radrs.raystack module not available")
@@ -62,11 +65,20 @@ if _raystack is None:
         """Open NEXRAD data and return raystack DataTree."""
         raise NotImplementedError("radrs.raystack module not available")
 
-    async def open_datatree_async(source, fold_size=None, qc=None, include_activity=True):
+    async def open_datatree_async(
+        source, fold_size=None, qc=None, include_activity=True
+    ):
         """Open NEXRAD data and return raystack DataTree (async)."""
         raise NotImplementedError("radrs.raystack module not available")
 
+    class BatchedRaystack:
+        """Pre-allocated raystack buffer for incremental filling."""
+
+        def __init__(self, *args, **kwargs):
+            raise NotImplementedError("radrs.raystack module not available")
+
 else:
+
     def parse(data, fold_size=None, qc=None, include_activity=True):
         qc_spec = compile_qc_steps(qc)
         return _raystack.parse(
@@ -77,6 +89,7 @@ else:
         return _raystack.from_xradar_datatree(
             datatree, fold_size=fold_size, include_activity=include_activity
         )
+
     to_xradar_datatree = _raystack.to_xradar_datatree
     to_raystack_datatree = _raystack.to_raystack_datatree
 
@@ -89,7 +102,9 @@ else:
             include_activity=include_activity,
         )
 
-    async def open_datatree_async(source, fold_size=None, qc=None, include_activity=True):
+    async def open_datatree_async(
+        source, fold_size=None, qc=None, include_activity=True
+    ):
         qc_spec = compile_qc_steps(qc)
         return await _raystack.open_datatree_async(
             source,
@@ -98,6 +113,455 @@ else:
             include_activity=include_activity,
         )
 
+    class BatchedRaystack:
+        """Pre-allocated raystack batch accumulator for incremental filling.
+
+        Pre-allocates flat arrays for P patterns (VCPs), S sweeps, and R returns,
+        then fills incrementally from volumes added to the batch. Each return tracks
+        both its parent sweep_time and vcp_time for temporal organization.
+
+        Parameters
+        ----------
+        max_patterns : int
+            Maximum number of VCP patterns
+        max_sweeps : int
+            Maximum total number of sweeps across all patterns
+        max_returns : int
+            Maximum total number of returns/radials
+        fold_size : int, default=128
+            Range fold size
+        truncate : bool, default=True
+            If True, output arrays are truncated to actual filled size.
+            If False, output arrays remain at max_returns size with NaN/0 fill.
+
+        Examples
+        --------
+        Accumulate 10 VCPs into a batch:
+
+        >>> import radrs
+        >>> # Allocate for 10 patterns, ~140 sweeps (14 per VCP), ~50k returns
+        >>> batch = radrs.raystack.BatchedRaystack(
+        ...     max_patterns=10,
+        ...     max_sweeps=140,
+        ...     max_returns=50000,
+        ...     fold_size=128
+        ... )
+        >>> source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15", end="2024-03-16")
+        >>> for vol_ref in source:
+        ...     volume_bytes = vol_ref.fetch()  # Get raw bytes
+        ...     batch.add_volume(volume_bytes)
+        ...     if not batch.has_capacity():
+        ...         break
+        >>> raystack = batch.to_raystack()
+        >>> prog = batch.progress()
+        >>> print(f"Collected {prog['patterns_filled']} patterns, "
+        ...       f"{prog['sweeps_filled']} sweeps, {prog['returns_filled']} returns")
+
+        Convert to DataTree for xarray:
+
+        >>> datatree = batch.to_datatree()
+        >>> datatree.to_zarr("batch_10vcps.zarr")
+
+        Pre-allocate fixed-size arrays (no truncation):
+
+        >>> # Request 75000 returns, get exactly 75000-element arrays
+        >>> batch = radrs.raystack.BatchedRaystack(
+        ...     max_patterns=10,
+        ...     max_sweeps=140,
+        ...     max_returns=75000,
+        ...     fold_size=128,
+        ...     truncate=False  # Keep full size with NaN fill
+        ... )
+        >>> batch.add_volumes(source, prefetch=8)
+        >>> raystack = batch.to_raystack()
+        >>> print(raystack['returns']['azimuth'].shape)  # (75000,) regardless of actual fills
+        """
+
+        def __init__(
+            self, max_vcps, max_sweeps, max_returns, fold_size=128, truncate=True
+        ):
+            """Initialize batched raystack accumulator.
+
+            Parameters
+            ----------
+            max_vcps : int
+                Maximum number of VCP patterns
+            max_sweeps : int
+                Maximum total number of sweeps
+            max_returns : int
+                Maximum total number of returns
+            fold_size : int, default=128
+                Range fold size
+            truncate : bool, default=True
+                If True, output arrays are truncated to actual filled size.
+                If False, output arrays remain at max_returns size with NaN/0 fill.
+            """
+            self._inner = _raystack.BatchedRaystack(
+                max_vcps=max_vcps,
+                max_sweeps=max_sweeps,
+                max_returns=max_returns,
+                fold_size=fold_size,
+                truncate=truncate,
+            )
+
+        def add_volume(self, data):
+            """Add a complete volume from raw bytes.
+
+            Processes the volume directly from raw NEXRAD file bytes,
+            avoiding intermediate dict allocation for efficiency.
+
+            Parameters
+            ----------
+            data : bytes
+                Raw NEXRAD volume file bytes
+
+            Raises
+            ------
+            RuntimeError
+                If capacity is exceeded or batch is finalized
+
+            Examples
+            --------
+            >>> stream = radrs.raystack.BatchedRaystack(10, 140, 50000)
+            >>> source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15")
+            >>> for vol_ref in source:
+            ...     volume_bytes = vol_ref.fetch()  # Get raw bytes
+            ...     stream.add_volume(volume_bytes)
+            ...     if not stream.has_capacity():
+            ...         break
+            """
+            return self._inner.add_volume(data)
+
+        def add_volume_from_url(self, url, storage_options=None):
+            """Add a volume from a cloud or local URL.
+
+            Fetches the volume from the specified URL and adds it to the batch.
+            Supports S3, GCS, Azure Blob Storage, and local filesystem URLs.
+
+            Parameters
+            ----------
+            url : str
+                Full URL to the volume file. Supported schemes:
+                - S3: s3://bucket/path/to/file
+                - GCS: gs://bucket/path/to/file
+                - Azure: az://container/path/to/file or azure://container/path/to/file
+                - Local: /path/to/file or file:///path/to/file
+            storage_options : dict, optional
+                Storage backend configuration. Examples:
+                - S3: {"region": "us-east-1", "anon": "true"}
+                - GCS: {"service_account_path": "/path/to/key.json"}
+                - Azure: {"account_name": "...", "access_key": "..."}
+
+            Raises
+            ------
+            RuntimeError
+                If capacity is exceeded, batch is finalized, or fetch fails
+
+            Examples
+            --------
+            S3 with anonymous access:
+
+            >>> stream = radrs.raystack.BatchedRaystack(10, 140, 50000)
+            >>> stream.add_volume_from_url(
+            ...     "s3://noaa-nexrad-level2/2024/03/15/KTLX/KTLX20240315_120000_V06",
+            ...     storage_options={"anon": "true"}
+            ... )
+
+            GCS with service account:
+
+            >>> stream.add_volume_from_url(
+            ...     "gs://my-bucket/nexrad/data/KTLX20240315_120000_V06",
+            ...     storage_options={"service_account_path": "/path/to/key.json"}
+            ... )
+
+            Local filesystem:
+
+            >>> stream.add_volume_from_url("/data/nexrad/KTLX20240315_120000_V06")
+
+            Azure Blob Storage:
+
+            >>> stream.add_volume_from_url(
+            ...     "az://container/nexrad/KTLX20240315_120000_V06",
+            ...     storage_options={"account_name": "myaccount", "access_key": "..."}
+            ... )
+            """
+            return self._inner.add_volume_from_url(url, storage_options)
+
+        def add_volumes_from_l2(self, l2_iter, prefetch=1):
+            """Add volumes from a NexradL2ArchiveIter with prefetch support.
+
+            This method supports multi-cloud sources (S3, GCS, Azure, local filesystem)
+            using the NexradL2ArchiveIter which understands NEXRAD L2 Archive directory
+            structure (YYYY/MM/DD/SITE/). Only volumes with timestamps within the
+            specified time range are returned.
+
+            Parameters
+            ----------
+            l2_iter : NexradL2ArchiveIter
+                L2 archive iterator configured with time bounds
+            prefetch : int, default=1
+                Number of volumes to prefetch in parallel
+
+            Returns
+            -------
+            int
+                Number of volumes successfully added
+
+            Raises
+            ------
+            RuntimeError
+                If batch is already finalized
+
+            Examples
+            --------
+            S3 with anonymous access (time range within a single day):
+
+            >>> import radrs.raystack as rrs
+            >>> from datetime import datetime
+            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            ...     base_uri="s3://noaa-nexrad-level2",
+            ...     start_time=datetime(2024, 3, 15, 10, 0, 0),
+            ...     end_time=datetime(2024, 3, 15, 14, 0, 0),
+            ...     storage_options={"anon": "true"},
+            ...     site_filter=["KTLX"]
+            ... )
+            >>> stream = rrs.BatchedRaystack(10, 140, 50000)
+            >>> n_added = stream.add_volumes_from_l2(l2_iter, prefetch=8)
+
+            Time range spanning multiple days:
+
+            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            ...     base_uri="s3://noaa-nexrad-level2",
+            ...     start_time=datetime(2024, 3, 15, 20, 0, 0),
+            ...     end_time=datetime(2024, 3, 16, 4, 0, 0),
+            ...     storage_options={"anon": "true"},
+            ...     site_filter=["KTLX"]
+            ... )
+
+            GCS with service account:
+
+            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            ...     base_uri="gs://my-bucket/nexrad",
+            ...     start_time=datetime(2024, 3, 15, 0, 0, 0),
+            ...     end_time=datetime(2024, 3, 15, 23, 59, 59),
+            ...     storage_options={"service_account_path": "/path/to/key.json"}
+            ... )
+            >>> n_added = stream.add_volumes_from_l2(l2_iter, prefetch=8)
+
+            Local filesystem:
+
+            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            ...     base_uri="/data/nexrad",
+            ...     start_time=datetime(2024, 3, 15),
+            ...     end_time=datetime(2024, 3, 16)
+            ... )
+            >>> n_added = stream.add_volumes_from_l2(l2_iter, prefetch=8)
+            """
+            return self._inner.add_volumes_from_l2(l2_iter, prefetch=prefetch)
+
+        def progress(self):
+            """Get current fill progress.
+
+            Returns
+            -------
+            dict
+                Progress with keys: patterns_filled, patterns_capacity,
+                sweeps_filled, sweeps_capacity, returns_filled,
+                returns_capacity, fill_fraction
+            """
+            return self._inner.progress()
+
+        def has_capacity(self):
+            """Check if batch has remaining capacity.
+
+            Returns
+            -------
+            bool
+                True if batch can accept more data
+            """
+            return self._inner.has_capacity()
+
+        def add_qc_outputs(self, qc_steps):
+            """Add quality control outputs to the batch.
+
+            QC operations are computed over the data that has been accumulated
+            so far. Call this before finalize() to include QC outputs in the
+            final result.
+
+            Parameters
+            ----------
+            qc_steps : list of QCStep or QCStep
+                Quality control steps to apply. Examples:
+                - radrs.qc.RhohvThreshold(threshold=0.8)
+                - radrs.qc.SunSpike(dbzh_threshold=50.0)
+                - radrs.qc.VradhWindingNumber(nyquist=25.0)
+
+            Examples
+            --------
+            >>> import radrs.raystack as rrs
+            >>> import radrs.qc as qc
+            >>> batch = rrs.BatchedRaystack(10, 140, 50000)
+            >>> # ... add volumes ...
+            >>> batch.add_qc_outputs([
+            ...     qc.RhohvThreshold(threshold=0.8, vname="rhohv_mask"),
+            ...     qc.SunSpike(vname="sun_spike")
+            ... ])
+            >>> result = batch.finalize_to_dict()
+            >>> # QC outputs will be in result['returns'] with 'qc.' prefix
+            >>> print(result['returns']['qc.rhohv_mask'].shape)
+            """
+            qc_spec = compile_qc_steps(qc_steps)
+            if qc_spec:
+                return self._inner.add_qc_outputs(qc_spec)
+
+        def finalize(self):
+            """Finalize batch (trim excess capacity).
+
+            Called automatically by to_raystack() and to_datatree().
+            """
+            return self._inner.finalize()
+
+        def finalize_to_dict(self):
+            """Returns the batch as a raystack dict with all data zero-copied into python arrays.
+
+            Returns
+            -------
+            dict
+                Raystack dict with keys: vcps, sweeps, returns.
+                Returns dict includes: vcp_time, sweep_time (parent times)
+            """
+            return self._inner.finalize_to_dict()
+
+        def finalize_to_rs_dt(self):
+            """Convert to xarray Raystack DataTree.
+
+            Returns
+            -------
+            xarray.DataTree
+                Raystack DataTree with hierarchical structure
+            """
+
+            rs_dict = self.finalize_to_dict()
+
+            vcps_dict = rs_dict["vcps"]
+
+            def _astype(arr: np.ndarray, dtype):
+                # NOTE that we use the vectorized conversion here - ideally we would not
+                # need to convert at all and raystacks would be datetime[ms] by convention
+                if dtype == "datetime64[ms->ns]":
+                    return arr.astype("datetime64[ms]").astype("datetime64[ns]")
+                elif dtype == "timedelta64[ms->ns]":
+                    return arr.astype("timedelta64[ms]").astype("timedelta64[ns]")
+                else:
+                    return arr if dtype is None else arr.astype(dtype)
+
+            vcps_ds = xr.Dataset(
+                data_vars={
+                    dv: xr.Variable(["vcp_time"], _astype(vcps_dict[dv], dtype))
+                    for dv, dtype in [
+                        ("instrument_name", None),
+                        ("instrument_type", None),
+                        ("platform_type", None),
+                        ("latitude", None),
+                        ("longitude", None),
+                        ("altitude", None),
+                        ("vcp_name", None),
+                        ("vcp_number", None),
+                        ("vcp_duration", "timedelta64[ms->ns]"),
+                        ("num_sweeps", None),
+                    ]
+                },
+                coords={
+                    c: xr.Variable([c], _astype(vcps_dict[c], dtype))
+                    for c, dtype in [("vcp_time", "datetime64[ms->ns]")]
+                },
+            )
+
+            sweeps_dict = rs_dict["sweeps"]
+
+            sweeps_ds = xr.Dataset(
+                data_vars={
+                    dv: xr.Variable(["sweep_time"], _astype(sweeps_dict[dv], dtype))
+                    for dv, dtype in [
+                        ("vcp_time", "datetime64[ms->ns]"),
+                        ("sweep_number", None),
+                        ("sweep_duration", "timedelta64[ms->ns]"),
+                        ("elevation_angle", None),
+                        ("elevation_number", None),
+                        ("range_start", None),
+                        ("range_step", None),
+                        ("max_range", None),
+                        ("max_gates", None),
+                        ("num_returns", None),
+                    ]
+                },
+                coords={
+                    c: xr.Variable([c], _astype(sweeps_dict[c], dtype))
+                    for c, dtype in [("sweep_time", "datetime64[ms->ns]")]
+                },
+            )
+            # Aliases
+            sweeps_ds = sweeps_ds.assign(
+                sweep_fixed_angle=sweeps_ds.variables["elevation_angle"]
+            )
+
+            returns_dict = rs_dict["returns"]
+            moments_shape = (
+                len(returns_dict["return_time"]),
+                len(returns_dict["range"]),
+            )
+            qc_vars = [v for v in returns_dict if v.startswith("qc.")]
+
+            returns_ds = xr.Dataset(
+                data_vars=dict(
+                    **{
+                        dv: xr.Variable(
+                            ["return_time"], _astype(returns_dict[dv], dtype)
+                        )
+                        for dv, dtype in [
+                            ("vcp_time", "datetime64[ms->ns]"),
+                            ("sweep_number", None),
+                            ("sweep_time", "datetime64[ms->ns]"),
+                            ("base_range", None),
+                            ("range_step", None),
+                            ("azimuth", None),
+                            ("elevation", None),
+                        ]
+                    },
+                    **{
+                        dv: xr.Variable(
+                            ["return_time", "range"],
+                            _astype(returns_dict[dv], dtype).reshape(moments_shape),
+                        )
+                        for dv, dtype in [
+                            ("DBZH", None),
+                            ("VRADH", None),
+                            ("WRADH", None),
+                            ("ZDR", None),
+                            ("PHIDP", None),
+                            ("RHOHV", None),
+                            ("CCORH", None),
+                        ]
+                        + [(qcv, None) for qcv in qc_vars]
+                    },
+                ),
+                coords={
+                    c: xr.Variable([c], _astype(returns_dict[c], dtype))
+                    for c, dtype in [
+                        ("return_time", "datetime64[ms->ns]"),
+                        ("range", None),
+                    ]
+                },
+            )
+
+            return xr.DataTree.from_dict(
+                {"vcps": vcps_ds, "sweeps": sweeps_ds, "returns": returns_ds}
+            )
+
+        def __repr__(self):
+            return self._inner.__repr__()
+
+
 __all__ = [
     "parse",
     "from_xradar_datatree",
@@ -105,4 +569,5 @@ __all__ = [
     "to_raystack_datatree",
     "open_datatree",
     "open_datatree_async",
+    "BatchedRaystack",
 ]

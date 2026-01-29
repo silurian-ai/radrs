@@ -37,7 +37,7 @@ const MOMENT_RHOHV: usize = 5;
 const MOMENT_CCORH: usize = 6;
 
 /// Decompress outer gzip if present. Uses Cow to avoid allocation when not gzipped.
-fn ungzip_if_needed(data: &[u8]) -> Result<Cow<'_, [u8]>> {
+pub(crate) fn ungzip_if_needed(data: &[u8]) -> Result<Cow<'_, [u8]>> {
     if data.starts_with(&GZIP_MAGIC) {
         let mut decoder = flate2::read::GzDecoder::new(data);
         let mut decompressed = Vec::new();
@@ -50,20 +50,24 @@ fn ungzip_if_needed(data: &[u8]) -> Result<Cow<'_, [u8]>> {
 
 /// Sweep metadata collected in first pass
 #[derive(Clone, Copy, Default)]
-struct SweepMeta {
-    elevation_number: u8,
-    elevation_angle: f32,
-    n_radials: usize,
-    max_gates: usize,      // Max gate count across all moments in this sweep
-    range_first_km: f64,   // First gate range for sweep grid (km)
-    gate_interval_km: f64, // Gate interval for sweep grid (km)
+pub struct SweepMeta {
+    pub elevation_number: u8,
+    pub elevation_angle: f32,
+    pub n_radials: usize,
+    pub max_gates: usize,      // Max gate count across all moments in this sweep
+    pub range_first_km: f64,   // First gate range for sweep grid (km)
+    pub gate_interval_km: f64, // Gate interval for sweep grid (km)
+    pub min_time: i64,
+    pub max_time: i64,
 }
 
 /// Volume metadata from first pass
-struct VolumeMeta {
-    pattern_number: u16,
-    sweeps: Vec<SweepMeta>,
-    total_radials: usize,
+pub struct VolumeMeta {
+    pub pattern_number: u16,
+    pub sweeps: Vec<SweepMeta>,
+    pub total_radials: usize,
+    pub min_time: i64,
+    pub max_time: i64,
 }
 
 /// Preallocated raystack data structure
@@ -234,7 +238,7 @@ pub enum QcOp {
     },
 }
 
-enum QcArray {
+pub enum QcArray {
     Mask(Vec<i8>),
     Float(Vec<f32>),
 }
@@ -641,7 +645,9 @@ pub fn parse_optimized(data: &[u8], fold_size: usize) -> Result<RaystackData> {
 }
 
 /// First pass: collect metadata without allocating moment data
-fn collect_metadata(scan: &Scan) -> VolumeMeta {
+pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
+    let mut vcp_min_time = i64::MAX;
+    let mut vcp_max_time = i64::MIN;
     let mut sweeps = Vec::new();
     let mut total_radials = 0;
 
@@ -651,6 +657,9 @@ fn collect_metadata(scan: &Scan) -> VolumeMeta {
         if n_radials == 0 {
             continue;
         }
+
+        let mut sweep_min_time = i64::MAX;
+        let mut sweep_max_time = i64::MIN;
 
         let first_radial = &radials[0];
 
@@ -679,6 +688,11 @@ fn collect_metadata(scan: &Scan) -> VolumeMeta {
             update_grid(radial.differential_phase());
             update_grid(radial.correlation_coefficient());
             update_grid(radial.clutter_filter_power());
+
+            vcp_min_time = vcp_min_time.min(radial.collection_timestamp());
+            vcp_max_time = vcp_max_time.max(radial.collection_timestamp());
+            sweep_min_time = sweep_min_time.min(radial.collection_timestamp());
+            sweep_max_time = sweep_max_time.max(radial.collection_timestamp());
         }
 
         sweeps.push(SweepMeta {
@@ -688,6 +702,8 @@ fn collect_metadata(scan: &Scan) -> VolumeMeta {
             max_gates,
             range_first_km,
             gate_interval_km,
+            min_time: sweep_min_time,
+            max_time: sweep_max_time,
         });
 
         total_radials += n_radials;
@@ -697,6 +713,8 @@ fn collect_metadata(scan: &Scan) -> VolumeMeta {
         pattern_number: scan.coverage_pattern_number(),
         sweeps,
         total_radials,
+        min_time: vcp_min_time,
+        max_time: vcp_max_time,
     }
 }
 
@@ -714,7 +732,7 @@ fn fill_raystack_data(scan: &Scan, raystack: &mut RaystackData, sweep_meta: &[Sw
         }
 
         // Get sweep grid metadata (computed in first pass)
-        let sweep_info = sweep_meta[meta_idx];
+        let sweep_info: SweepMeta = sweep_meta[meta_idx];
         meta_idx += 1;
 
         for radial in radials {
