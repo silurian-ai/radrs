@@ -133,6 +133,9 @@ else:
         truncate : bool, default=True
             If True, output arrays are truncated to actual filled size.
             If False, output arrays remain at max_returns size with NaN/0 fill.
+        drop_empty_returns : bool, default=False
+            If True, returns with all NaN moment data are excluded from the output.
+            If False, all returns are included regardless of data completeness.
 
         Examples
         --------
@@ -178,7 +181,13 @@ else:
         """
 
         def __init__(
-            self, max_vcps, max_sweeps, max_returns, fold_size=128, truncate=True
+            self,
+            max_vcps,
+            max_sweeps,
+            max_returns,
+            fold_size=128,
+            truncate=True,
+            drop_empty_returns=False,
         ):
             """Initialize batched raystack accumulator.
 
@@ -195,6 +204,9 @@ else:
             truncate : bool, default=True
                 If True, output arrays are truncated to actual filled size.
                 If False, output arrays remain at max_returns size with NaN/0 fill.
+            drop_empty_returns : bool, default=False
+                If True, returns with all NaN moment data are excluded from the output.
+                If False, all returns are included regardless of data completeness.
             """
             self._inner = _raystack.BatchedRaystack(
                 max_vcps=max_vcps,
@@ -202,6 +214,7 @@ else:
                 max_returns=max_returns,
                 fold_size=fold_size,
                 truncate=truncate,
+                drop_empty_returns=drop_empty_returns,
             )
 
         def add_volume(self, data):
