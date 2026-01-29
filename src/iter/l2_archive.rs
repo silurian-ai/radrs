@@ -148,6 +148,9 @@ pub struct NexradL2ArchiveIterConfig {
 
     /// Optional site filter (e.g., vec!["KTLX", "KFWS"])
     pub site_filter: Option<Vec<String>>,
+
+    /// Maximum number of concurrent site directory listings (default: 10)
+    pub max_concurrent_ls: usize,
 }
 
 /// Async iterator state for L2 volumes
@@ -162,6 +165,7 @@ pub struct NexradL2ArchiveIterator {
     end_time: DateTime<Utc>,
     pending_volumes: Vec<NexradL2ArchiveInfo>,
     index: usize,
+    max_concurrent_ls: usize,
 }
 
 impl NexradL2ArchiveIterator {
@@ -226,6 +230,7 @@ impl NexradL2ArchiveIterator {
             end_time: config.end_time,
             pending_volumes: Vec::new(),
             index: 0,
+            max_concurrent_ls: config.max_concurrent_ls,
         })
     }
 
@@ -273,18 +278,14 @@ impl NexradL2ArchiveIterator {
                 site_dirs.push(ObjectPath::from(format!("{}/{}", date_path, site)));
             }
         } else {
-            let mut list_stream = self.store.list(Some(&date_path_obj));
-            while let Some(result) = list_stream.next().await {
-                match result {
-                    Ok(meta) => {
-                        let path = meta.location.to_string();
-                        // Only include directories (they typically end with site name)
-                        if path.starts_with(&date_path) && path != date_path {
-                            site_dirs.push(meta.location);
-                        }
-                    }
-                    Err(_) => continue,
-                }
+            // Use list_with_delimiter for non-recursive listing (more efficient)
+            // This returns common_prefixes which are the site directories
+            let result = self.store.list_with_delimiter(Some(&date_path_obj)).await;
+
+            if let Ok(list_result) = result {
+                // common_prefixes contains site directory paths like "2024/03/15/KTLX/"
+                // objects would contain files directly in the date directory (shouldn't exist in well-structured archives)
+                site_dirs = list_result.common_prefixes;
             }
         }
 
@@ -299,7 +300,7 @@ impl NexradL2ArchiveIterator {
 
         // Collect all volumes
         let volumes_results: Vec<Result<Vec<NexradL2ArchiveInfo>>> = stream::iter(volumes_futures)
-            .buffer_unordered(10) // Process 10 sites concurrently
+            .buffer_unordered(self.max_concurrent_ls) // Process N sites concurrently
             .collect()
             .await;
 
@@ -376,13 +377,14 @@ pub struct NexradL2ArchiveIter {
 #[pymethods]
 impl NexradL2ArchiveIter {
     #[new]
-    #[pyo3(signature = (base_uri, start_time, end_time, storage_options=None, site_filter=None))]
+    #[pyo3(signature = (base_uri, start_time, end_time, storage_options=None, site_filter=None, max_concurrent_ls=10))]
     fn new(
         base_uri: String,
         start_time: &Bound<'_, PyDateTime>,
         end_time: &Bound<'_, PyDateTime>,
         storage_options: Option<HashMap<String, String>>,
         site_filter: Option<Vec<String>>,
+        max_concurrent_ls: usize,
     ) -> PyResult<Self> {
         // Parse datetime objects
         let start_time_dt = parse_py_datetime(start_time)?;
@@ -400,6 +402,7 @@ impl NexradL2ArchiveIter {
             end_time: end_time_dt,
             storage_options,
             site_filter,
+            max_concurrent_ls,
         };
 
         let inner = NexradL2ArchiveIterator::new(config)?;
@@ -421,7 +424,7 @@ impl NexradL2ArchiveIter {
 
 /// Python function to list L2 volumes for a time range
 #[pyfunction]
-#[pyo3(signature = (base_uri, start_time, end_time, storage_options=None, site_filter=None))]
+#[pyo3(signature = (base_uri, start_time, end_time, storage_options=None, site_filter=None, max_concurrent_ls=10))]
 pub fn list_nexrad_l2_archive_volumes_py(
     py: Python<'_>,
     base_uri: String,
@@ -429,9 +432,10 @@ pub fn list_nexrad_l2_archive_volumes_py(
     end_time: &Bound<'_, PyDateTime>,
     storage_options: Option<HashMap<String, String>>,
     site_filter: Option<Vec<String>>,
+    max_concurrent_ls: usize,
 ) -> PyResult<Vec<NexradL2ArchiveInfo>> {
     let mut iter =
-        NexradL2ArchiveIter::new(base_uri, start_time, end_time, storage_options, site_filter)?;
+        NexradL2ArchiveIter::new(base_uri, start_time, end_time, storage_options, site_filter, max_concurrent_ls)?;
 
     let mut volumes = Vec::new();
     while let Some(vol) = iter.__next__(py)? {
