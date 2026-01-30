@@ -36,22 +36,6 @@ const MOMENT_PHIDP: usize = 4;
 const MOMENT_RHOHV: usize = 5;
 const MOMENT_CCORH: usize = 6;
 
-// Asserts that a value is the same as another and returns the value
-#[macro_export]
-macro_rules! ensure_eq {
-    ($left:expr, $right:expr) => {{
-        let left_val = $left;
-        let right_val = $right;
-        if left_val != right_val {
-            panic!(
-                "assertion failed: `(left == right)`\n  left: `{:?}`,\n right: `{:?}`",
-                left_val, right_val
-            );
-        }
-        left_val
-    }};
-}
-
 /// Decompress outer gzip if present. Uses Cow to avoid allocation when not gzipped.
 pub(crate) fn ungzip_if_needed(data: &[u8]) -> Result<Cow<'_, [u8]>> {
     if data.starts_with(&GZIP_MAGIC) {

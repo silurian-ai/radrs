@@ -3,7 +3,6 @@
 //! Pre-allocates flat arrays for P patterns, S sweeps, and R returns,
 //! then fills incrementally from volume Scans (not dicts).
 
-use crate::ensure_eq;
 use crate::error::{RadrsError, Result};
 use crate::fetch::RUNTIME;
 use crate::metadata::extract_scan_meta;
@@ -20,6 +19,22 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
 use std::collections::VecDeque;
 use tokio::task::JoinHandle;
+
+// Asserts that a value is the same as another and returns the value
+#[macro_export]
+macro_rules! ensure_eq {
+    ($left:expr, $right:expr) => {{
+        let left_val = $left;
+        let right_val = $right;
+        if left_val != right_val {
+            panic!(
+                "assertion failed: `(left == right)`\n  left: `{:?}`,\n right: `{:?}`",
+                left_val, right_val
+            );
+        }
+        left_val
+    }};
+}
 
 fn get_moment_datas(r: &Radial) -> [(MomentDataKind, Option<&MomentData>); 7] {
     return [
@@ -464,16 +479,16 @@ impl RaystackBatchData {
             // Returns
             //
 
+            // Values are computed so stored once for multiple folds
+            let mut moment_values: [Option<Vec<MomentValue>>; 7] = [const { None }; 7];
+
             for radial in sweep.radials() {
                 let mut rad_max_gates = 0u16;
                 let mut rad_first_gate_km = 0.0f32;
                 let mut rad_gate_step_km = 0.0f32;
-                // TODO: Raw values *also* available - these are computed so need to be cached for
-                // multiple folds
-                let mut moment_values: Vec<Option<Vec<MomentValue>>> = Vec::new();
 
                 // First pass: compute radial metadata and cache moment values
-                for (_, maybe_m) in get_moment_datas(radial) {
+                for (m_idx, (_, maybe_m)) in get_moment_datas(radial).iter().enumerate() {
                     if let Some(m) = maybe_m {
                         rad_max_gates = rad_max_gates.max(m.gate_count());
                         rad_first_gate_km = if rad_first_gate_km == 0.0 {
@@ -486,9 +501,9 @@ impl RaystackBatchData {
                         } else {
                             ensure_eq!(rad_gate_step_km, m.gate_interval_km() as f32)
                         };
-                        moment_values.push(Some(m.values()));
+                        moment_values[m_idx] = Some(m.values());
                     } else {
-                        moment_values.push(None);
+                        moment_values[m_idx] = None;
                     }
                 }
 
