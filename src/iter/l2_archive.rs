@@ -83,11 +83,49 @@ impl NexradL2ArchiveInfo {
 
 impl NexradL2ArchiveInfo {
     /// Fetch the volume file bytes from object storage
-    pub async fn fetch(&self) -> Result<Vec<u8>> {
+    ///
+    /// # Arguments
+    /// * `max_bytes` - Optional maximum number of bytes to fetch from the start of the file.
+    ///                 If None, fetches the entire file.
+    pub async fn fetch(&self, max_bytes: usize) -> Result<Vec<u8>> {
+        let (bytes, _size) = self.fetch_with_size(max_bytes).await?;
+        Ok(bytes)
+    }
+
+    /// Fetch the volume file bytes from object storage along with the total file size
+    ///
+    /// # Arguments
+    /// * `max_bytes` - Optional maximum number of bytes to fetch from the start of the file.
+    ///                 If 0, fetches the entire file.
+    ///
+    /// # Returns
+    /// A tuple of (data, total_file_size) where total_file_size is the complete file size in bytes
+    pub async fn fetch_with_size(&self, max_bytes: usize) -> Result<(Vec<u8>, u64)> {
         let path = ObjectPath::from(self.object_path.clone());
-        let get_result = self.store.get(&path).await?;
-        let bytes = get_result.bytes().await?;
-        Ok(bytes.to_vec())
+
+        let (bytes, total_size) = if max_bytes > 0 {
+            // Fetch only the first `max_bytes` bytes
+            let range = 0u64..(max_bytes as u64);
+            let get_result = self.store.get_range(&path, range).await?;
+
+            // Get total size from metadata if available, otherwise from HEAD request
+            let total_size = if let Some(size) = self.size {
+                size
+            } else {
+                let meta = self.store.head(&path).await?;
+                meta.size as u64
+            };
+
+            (get_result, total_size)
+        } else {
+            // Fetch the entire file
+            let get_result = self.store.get(&path).await?;
+            let total_size = get_result.meta.size as u64;
+            let bytes = get_result.bytes().await?;
+            (bytes, total_size)
+        };
+
+        Ok((bytes.to_vec(), total_size))
     }
 }
 

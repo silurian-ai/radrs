@@ -235,7 +235,9 @@ class TestBatching:
 
         # Check that the range is actually folded to size 128
         returns_ds = raystack["/returns"].dataset
-        assert "range" in returns_ds.dims, "Range dimension should exist in returns dataset"
+        assert "range" in returns_ds.dims, (
+            "Range dimension should exist in returns dataset"
+        )
         assert returns_ds.dims["range"] == fold_size, (
             f"Range should be folded to size {fold_size}, got {returns_ds.dims['range']}"
         )
@@ -248,3 +250,185 @@ class TestBatching:
             f"Sum of num_returns ({total_num_returns}) should equal "
             f"number of return times ({num_return_times})"
         )
+
+    @pytest.mark.slow
+    @pytest.mark.network
+    def test_meta_batch_from_s3_small_range(self):
+        """Test that BatchedRaystack can return metadata-only batches from S3."""
+
+        #
+        # VCPs only
+        #
+
+        # Use the same site and date as test_iter.py
+        site = "KABR"
+        start_time = datetime(2024, 8, 15, 0, 0, 0, tzinfo=UTC)
+        end_time = datetime(2024, 8, 15, 1, 0, 0, tzinfo=UTC)
+
+        # Create batch accumulator with capacity for 3 volumes
+        # Estimate: ~14 sweeps per pattern, ~720 returns per sweep
+        max_vcps = 10
+        max_sweeps = max_vcps * 24  # Conservative estimate
+
+        batch = rrs.BatchedRaystack(
+            max_vcps=max_vcps,
+            max_sweeps=0,
+            max_returns=0,
+            fold_size=0,
+            truncate=False,
+            include_sweeps=False,
+        )
+
+        # Create source and use add_volumes helper
+        # source = radrs.VolumeSource.nexrad(site, start=date, end=date)
+
+        root_url = "s3://unidata-nexrad-level2"
+        storage_options = dict(
+            anon="true",
+            region="us-east-1",
+        )
+
+        num_files = len(
+            list(
+                radrs.NexradL2ArchiveIter(
+                    root_url,
+                    start_time=start_time,
+                    end_time=end_time,
+                    storage_options=storage_options,
+                    site_filter=[site],
+                )
+            )
+        )
+        assert num_files == 9
+
+        n_added = batch.add_volumes_from_l2(
+            radrs.NexradL2ArchiveIter(
+                root_url,
+                start_time=start_time,
+                end_time=end_time,
+                storage_options=storage_options,
+                site_filter=[site],
+            ),
+            prefetch=10,
+        )
+
+        assert n_added == num_files, (
+            f"Should have added {max_vcps} volumes, got {n_added}"
+        )
+        assert batch.has_capacity()
+
+        progress = batch.progress()
+        print(progress)
+
+        # Check progress
+        assert progress["patterns_filled"] == num_files
+        assert progress["sweeps_filled"] == 0
+        assert progress["returns_filled"] == 0
+
+        # Convert to raystack
+        raystack = batch.finalize_to_rs_dt()
+        with xr.set_options(display_max_rows=99):
+            print(raystack)
+
+        # Check VCP metadata
+        vcps_ds = raystack["/vcps"].dataset
+
+        # Check vcp_time is size 10
+        assert len(vcps_ds["vcp_time"].values) == 10, (
+            f"vcp_time should have size 10, got {len(vcps_ds['vcp_time'].values)}"
+        )
+
+        # Check that 9 times are filled (not NaT)
+        filled_times = ~np.isnat(vcps_ds["vcp_time"].values)
+        num_filled = np.sum(filled_times)
+        assert num_filled == 9, (
+            f"Expected 9 filled times, got {num_filled}"
+        )
+
+        # Check that the first time is in the specified time bounds
+        first_time = vcps_ds["vcp_time"].values[0]
+        start_time_np = np.datetime64(start_time)
+        end_time_np = np.datetime64(end_time)
+        assert start_time_np <= first_time <= end_time_np, (
+            f"First time {first_time} should be between {start_time_np} and {end_time_np}"
+        )
+
+        # Check that all vcp numbers are filled (not 0)
+        vcp_numbers = vcps_ds["vcp_number"].values
+        assert np.all(vcp_numbers[:9] != 0), (
+            f"First 9 VCP numbers should be filled (non-zero), got {vcp_numbers[:9]}"
+        )
+
+        # Check that all latitudes are filled except the last value
+        latitudes = vcps_ds["latitude"].values
+        assert np.all(~np.isnan(latitudes[:9])), (
+            f"First 9 latitudes should be filled (not NaN), got {latitudes[:9]}"
+        )
+        assert np.isnan(latitudes[9]), (
+            f"Last latitude should be NaN, got {latitudes[9]}"
+        )
+
+        #
+        # VCP and sweep metadata
+        #
+    
+        batch = rrs.BatchedRaystack(
+            max_vcps=max_vcps,
+            max_sweeps=max_sweeps,
+            max_returns=0,
+            fold_size=0,
+            truncate=True,
+            include_returns=False,
+        )
+
+        # Create source and use add_volumes helper
+        # source = radrs.VolumeSource.nexrad(site, start=date, end=date)
+
+        root_url = "s3://unidata-nexrad-level2"
+        storage_options = dict(
+            anon="true",
+            region="us-east-1",
+        )
+
+        n_added = batch.add_volumes_from_l2(
+            radrs.NexradL2ArchiveIter(
+                root_url,
+                start_time=start_time,
+                end_time=datetime(2024, 8, 15, 0, 10, 0, tzinfo=UTC),
+                storage_options=storage_options,
+                site_filter=[site],
+            ),
+            prefetch=1,
+        )
+
+        num_files = 2
+        assert n_added == num_files, (
+            f"Should have added {max_vcps} volumes, got {n_added}"
+        )
+        assert batch.has_capacity()
+
+        progress = batch.progress()
+        print(progress)
+
+        # Check progress
+        assert progress["patterns_filled"] == num_files
+        assert progress["sweeps_filled"] == 46
+        assert progress["returns_filled"] == 0
+
+        # Convert to raystack
+        raystack = batch.finalize_to_rs_dt()
+        with xr.set_options(display_max_rows=99):
+            print(raystack)
+
+        # Check that the sum of num_sweeps in all VCPs equals the number of sweep times
+        vcps_ds = raystack["/vcps"].dataset
+        sweeps_ds = raystack["/sweeps"].dataset
+
+        total_num_sweeps = vcps_ds["num_sweeps"].sum().values
+        num_sweep_times = len(sweeps_ds["sweep_time"].values)
+
+        assert total_num_sweeps == num_sweep_times, (
+            f"Sum of num_sweeps ({total_num_sweeps}) should equal "
+            f"number of sweep times ({num_sweep_times})"
+        )
+

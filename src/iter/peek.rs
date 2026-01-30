@@ -6,26 +6,28 @@
 use crate::error::{RadrsError, Result};
 use crate::fetch::{FETCH_SEMAPHORE, RUNTIME, store_for_bucket};
 use chrono::{DateTime, Utc};
+use flate2::read::GzDecoder;
 use nexrad_data::volume::{Header, Record};
 use nexrad_decode::messages::MessageContents;
 use object_store::path::Path as ObjectPath;
 use object_store::{GetOptions, GetRange, ObjectStore, ObjectStoreExt};
 use pyo3::prelude::*;
 use pyo3::types::PyDateTime;
+use std::io::Read;
 use std::sync::Arc;
 use zerocopy::Ref;
 
 /// Volume header size in bytes
-const VOLUME_HEADER_SIZE: usize = std::mem::size_of::<Header>();
+pub const VOLUME_HEADER_SIZE: usize = std::mem::size_of::<Header>();
 
 /// Initial scan size for fast peek (favor fewer round-trips)
-const PEEK_FAST_INITIAL: usize = 256 * 1024;
+pub const PEEK_FAST_INITIAL: usize = 256 * 1024;
 
 /// Maximum scan size for peek (avoid large S3 reads)
-const PEEK_SCAN_MAX: usize = 2 * 1024 * 1024;
+pub const PEEK_SCAN_MAX: usize = 2 * 1024 * 1024;
 
 /// Maximum number of records to scan while peeking
-const PEEK_MAX_RECORDS: usize = 8;
+pub const PEEK_MAX_RECORDS: usize = 8;
 
 /// Metadata extracted from a NEXRAD volume without full parsing
 #[pyclass]
@@ -36,7 +38,7 @@ pub struct VolumeMeta {
     pub site: String,
 
     /// Volume timestamp
-    volume_datetime: DateTime<Utc>,
+    pub volume_datetime: DateTime<Utc>,
 
     /// Archive version (e.g., "V06", "V07")
     #[pyo3(get)]
@@ -267,8 +269,8 @@ fn scan_record_for_extras(
             _ => {}
         }
 
-        // Stop early once we know the VCP; other fields are best-effort.
-        if extras.vcp.is_some() {
+        // Stop early once we know the VCP and position, other fields are best-effort.
+        if extras.vcp.is_some() && extras.latitude.is_some() && extras.longitude.is_some() && extras.altitude.is_some() {
             return true;
         }
     }
@@ -633,6 +635,104 @@ async fn peek_volume_local(source: &str, header_only: bool, mode: PeekMode) -> R
         volume_datetime: datetime,
         version,
         file_size,
+        vcp: extras.vcp,
+        latitude: extras.latitude,
+        longitude: extras.longitude,
+        altitude: extras.altitude,
+        first_elevation: extras.first_elevation,
+        moments: extras.moments,
+    })
+}
+
+/// Check if data starts with gzip magic bytes (0x1f, 0x8b)
+fn is_gzipped(data: &[u8]) -> bool {
+    data.len() >= 2 && data[0] == 0x1f && data[1] == 0x8b
+}
+
+/// Decompress gzipped data in a streaming fashion up to a maximum number of bytes
+///
+/// This avoids loading the entire decompressed data into memory when we only
+/// need the first portion (e.g., for header and first few records).
+fn decompress_gzip_prefix(data: &[u8], max_bytes: usize) -> Result<Vec<u8>> {
+    let mut decoder = GzDecoder::new(data);
+    let mut output = vec![0u8; max_bytes];
+
+    // Read up to max_bytes
+    let bytes_read = decoder
+        .read(&mut output)
+        .map_err(|e| RadrsError::Parse(format!("Failed to decompress gzip data: {}", e)))?;
+
+    output.truncate(bytes_read);
+    Ok(output)
+}
+
+/// Peek at a NEXRAD volume from byte array to extract metadata without full parsing
+///
+/// # Arguments
+/// * `data` - Byte array containing NEXRAD Level 2 volume data (raw or gzipped)
+/// * `header_only` - If true, only parse 24 bytes for basic metadata (site, datetime, version).
+///                   If false (default), scan records until VCP is found (up to 2MB cap).
+///
+/// This function automatically detects and handles gzipped data in a streaming fashion,
+/// decompressing only as much as needed to extract the requested metadata.
+///
+/// # Returns
+/// VolumeMeta with extracted fields
+pub fn peek_volume_bytes(data: &[u8], header_only: bool) -> Result<VolumeMeta> {
+    // Check minimum size
+    if data.len() < VOLUME_HEADER_SIZE {
+        return Err(RadrsError::Parse(format!(
+            "Data too short: {} bytes (need at least {})",
+            data.len(),
+            VOLUME_HEADER_SIZE
+        )));
+    }
+
+    // Detect and handle gzip compression
+    let decompressed_data;
+    let working_data: &[u8] = if is_gzipped(data) {
+        // Decompress only what we need
+        let decompress_size = if header_only {
+            VOLUME_HEADER_SIZE
+        } else {
+            PEEK_SCAN_MAX
+        };
+        decompressed_data = decompress_gzip_prefix(data, decompress_size)?;
+        &decompressed_data
+    } else {
+        data
+    };
+
+    // Parse the volume header
+    let (site, datetime, version) = parse_volume_header(working_data)?;
+
+    if header_only {
+        return Ok(VolumeMeta {
+            site,
+            volume_datetime: datetime,
+            version,
+            file_size: Some(data.len() as u64),
+            vcp: None,
+            latitude: None,
+            longitude: None,
+            altitude: None,
+            first_elevation: None,
+            moments: None,
+        });
+    }
+
+    // Scan records to extract additional metadata
+    let scan_max = working_data
+        .len()
+        .min(PEEK_SCAN_MAX)
+        .max(VOLUME_HEADER_SIZE);
+    let extras = scan_records_buffer(working_data, scan_max);
+
+    Ok(VolumeMeta {
+        site,
+        volume_datetime: datetime,
+        version,
+        file_size: Some(data.len() as u64),
         vcp: extras.vcp,
         latitude: extras.latitude,
         longitude: extras.longitude,

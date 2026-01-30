@@ -5,6 +5,7 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::RUNTIME;
+use crate::iter::{VolumeMeta as PeekVolumeMeta, peek_volume_bytes, PEEK_SCAN_MAX};
 use crate::metadata::extract_scan_meta;
 use crate::qc;
 use crate::raystack::QcOp;
@@ -19,6 +20,8 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
 use std::collections::VecDeque;
 use tokio::task::JoinHandle;
+
+const PEEK_SCAN_LATLON: usize = PEEK_SCAN_MAX / 2;
 
 // Asserts that a value is the same as another and returns the value
 #[macro_export]
@@ -66,6 +69,8 @@ pub struct RaystackBatchData {
     fold_size: usize,
     truncate: bool,
     drop_empty_returns: bool,
+    include_sweeps: bool,
+    include_returns: bool,
 
     // Current fill indices
     n_vcps: usize,
@@ -73,6 +78,8 @@ pub struct RaystackBatchData {
     n_returns: usize,
 
     // Pattern/VCP metadata (filled incrementally, extended to max_patterns if truncate=false)
+    source_fs_size: Vec<i64>,
+
     instrument_name: Vec<String>,
     instrument_type: Vec<String>,
     platform_type: Vec<String>,
@@ -140,8 +147,13 @@ impl RaystackBatchData {
         fold_size: usize,
         truncate: bool,
         drop_empty_returns: bool,
+        include_sweeps: bool,
+        include_returns: bool,
     ) -> Result<Self> {
-        if max_vcps == 0 || max_sweeps == 0 || max_returns == 0 {
+        if max_vcps == 0
+            || (include_sweeps && max_sweeps == 0)
+            || (include_sweeps && include_returns && max_returns == 0)
+        {
             return Err(RadrsError::InvalidInput(
                 "All capacities must be greater than 0".into(),
             ));
@@ -156,11 +168,16 @@ impl RaystackBatchData {
             fold_size,
             truncate,
             drop_empty_returns,
+
+            include_sweeps,
+            include_returns: include_sweeps && include_returns,
+
             n_vcps: 0,
             n_sweeps: 0,
             n_returns: 0,
 
             // Pre-allocate pattern metadata (capacity only, will push during fill)
+            source_fs_size: Vec::with_capacity(max_vcps),
             instrument_name: Vec::with_capacity(max_vcps),
             instrument_type: Vec::with_capacity(max_vcps),
             platform_type: Vec::with_capacity(max_vcps),
@@ -246,7 +263,7 @@ impl RaystackBatchData {
         let bytes = crate::fetch::fetch_bytes_from_url(url, storage_options).await?;
 
         // Add to batch
-        self.add_volume_bytes(&bytes)
+        self.add_volume_bytes(&bytes, None)
     }
 
     /// Add volumes from L2 archive iterator with async prefetch support
@@ -268,11 +285,16 @@ impl RaystackBatchData {
         /// Helper to spawn a fetch task for the next volume
         async fn try_spawn_next(
             iter: &mut crate::iter::NexradL2ArchiveIterator,
-            in_flight: &mut VecDeque<JoinHandle<Result<Vec<u8>>>>,
+            in_flight: &mut VecDeque<JoinHandle<Result<(Vec<u8>, u64)>>>,
+            peek: bool,
         ) -> Result<bool> {
             match iter.next().await? {
                 Some(volume_info) => {
-                    let handle = tokio::spawn(async move { volume_info.fetch().await });
+                    let handle = tokio::spawn(async move {
+                        volume_info
+                            .fetch_with_size(if !peek { 0 } else { PEEK_SCAN_LATLON })
+                            .await
+                    });
                     in_flight.push_back(handle);
                     Ok(true)
                 }
@@ -281,11 +303,11 @@ impl RaystackBatchData {
         }
 
         let mut count = 0usize;
-        let mut in_flight: VecDeque<JoinHandle<Result<Vec<u8>>>> = VecDeque::new();
+        let mut in_flight: VecDeque<JoinHandle<Result<(Vec<u8>, u64)>>> = VecDeque::new();
 
         // Fill the initial prefetch queue
         for _ in 0..prefetch {
-            if !try_spawn_next(&mut iter, &mut in_flight).await? {
+            if !try_spawn_next(&mut iter, &mut in_flight, !self.include_sweeps).await? {
                 break;
             }
         }
@@ -301,9 +323,9 @@ impl RaystackBatchData {
                 .map_err(|e| RadrsError::Python(format!("Fetch task failed: {}", e)))?;
 
             match result {
-                Ok(bytes) => {
+                Ok((bytes, fs_size)) => {
                     // Try to add the volume
-                    match self.add_volume_bytes(&bytes) {
+                    match self.add_volume_bytes(&bytes, Some(fs_size)) {
                         Ok(()) => {
                             count += 1;
                         }
@@ -319,7 +341,7 @@ impl RaystackBatchData {
 
             // Refill prefetch queue if we still have capacity
             if self.has_capacity() && in_flight.len() < prefetch {
-                let _ = try_spawn_next(&mut iter, &mut in_flight).await; // Ignore errors
+                let _ = try_spawn_next(&mut iter, &mut in_flight, !self.include_sweeps).await; // Ignore errors
             }
         }
 
@@ -327,16 +349,14 @@ impl RaystackBatchData {
     }
 
     /// Add a complete volume from raw bytes (single allocation path)
-    pub fn add_volume_bytes(&mut self, data: &[u8]) -> Result<()> {
+    pub fn add_volume_bytes(&mut self, data: &[u8], fs_size: Option<u64>) -> Result<()> {
         if self.is_finalized {
             return Err(RadrsError::InvalidInput("Batch is finalized".into()));
         }
 
-        if self.n_vcps >= self.max_vcps {
-            return Err(RadrsError::Capacity(format!(
-                "Pattern capacity exceeded: {} >= {}",
-                self.n_vcps, self.max_vcps
-            )));
+        if !self.include_sweeps {
+            let peek_meta = peek_volume_bytes(data, false).expect("Cannot peek in volume!");
+            return self.add_peek(&peek_meta, fs_size.unwrap_or(data.len() as u64));
         }
 
         // Handle outer gzip
@@ -348,14 +368,54 @@ impl RaystackBatchData {
         let scan: Scan = volume.scan()?;
         let vol_meta = collect_metadata(&scan);
 
-        self.add_scan(&scan, &scan_meta, &vol_meta)?;
+        return self.add_scan(&volume, &scan, &scan_meta, &vol_meta);
+    }
 
-        Ok(())
+    /// Add a VCP peek if we're just looking for basic metadata
+    fn add_peek(&mut self, peek_meta: &PeekVolumeMeta, fs_size: u64) -> Result<()> {
+        //
+        // Capacity checks
+        //
+
+        if self.n_vcps + 1 > self.max_vcps {
+            return Err(RadrsError::Capacity(format!(
+                "VCP capacity exceeded: {} + {} > {}",
+                self.n_vcps, 1, self.max_sweeps
+            )));
+        }
+
+        //
+        // VCP
+        //
+
+        self.source_fs_size.push(fs_size as i64);
+
+        self.instrument_name.push(peek_meta.site.to_string());
+        self.instrument_type.push("radar".to_string());
+        self.platform_type.push("fixed".to_string());
+        self.latitude.push(peek_meta.latitude.unwrap_or(f32::NAN));
+        self.longitude.push(peek_meta.longitude.unwrap_or(f32::NAN));
+        self.altitude.push(peek_meta.altitude.unwrap_or(f32::NAN));
+
+        // Record VCP metadata
+        self.vcp_name
+            .push(format!("VCP-{}", peek_meta.vcp.unwrap_or(0)));
+        self.vcp_number.push(peek_meta.vcp.unwrap_or(0));
+
+        self.vcp_time
+            .push(peek_meta.volume_datetime.timestamp_millis());
+        self.vcp_duration.push(i64::MIN);
+        self.vcp_num_sweeps.push(0);
+
+        self.n_vcps += 1;
+
+        return Ok(());
     }
 
     /// Add a scan directly (internal method)
     fn add_scan(
         &mut self,
+        file: &VolumeFile,
         scan: &Scan,
         scan_meta: &crate::metadata::ScanMeta,
         vol_meta: &VolumeMeta,
@@ -371,7 +431,7 @@ impl RaystackBatchData {
             )));
         }
 
-        if self.n_sweeps + vol_meta.sweeps.len() > self.max_sweeps {
+        if self.include_sweeps && self.n_sweeps + vol_meta.sweeps.len() > self.max_sweeps {
             return Err(RadrsError::Capacity(format!(
                 "Sweep capacity exceeded: {} + {} > {}",
                 self.n_sweeps,
@@ -380,7 +440,7 @@ impl RaystackBatchData {
             )));
         }
 
-        if self.n_returns + vol_meta.total_radials > self.max_returns {
+        if self.include_returns && self.n_returns + vol_meta.total_radials > self.max_returns {
             return Err(RadrsError::Capacity(format!(
                 "Return capacity exceeded: {} + {} > {}",
                 self.n_returns, vol_meta.total_radials, self.max_returns
@@ -392,6 +452,8 @@ impl RaystackBatchData {
         //
         // VCP
         //
+
+        self.source_fs_size.push(file.data().len() as i64);
 
         let inst_name = scan_meta.instrument_name.clone();
         if let Some(name) = inst_name {
@@ -425,6 +487,10 @@ impl RaystackBatchData {
         self.vcp_num_sweeps.push(vol_meta.sweeps.len() as u32);
 
         self.n_vcps += 1;
+
+        if !self.include_sweeps {
+            return Ok(());
+        }
 
         //
         // SWEEPS
@@ -472,6 +538,12 @@ impl RaystackBatchData {
                     + sweep_meta.gate_interval_km * ((sweep_meta.max_gates - 1) as f64))
                     * 1000.0) as f32,
             );
+
+            if !self.include_returns {
+                self.sweep_num_returns.push(0);
+                self.n_sweeps += 1;
+                continue;
+            }
 
             let start_sweep_return_idx = self.n_returns;
 
@@ -580,7 +652,6 @@ impl RaystackBatchData {
 
             self.sweep_num_returns
                 .push((self.n_returns - start_sweep_return_idx) as u32);
-
             self.n_sweeps += 1;
         }
 
@@ -616,8 +687,8 @@ impl RaystackBatchData {
     pub fn has_capacity(&self) -> bool {
         !self.is_finalized
             && self.n_vcps < self.max_vcps
-            && self.n_sweeps < self.max_sweeps
-            && self.n_returns < self.max_returns
+            && (!self.include_sweeps || self.n_sweeps < self.max_sweeps)
+            && (!self.include_returns || self.n_returns < self.max_returns)
     }
 
     /// Finalize batch (optionally extend to full capacity)
@@ -632,6 +703,7 @@ impl RaystackBatchData {
 
         if !self.truncate {
             // Extend VCP/pattern metadata arrays to max capacity with fill values
+            self.source_fs_size.resize(self.max_vcps, 0);
             self.instrument_name.resize(self.max_vcps, String::new());
             self.instrument_type.resize(self.max_vcps, String::new());
             self.platform_type.resize(self.max_vcps, String::new());
@@ -644,46 +716,50 @@ impl RaystackBatchData {
             self.vcp_duration.resize(self.max_vcps, i64::MIN); // NaT for numpy timedelta64
             self.vcp_num_sweeps.resize(self.max_vcps, 0);
 
-            // Extend sweep metadata arrays to max capacity with fill values
-            self.sweep_vcp_time.resize(self.max_sweeps, i64::MIN);
-            self.sweep_number.resize(self.max_sweeps, 0);
-            self.sweep_time.resize(self.max_sweeps, i64::MIN); // NaT for numpy datetime64
-            self.sweep_duration.resize(self.max_sweeps, i64::MIN);
-            self.sweep_elevation_angle.resize(self.max_sweeps, f32::NAN);
-            self.sweep_elevation_number.resize(self.max_sweeps, 0);
-            self.sweep_max_gates.resize(self.max_sweeps, 0);
-            self.sweep_range_start_m.resize(self.max_sweeps, f32::NAN);
-            self.sweep_range_step_m.resize(self.max_sweeps, f32::NAN);
-            self.sweep_max_range_m.resize(self.max_sweeps, f32::NAN);
-            self.sweep_num_returns.resize(self.max_sweeps, 0);
+            if self.include_sweeps {
+                // Extend sweep metadata arrays to max capacity with fill values
+                self.sweep_vcp_time.resize(self.max_sweeps, i64::MIN);
+                self.sweep_number.resize(self.max_sweeps, 0);
+                self.sweep_time.resize(self.max_sweeps, i64::MIN); // NaT for numpy datetime64
+                self.sweep_duration.resize(self.max_sweeps, i64::MIN);
+                self.sweep_elevation_angle.resize(self.max_sweeps, f32::NAN);
+                self.sweep_elevation_number.resize(self.max_sweeps, 0);
+                self.sweep_max_gates.resize(self.max_sweeps, 0);
+                self.sweep_range_start_m.resize(self.max_sweeps, f32::NAN);
+                self.sweep_range_step_m.resize(self.max_sweeps, f32::NAN);
+                self.sweep_max_range_m.resize(self.max_sweeps, f32::NAN);
+                self.sweep_num_returns.resize(self.max_sweeps, 0);
+            }
 
-            // Extend return coordinate arrays to max capacity with fill values
-            self.return_vcp_time.resize(self.max_returns, i64::MIN); // NaT for numpy datetime64
-            self.return_sweep_number.resize(self.max_returns, 0);
-            self.return_sweep_time.resize(self.max_returns, i64::MIN); // NaT for numpy datetime64
-            self.return_time.resize(self.max_returns, i64::MIN); // NaT for numpy datetime64
-            self.return_azimuth.resize(self.max_returns, f32::NAN);
-            self.return_elevation.resize(self.max_returns, f32::NAN);
-            self.return_base_range_m.resize(self.max_returns, f32::NAN);
-            self.return_range_step_m.resize(self.max_returns, f32::NAN);
+            if self.include_returns {
+                // Extend return coordinate arrays to max capacity with fill values
+                self.return_vcp_time.resize(self.max_returns, i64::MIN); // NaT for numpy datetime64
+                self.return_sweep_number.resize(self.max_returns, 0);
+                self.return_sweep_time.resize(self.max_returns, i64::MIN); // NaT for numpy datetime64
+                self.return_time.resize(self.max_returns, i64::MIN); // NaT for numpy datetime64
+                self.return_azimuth.resize(self.max_returns, f32::NAN);
+                self.return_elevation.resize(self.max_returns, f32::NAN);
+                self.return_base_range_m.resize(self.max_returns, f32::NAN);
+                self.return_range_step_m.resize(self.max_returns, f32::NAN);
 
-            // Extend moment arrays to max capacity with fill values
-            let max_moment_len = self.max_returns * self.fold_size;
-            self.dbzh.resize(max_moment_len, f32::NAN);
-            self.vradh.resize(max_moment_len, f32::NAN);
-            self.wradh.resize(max_moment_len, f32::NAN);
-            self.zdr.resize(max_moment_len, f32::NAN);
-            self.phidp.resize(max_moment_len, f32::NAN);
-            self.rhohv.resize(max_moment_len, f32::NAN);
-            self.ccorh.resize(max_moment_len, f32::NAN);
+                // Extend moment arrays to max capacity with fill values
+                let max_moment_len = self.max_returns * self.fold_size;
+                self.dbzh.resize(max_moment_len, f32::NAN);
+                self.vradh.resize(max_moment_len, f32::NAN);
+                self.wradh.resize(max_moment_len, f32::NAN);
+                self.zdr.resize(max_moment_len, f32::NAN);
+                self.phidp.resize(max_moment_len, f32::NAN);
+                self.rhohv.resize(max_moment_len, f32::NAN);
+                self.ccorh.resize(max_moment_len, f32::NAN);
 
-            for (_name, arr) in &mut self.qc_outputs {
-                match arr {
-                    QcArray::Mask(mask) => {
-                        mask.resize(max_moment_len, 0);
-                    }
-                    QcArray::Float(floats) => {
-                        floats.resize(max_moment_len, f32::NAN);
+                for (_name, arr) in &mut self.qc_outputs {
+                    match arr {
+                        QcArray::Mask(mask) => {
+                            mask.resize(max_moment_len, 0);
+                        }
+                        QcArray::Float(floats) => {
+                            floats.resize(max_moment_len, f32::NAN);
+                        }
                     }
                 }
             }
@@ -778,6 +854,8 @@ impl RaystackBatchData {
 
         let vcps_dict = PyDict::new(py);
 
+        vcps_dict.set_item("source_fs_size", self.source_fs_size.into_pyarray(py))?;
+
         vcps_dict.set_item("instrument_name", self.instrument_name)?;
         vcps_dict.set_item("instrument_type", self.instrument_type)?;
         vcps_dict.set_item("platform_type", self.platform_type)?;
@@ -793,67 +871,71 @@ impl RaystackBatchData {
 
         dict.set_item("vcps", vcps_dict)?;
 
-        let sweeps_dict = PyDict::new(py);
+        if self.include_sweeps {
+            let sweeps_dict = PyDict::new(py);
 
-        sweeps_dict.set_item("vcp_time", self.sweep_vcp_time.into_pyarray(py))?;
-        sweeps_dict.set_item("sweep_number", self.sweep_number.into_pyarray(py))?;
-        sweeps_dict.set_item("sweep_time", self.sweep_time.into_pyarray(py))?;
-        sweeps_dict.set_item("sweep_duration", self.sweep_duration.into_pyarray(py))?;
-        sweeps_dict.set_item(
-            "elevation_angle",
-            self.sweep_elevation_angle.into_pyarray(py),
-        )?;
-        sweeps_dict.set_item(
-            "elevation_number",
-            self.sweep_elevation_number.into_pyarray(py),
-        )?;
-        sweeps_dict.set_item("range_start", self.sweep_range_start_m.into_pyarray(py))?;
-        sweeps_dict.set_item("range_step", self.sweep_range_step_m.into_pyarray(py))?;
-        sweeps_dict.set_item("max_range", self.sweep_max_range_m.into_pyarray(py))?;
-        sweeps_dict.set_item("max_gates", self.sweep_max_gates.into_pyarray(py))?;
-        sweeps_dict.set_item("num_returns", self.sweep_num_returns.into_pyarray(py))?;
+            sweeps_dict.set_item("vcp_time", self.sweep_vcp_time.into_pyarray(py))?;
+            sweeps_dict.set_item("sweep_number", self.sweep_number.into_pyarray(py))?;
+            sweeps_dict.set_item("sweep_time", self.sweep_time.into_pyarray(py))?;
+            sweeps_dict.set_item("sweep_duration", self.sweep_duration.into_pyarray(py))?;
+            sweeps_dict.set_item(
+                "elevation_angle",
+                self.sweep_elevation_angle.into_pyarray(py),
+            )?;
+            sweeps_dict.set_item(
+                "elevation_number",
+                self.sweep_elevation_number.into_pyarray(py),
+            )?;
+            sweeps_dict.set_item("range_start", self.sweep_range_start_m.into_pyarray(py))?;
+            sweeps_dict.set_item("range_step", self.sweep_range_step_m.into_pyarray(py))?;
+            sweeps_dict.set_item("max_range", self.sweep_max_range_m.into_pyarray(py))?;
+            sweeps_dict.set_item("max_gates", self.sweep_max_gates.into_pyarray(py))?;
+            sweeps_dict.set_item("num_returns", self.sweep_num_returns.into_pyarray(py))?;
 
-        dict.set_item("sweeps", sweeps_dict)?;
-
-        let returns_dict = PyDict::new(py);
-
-        // Convert coordinate arrays to numpy
-        returns_dict.set_item("vcp_time", self.return_vcp_time.into_pyarray(py))?;
-        returns_dict.set_item("sweep_number", self.return_sweep_number.into_pyarray(py))?;
-        returns_dict.set_item("sweep_time", self.return_sweep_time.into_pyarray(py))?;
-        returns_dict.set_item("return_time", self.return_time.into_pyarray(py))?;
-        returns_dict.set_item("azimuth", self.return_azimuth.into_pyarray(py))?;
-        returns_dict.set_item("elevation", self.return_elevation.into_pyarray(py))?;
-        returns_dict.set_item("base_range", self.return_base_range_m.into_pyarray(py))?;
-        returns_dict.set_item("range_step", self.return_range_step_m.into_pyarray(py))?;
-
-        returns_dict.set_item(
-            "range",
-            (0..self.fold_size as u32)
-                .collect::<Vec<u32>>()
-                .into_pyarray(py),
-        )?;
-
-        returns_dict.set_item("DBZH", self.dbzh.into_pyarray(py))?;
-        returns_dict.set_item("VRADH", self.vradh.into_pyarray(py))?;
-        returns_dict.set_item("WRADH", self.wradh.into_pyarray(py))?;
-        returns_dict.set_item("ZDR", self.zdr.into_pyarray(py))?;
-        returns_dict.set_item("PHIDP", self.phidp.into_pyarray(py))?;
-        returns_dict.set_item("RHOHV", self.rhohv.into_pyarray(py))?;
-        returns_dict.set_item("CCORH", self.ccorh.into_pyarray(py))?;
-
-        for (name, arr) in self.qc_outputs {
-            match arr {
-                QcArray::Mask(mask) => {
-                    returns_dict.set_item(format!("qc.{}", name), mask.into_pyarray(py))?;
-                }
-                QcArray::Float(floats) => {
-                    returns_dict.set_item(format!("qc.{}", name), floats.into_pyarray(py))?;
-                }
-            }
+            dict.set_item("sweeps", sweeps_dict)?;
         }
 
-        dict.set_item("returns", returns_dict)?;
+        if self.include_returns {
+            let returns_dict = PyDict::new(py);
+
+            // Convert coordinate arrays to numpy
+            returns_dict.set_item("vcp_time", self.return_vcp_time.into_pyarray(py))?;
+            returns_dict.set_item("sweep_number", self.return_sweep_number.into_pyarray(py))?;
+            returns_dict.set_item("sweep_time", self.return_sweep_time.into_pyarray(py))?;
+            returns_dict.set_item("return_time", self.return_time.into_pyarray(py))?;
+            returns_dict.set_item("azimuth", self.return_azimuth.into_pyarray(py))?;
+            returns_dict.set_item("elevation", self.return_elevation.into_pyarray(py))?;
+            returns_dict.set_item("base_range", self.return_base_range_m.into_pyarray(py))?;
+            returns_dict.set_item("range_step", self.return_range_step_m.into_pyarray(py))?;
+
+            returns_dict.set_item(
+                "range",
+                (0..self.fold_size as u32)
+                    .collect::<Vec<u32>>()
+                    .into_pyarray(py),
+            )?;
+
+            returns_dict.set_item("DBZH", self.dbzh.into_pyarray(py))?;
+            returns_dict.set_item("VRADH", self.vradh.into_pyarray(py))?;
+            returns_dict.set_item("WRADH", self.wradh.into_pyarray(py))?;
+            returns_dict.set_item("ZDR", self.zdr.into_pyarray(py))?;
+            returns_dict.set_item("PHIDP", self.phidp.into_pyarray(py))?;
+            returns_dict.set_item("RHOHV", self.rhohv.into_pyarray(py))?;
+            returns_dict.set_item("CCORH", self.ccorh.into_pyarray(py))?;
+
+            for (name, arr) in self.qc_outputs {
+                match arr {
+                    QcArray::Mask(mask) => {
+                        returns_dict.set_item(format!("qc.{}", name), mask.into_pyarray(py))?;
+                    }
+                    QcArray::Float(floats) => {
+                        returns_dict.set_item(format!("qc.{}", name), floats.into_pyarray(py))?;
+                    }
+                }
+            }
+
+            dict.set_item("returns", returns_dict)?;
+        }
 
         Ok(dict.into())
     }
@@ -868,7 +950,7 @@ pub struct BatchedRaystackPy {
 #[pymethods]
 impl BatchedRaystackPy {
     #[new]
-    #[pyo3(signature = (max_vcps, max_sweeps, max_returns, fold_size=DEFAULT_FOLD_SIZE, truncate=true, drop_empty_returns=false))]
+    #[pyo3(signature = (max_vcps, max_sweeps, max_returns, fold_size=DEFAULT_FOLD_SIZE, truncate=true, drop_empty_returns=false, include_sweeps=true, include_returns=true))]
     fn new(
         max_vcps: usize,
         max_sweeps: usize,
@@ -876,6 +958,8 @@ impl BatchedRaystackPy {
         fold_size: usize,
         truncate: bool,
         drop_empty_returns: bool,
+        include_sweeps: bool,
+        include_returns: bool,
     ) -> PyResult<Self> {
         let inner = RaystackBatchData::new(
             max_vcps,
@@ -884,6 +968,8 @@ impl BatchedRaystackPy {
             fold_size,
             truncate,
             drop_empty_returns,
+            include_sweeps,
+            include_returns,
         )
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         Ok(Self { inner: Some(inner) })
@@ -894,7 +980,7 @@ impl BatchedRaystackPy {
         self.inner
             .as_mut()
             .unwrap()
-            .add_volume_bytes(bytes)
+            .add_volume_bytes(bytes, None)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
@@ -913,7 +999,7 @@ impl BatchedRaystackPy {
         .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
-    #[pyo3(signature = (l2_iter, prefetch=1))]
+    #[pyo3(signature = (l2_iter, prefetch=2))]
     fn add_volumes_from_l2(
         &mut self,
         py: Python<'_>,

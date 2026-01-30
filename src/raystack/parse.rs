@@ -39,7 +39,7 @@ const MOMENT_CCORH: usize = 6;
 /// Decompress outer gzip if present. Uses Cow to avoid allocation when not gzipped.
 pub(crate) fn ungzip_if_needed(data: &[u8]) -> Result<Cow<'_, [u8]>> {
     if data.starts_with(&GZIP_MAGIC) {
-        let mut decoder = flate2::read::GzDecoder::new(data);
+        let mut decoder: flate2::read::GzDecoder<&[u8]> = flate2::read::GzDecoder::new(data);
         let mut decompressed = Vec::new();
         decoder.read_to_end(&mut decompressed)?;
         Ok(Cow::Owned(decompressed))

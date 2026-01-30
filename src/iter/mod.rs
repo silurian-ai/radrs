@@ -10,7 +10,7 @@ mod source;
 mod volumes;
 
 pub use l2_archive::{NexradL2ArchiveInfo, NexradL2ArchiveIter, NexradL2ArchiveIterator, list_nexrad_l2_archive_volumes_py};
-pub use peek::VolumeMeta;
+pub use peek::{VolumeMeta, peek_volume_bytes, VOLUME_HEADER_SIZE, PEEK_FAST_INITIAL, PEEK_SCAN_MAX, PEEK_MAX_RECORDS};
 pub use realtime::{stream_archive, stream_archive_py, stream_realtime_py};
 pub use source::{VolumeInfo, VolumeSource, list_volumes};
 

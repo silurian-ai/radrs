@@ -136,6 +136,12 @@ else:
         drop_empty_returns : bool, default=False
             If True, returns with all NaN moment data are excluded from the output.
             If False, all returns are included regardless of data completeness.
+        include_sweeps : bool, default=True
+            If True, sweep-level metadata is included in the output.
+            If False, only VCP metadata is included.
+        include_returns : bool, default=True
+            If True, return-level data (radials and moment data) are included in the output.
+            If False, only VCP and sweep metadata are collected.
 
         Examples
         --------
@@ -188,6 +194,8 @@ else:
             fold_size=128,
             truncate=True,
             drop_empty_returns=False,
+            include_sweeps=True,
+            include_returns=True,
         ):
             """Initialize batched raystack accumulator.
 
@@ -207,6 +215,12 @@ else:
             drop_empty_returns : bool, default=False
                 If True, returns with all NaN moment data are excluded from the output.
                 If False, all returns are included regardless of data completeness.
+            include_sweeps : bool, default=True
+                If True, sweep-level metadata is included in the output.
+                If False, only VCP metadata is included.
+            include_returns : bool, default=True
+                If True, return-level data (radials and moment data) are included in the output.
+                If False, only VCP and sweep metadata are collected.
             """
             self._inner = _raystack.BatchedRaystack(
                 max_vcps=max_vcps,
@@ -215,6 +229,8 @@ else:
                 fold_size=fold_size,
                 truncate=truncate,
                 drop_empty_returns=drop_empty_returns,
+                include_sweeps=include_sweeps,
+                include_returns=include_returns,
             )
 
         def add_volume(self, data):
@@ -300,7 +316,7 @@ else:
             """
             return self._inner.add_volume_from_url(url, storage_options)
 
-        def add_volumes_from_l2(self, l2_iter, prefetch=1):
+        def add_volumes_from_l2(self, l2_iter, prefetch=2):
             """Add volumes from a NexradL2ArchiveIter with prefetch support.
 
             This method supports multi-cloud sources (S3, GCS, Azure, local filesystem)
@@ -312,7 +328,7 @@ else:
             ----------
             l2_iter : NexradL2ArchiveIter
                 L2 archive iterator configured with time bounds
-            prefetch : int, default=1
+            prefetch : int, default=2
                 Number of volumes to prefetch in parallel
 
             Returns
@@ -455,6 +471,7 @@ else:
             """
 
             rs_dict = self.finalize_to_dict()
+            dt_dict = {}
 
             vcps_dict = rs_dict["vcps"]
 
@@ -472,6 +489,7 @@ else:
                 data_vars={
                     dv: xr.Variable(["vcp_time"], _astype(vcps_dict[dv], dtype))
                     for dv, dtype in [
+                        ("source_fs_size", None),
                         ("instrument_name", None),
                         ("instrument_type", None),
                         ("platform_type", None),
@@ -490,86 +508,92 @@ else:
                 },
             )
 
-            sweeps_dict = rs_dict["sweeps"]
+            dt_dict["vcps"] = vcps_ds
 
-            sweeps_ds = xr.Dataset(
-                data_vars={
-                    dv: xr.Variable(["sweep_time"], _astype(sweeps_dict[dv], dtype))
-                    for dv, dtype in [
-                        ("vcp_time", "datetime64[ms->ns]"),
-                        ("sweep_number", None),
-                        ("sweep_duration", "timedelta64[ms->ns]"),
-                        ("elevation_angle", None),
-                        ("elevation_number", None),
-                        ("range_start", None),
-                        ("range_step", None),
-                        ("max_range", None),
-                        ("max_gates", None),
-                        ("num_returns", None),
-                    ]
-                },
-                coords={
-                    c: xr.Variable([c], _astype(sweeps_dict[c], dtype))
-                    for c, dtype in [("sweep_time", "datetime64[ms->ns]")]
-                },
-            )
-            # Aliases
-            sweeps_ds = sweeps_ds.assign(
-                sweep_fixed_angle=sweeps_ds.variables["elevation_angle"]
-            )
+            if "sweeps" in rs_dict:
+                sweeps_dict = rs_dict["sweeps"]
 
-            returns_dict = rs_dict["returns"]
-            moments_shape = (
-                len(returns_dict["return_time"]),
-                len(returns_dict["range"]),
-            )
-            qc_vars = [v for v in returns_dict if v.startswith("qc.")]
-
-            returns_ds = xr.Dataset(
-                data_vars=dict(
-                    **{
-                        dv: xr.Variable(
-                            ["return_time"], _astype(returns_dict[dv], dtype)
-                        )
+                sweeps_ds = xr.Dataset(
+                    data_vars={
+                        dv: xr.Variable(["sweep_time"], _astype(sweeps_dict[dv], dtype))
                         for dv, dtype in [
                             ("vcp_time", "datetime64[ms->ns]"),
                             ("sweep_number", None),
-                            ("sweep_time", "datetime64[ms->ns]"),
-                            ("base_range", None),
+                            ("sweep_duration", "timedelta64[ms->ns]"),
+                            ("elevation_angle", None),
+                            ("elevation_number", None),
+                            ("range_start", None),
                             ("range_step", None),
-                            ("azimuth", None),
-                            ("elevation", None),
+                            ("max_range", None),
+                            ("max_gates", None),
+                            ("num_returns", None),
                         ]
                     },
-                    **{
-                        dv: xr.Variable(
-                            ["return_time", "range"],
-                            _astype(returns_dict[dv], dtype).reshape(moments_shape),
-                        )
-                        for dv, dtype in [
-                            ("DBZH", None),
-                            ("VRADH", None),
-                            ("WRADH", None),
-                            ("ZDR", None),
-                            ("PHIDP", None),
-                            ("RHOHV", None),
-                            ("CCORH", None),
-                        ]
-                        + [(qcv, None) for qcv in qc_vars]
+                    coords={
+                        c: xr.Variable([c], _astype(sweeps_dict[c], dtype))
+                        for c, dtype in [("sweep_time", "datetime64[ms->ns]")]
                     },
-                ),
-                coords={
-                    c: xr.Variable([c], _astype(returns_dict[c], dtype))
-                    for c, dtype in [
-                        ("return_time", "datetime64[ms->ns]"),
-                        ("range", None),
-                    ]
-                },
-            )
+                )
+                # Aliases
+                sweeps_ds = sweeps_ds.assign(
+                    sweep_fixed_angle=sweeps_ds.variables["elevation_angle"]
+                )
 
-            return xr.DataTree.from_dict(
-                {"vcps": vcps_ds, "sweeps": sweeps_ds, "returns": returns_ds}
-            )
+                dt_dict["sweeps"] = sweeps_ds
+
+            if "returns" in rs_dict:
+                returns_dict = rs_dict["returns"]
+                moments_shape = (
+                    len(returns_dict["return_time"]),
+                    len(returns_dict["range"]),
+                )
+                qc_vars = [v for v in returns_dict if v.startswith("qc.")]
+
+                returns_ds = xr.Dataset(
+                    data_vars=dict(
+                        **{
+                            dv: xr.Variable(
+                                ["return_time"], _astype(returns_dict[dv], dtype)
+                            )
+                            for dv, dtype in [
+                                ("vcp_time", "datetime64[ms->ns]"),
+                                ("sweep_number", None),
+                                ("sweep_time", "datetime64[ms->ns]"),
+                                ("base_range", None),
+                                ("range_step", None),
+                                ("azimuth", None),
+                                ("elevation", None),
+                            ]
+                        },
+                        **{
+                            dv: xr.Variable(
+                                ["return_time", "range"],
+                                _astype(returns_dict[dv], dtype).reshape(moments_shape),
+                            )
+                            for dv, dtype in [
+                                ("DBZH", None),
+                                ("VRADH", None),
+                                ("WRADH", None),
+                                ("ZDR", None),
+                                ("PHIDP", None),
+                                ("RHOHV", None),
+                                ("CCORH", None),
+                            ]
+                            + [(qcv, None) for qcv in qc_vars]
+                        },
+                    ),
+                    coords={
+                        c: xr.Variable([c], _astype(returns_dict[c], dtype))
+                        for c, dtype in [
+                            ("return_time", "datetime64[ms->ns]"),
+                            ("range", None),
+                        ]
+                    },
+                )
+
+                dt_dict["returns"] = returns_ds
+
+            return xr.DataTree.from_dict(dt_dict)
 
         def __repr__(self):
             return self._inner.__repr__()
