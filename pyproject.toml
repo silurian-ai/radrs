@@ -25,6 +25,24 @@ ray = ["ray"]
 python-source = "python"
 module-name = "radrs._radrs"
 features = ["pyo3/extension-module"]
+# We don't need to auditwheel, because we don't need manylinux
+auditwheel = "skip"
+# Build artifacts with the specified Cargo profile
+profile = "release"
+# For "editable" builds, use the specified Cargo profile,
+# e.g. to use "dev" builds for local development
+# (uses `profile` if this key is not set)
+editable-profile = "dev"
+# Require Cargo.lock and cache are up to date
+# Decreases reloads
+frozen = false
+# Require Cargo.lock is up to date
+# Decreases reloads
+locked = false
+# Strip the library for minimum file size
+# TODO: test more thoroughly with fully optimized and minimal build
+# strip = true
+
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -35,7 +53,8 @@ markers = [
 ]
 
 [tool.uv]
-package = false
+# Automatically rebuilds on uv sync
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 
 [dependency-groups]
 dev = [

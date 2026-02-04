@@ -2326,7 +2326,7 @@ wheels = [
 
 [[package]]
 name = "radrs"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "numpy" },
     { name = "pyarrow" },
