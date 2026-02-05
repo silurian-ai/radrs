@@ -25,6 +25,13 @@ ray = ["ray"]
 python-source = "python"
 module-name = "radrs._radrs"
 features = ["pyo3/extension-module"]
+# Skip auditwheel since we don't need manylinux compliance
+auditwheel = "skip"
+# Use release profile for installed builds
+profile = "release"
+# Use dev profile for editable/local builds (faster compilation)
+editable-profile = "dev"
+
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -35,7 +42,8 @@ markers = [
 ]
 
 [tool.uv]
-package = false
+# Automatically rebuilds on uv sync
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 
 [dependency-groups]
 dev = [

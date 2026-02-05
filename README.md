@@ -205,7 +205,8 @@ winding = rs["qc"]["vradh_winding_number"]  # float32, same shape as VRADH
 # Setup
 uv sync
 
-# Build
+# Build if you want to run in release mode
+# If you want to run in dev mode, just skip this step, uv sync or uv run automatically builds in dev mode
 maturin develop --release
 
 # Test
