@@ -25,23 +25,12 @@ ray = ["ray"]
 python-source = "python"
 module-name = "radrs._radrs"
 features = ["pyo3/extension-module"]
-# We don't need to auditwheel, because we don't need manylinux
+# Skip auditwheel since we don't need manylinux compliance
 auditwheel = "skip"
-# Build artifacts with the specified Cargo profile
+# Use release profile for installed builds
 profile = "release"
-# For "editable" builds, use the specified Cargo profile,
-# e.g. to use "dev" builds for local development
-# (uses `profile` if this key is not set)
+# Use dev profile for editable/local builds (faster compilation)
 editable-profile = "dev"
-# Require Cargo.lock and cache are up to date
-# Decreases reloads
-frozen = false
-# Require Cargo.lock is up to date
-# Decreases reloads
-locked = false
-# Strip the library for minimum file size
-# TODO: test more thoroughly with fully optimized and minimal build
-# strip = true
 
 
 [tool.pytest.ini_options]

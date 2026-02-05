@@ -64,14 +64,7 @@ zerocopy = "0.8"
 default = []
 fast-alloc = ["mimalloc"]
 
-# Can sometimes improve perf
+# Optimize release builds for better runtime performance
 [profile.release]
 lto = 'fat'
 codegen-units = 1
-
-# TODO: test more thoroughly with fully optimized and minimal build
-# # Profile to build a minimally sized binary
-# [profile.minimal-size]
-# inherits = "release"
-# opt-level = "z"
-# codegen-units = 1
