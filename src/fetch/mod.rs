@@ -7,12 +7,14 @@ use crate::error::Result;
 use object_store::ClientOptions;
 use object_store::ObjectStore;
 use object_store::ObjectStoreExt;
+use object_store::parse_url_opts;
 use object_store::aws::AmazonS3Builder;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tokio::sync::Semaphore;
+use url::Url;
 
 pub mod archive;
 pub mod realtime;
@@ -101,171 +103,60 @@ pub fn build_store_from_uri(
     uri: &str,
     options: Option<HashMap<String, String>>,
 ) -> Result<Arc<dyn ObjectStore>> {
-    let options = options.unwrap_or_default();
+    let url = parse_store_url(uri)?;
+    let options = normalize_storage_options(options);
+    let (store, _path) = parse_url_opts(&url, options)?;
+    Ok(Arc::from(store))
+}
 
-    if uri.starts_with("s3://") || uri.starts_with("S3://") {
-        build_s3_store(uri, options)
-    } else if uri.starts_with("gs://") || uri.starts_with("GS://") {
-        build_gcs_store(uri, options)
-    } else if uri.starts_with("az://") || uri.starts_with("AZ://") || uri.starts_with("azure://") {
-        build_azure_store(uri, options)
-    } else if uri.starts_with("file://") || uri.starts_with('/') {
-        build_local_store(uri, options)
-    } else {
-        Err(RadrsError::InvalidUrl(format!(
+fn parse_store_url(uri: &str) -> Result<Url> {
+    if uri.starts_with('/') {
+        return Url::from_file_path(uri)
+            .map_err(|_| RadrsError::InvalidUrl(format!("Invalid local path: {}", uri)));
+    }
+
+    if uri.starts_with("file://") {
+        return Url::parse(uri)
+            .map_err(|e| RadrsError::InvalidUrl(format!("Invalid file URI: {} ({})", uri, e)));
+    }
+
+    let (scheme, rest) = uri
+        .split_once("://")
+        .ok_or_else(|| RadrsError::InvalidUrl(format!("Unsupported URI scheme: {}", uri)))?;
+    let scheme = scheme.to_ascii_lowercase();
+
+    match scheme.as_str() {
+        "s3" | "gs" | "az" | "azure" => {
+            let normalized = format!("{}://{}", scheme, rest);
+            Url::parse(&normalized)
+                .map_err(|e| RadrsError::InvalidUrl(format!("Invalid URI: {} ({})", uri, e)))
+        }
+        _ => Err(RadrsError::InvalidUrl(format!(
             "Unsupported URI scheme: {}",
             uri
-        )))
+        ))),
     }
 }
 
-fn build_s3_store(uri: &str, options: HashMap<String, String>) -> Result<Arc<dyn ObjectStore>> {
-    let url_without_scheme = uri
-        .strip_prefix("s3://")
-        .or_else(|| uri.strip_prefix("S3://"))
-        .ok_or_else(|| RadrsError::InvalidUrl(format!("Invalid S3 URI: {}", uri)))?;
+fn normalize_storage_options(
+    options: Option<HashMap<String, String>>,
+) -> HashMap<String, String> {
+    let mut options = options.unwrap_or_default();
 
-    let bucket = url_without_scheme
-        .split('/')
-        .next()
-        .ok_or_else(|| RadrsError::InvalidUrl(format!("No bucket in S3 URI: {}", uri)))?;
+    // Backward-compatible alias for existing Python/Rust callers:
+    // storage_options={"anon":"true"} maps to object_store's skip_signature.
+    if let Some(anon) = options.remove("anon") {
+        let skip_key_present = options.contains_key("skip_signature")
+            || options.contains_key("aws_skip_signature")
+            || options.contains_key("google_skip_signature")
+            || options.contains_key("azure_skip_signature");
 
-    let mut builder = AmazonS3Builder::new().with_bucket_name(bucket);
-
-    // Apply storage options
-    if let Some(region) = options.get("region") {
-        builder = builder.with_region(region);
-    }
-    if let Some(endpoint) = options.get("endpoint") {
-        builder = builder.with_endpoint(endpoint);
-    }
-    if let Some(access_key_id) = options.get("access_key_id") {
-        builder = builder.with_access_key_id(access_key_id);
-    }
-    if let Some(secret_access_key) = options.get("secret_access_key") {
-        builder = builder.with_secret_access_key(secret_access_key);
-    }
-    if let Some(token) = options.get("token") {
-        builder = builder.with_token(token);
-    }
-    if options.get("anon").map(|s| s == "true").unwrap_or(false) {
-        builder = builder.with_skip_signature(true);
-    }
-
-    let store = builder.build()?;
-    Ok(Arc::new(store))
-}
-
-fn build_gcs_store(uri: &str, options: HashMap<String, String>) -> Result<Arc<dyn ObjectStore>> {
-    use object_store::gcp::GoogleCloudStorageBuilder;
-
-    let url_without_scheme = uri
-        .strip_prefix("gs://")
-        .or_else(|| uri.strip_prefix("GS://"))
-        .ok_or_else(|| RadrsError::InvalidUrl(format!("Invalid GCS URI: {}", uri)))?;
-
-    let bucket = url_without_scheme
-        .split('/')
-        .next()
-        .ok_or_else(|| RadrsError::InvalidUrl(format!("No bucket in GCS URI: {}", uri)))?;
-
-    let mut builder = GoogleCloudStorageBuilder::new().with_bucket_name(bucket);
-
-    // Apply storage options
-    if let Some(service_account_path) = options.get("service_account_path") {
-        builder = builder.with_service_account_path(service_account_path);
-    }
-    if let Some(service_account_key) = options.get("service_account_key") {
-        builder = builder.with_service_account_key(service_account_key);
-    }
-
-    let store = builder.build()?;
-    Ok(Arc::new(store))
-}
-
-fn build_azure_store(uri: &str, options: HashMap<String, String>) -> Result<Arc<dyn ObjectStore>> {
-    use object_store::azure::MicrosoftAzureBuilder;
-
-    let url_without_scheme = uri
-        .strip_prefix("az://")
-        .or_else(|| uri.strip_prefix("AZ://"))
-        .or_else(|| uri.strip_prefix("azure://"))
-        .ok_or_else(|| RadrsError::InvalidUrl(format!("Invalid Azure URI: {}", uri)))?;
-
-    let container = url_without_scheme
-        .split('/')
-        .next()
-        .ok_or_else(|| RadrsError::InvalidUrl(format!("No container in Azure URI: {}", uri)))?;
-
-    let mut builder = MicrosoftAzureBuilder::new().with_container_name(container);
-
-    // Apply storage options
-    if let Some(account_name) = options.get("account_name") {
-        builder = builder.with_account(account_name);
-    }
-    if let Some(access_key) = options.get("access_key") {
-        builder = builder.with_access_key(access_key);
-    }
-    if let Some(bearer_token) = options.get("bearer_token") {
-        builder = builder.with_bearer_token_authorization(bearer_token);
-    }
-
-    let store = builder.build()?;
-    Ok(Arc::new(store))
-}
-
-fn build_local_store(_uri: &str, _options: HashMap<String, String>) -> Result<Arc<dyn ObjectStore>> {
-    use object_store::local::LocalFileSystem;
-
-    // LocalFileSystem uses the entire filesystem as root
-    let store = LocalFileSystem::new();
-    Ok(Arc::new(store))
-}
-
-/// Extract object path from a full URL
-///
-/// Strips the scheme and bucket/container, returning just the object path.
-///
-/// # Examples
-/// - s3://bucket/path/to/file.txt -> path/to/file.txt
-/// - gs://bucket/data/file.txt -> data/file.txt
-/// - az://container/path/file.txt -> path/file.txt
-/// - /local/path/file.txt -> /local/path/file.txt
-/// - file:///path/to/file.txt -> /path/to/file.txt
-pub(crate) fn extract_object_path_from_url(url: &str) -> Result<String> {
-    if let Some(rest) = url
-        .strip_prefix("s3://")
-        .or_else(|| url.strip_prefix("S3://"))
-        .or_else(|| url.strip_prefix("gs://"))
-        .or_else(|| url.strip_prefix("GS://"))
-        .or_else(|| url.strip_prefix("az://"))
-        .or_else(|| url.strip_prefix("AZ://"))
-        .or_else(|| url.strip_prefix("azure://"))
-    {
-        // Split on first '/' to remove bucket/container
-        let parts: Vec<&str> = rest.splitn(2, '/').collect();
-        if parts.len() == 2 {
-            return Ok(parts[1].to_string());
-        } else {
-            return Err(RadrsError::InvalidUrl(format!(
-                "No object path in URL: {}",
-                url
-            )));
+        if anon == "true" && !skip_key_present {
+            options.insert("skip_signature".to_string(), "true".to_string());
         }
     }
 
-    if let Some(rest) = url.strip_prefix("file://") {
-        return Ok(rest.to_string());
-    }
-
-    if url.starts_with('/') {
-        return Ok(url.to_string());
-    }
-
-    Err(RadrsError::InvalidUrl(format!(
-        "Unsupported URL scheme: {}",
-        url
-    )))
+    options
 }
 
 /// Extract base path from a URI (remove scheme and bucket/container)
@@ -363,14 +254,16 @@ pub async fn fetch_bytes_from_url(
     url: &str,
     storage_options: Option<HashMap<String, String>>,
 ) -> Result<bytes::Bytes> {
-    use object_store::path::Path as ObjectPath;
-
-    // Build ObjectStore from URL
-    let store = build_store_from_uri(url, storage_options)?;
-
-    // Extract object path from full URL
-    let object_path = extract_object_path_from_url(url)?;
-    let path = ObjectPath::from(object_path);
+    let parsed_url = parse_store_url(url)?;
+    let options = normalize_storage_options(storage_options);
+    let (store, path) = parse_url_opts(&parsed_url, options)?;
+    let store: Arc<dyn ObjectStore> = Arc::from(store);
+    if path.as_ref().is_empty() {
+        return Err(RadrsError::InvalidUrl(format!(
+            "No object path in URL: {}",
+            url
+        )));
+    }
 
     // Fetch the object
     let get_result = store.get(&path).await?;
@@ -382,6 +275,58 @@ pub async fn fetch_bytes_from_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_store_url_cloud_and_local() {
+        assert_eq!(
+            parse_store_url("S3://my-bucket/path/file")
+                .unwrap()
+                .scheme(),
+            "s3"
+        );
+        assert_eq!(
+            parse_store_url("gs://my-bucket/path/file")
+                .unwrap()
+                .scheme(),
+            "gs"
+        );
+        assert_eq!(
+            parse_store_url("azure://my-container/path/file")
+                .unwrap()
+                .scheme(),
+            "azure"
+        );
+        assert_eq!(
+            parse_store_url("/tmp/test-file")
+                .unwrap()
+                .scheme(),
+            "file"
+        );
+        assert!(parse_store_url("http://example.com").is_err());
+    }
+
+    #[test]
+    fn test_storage_options_anon_alias() {
+        let mut input = HashMap::new();
+        input.insert("anon".to_string(), "true".to_string());
+        let normalized = normalize_storage_options(Some(input));
+        assert_eq!(
+            normalized.get("skip_signature").map(String::as_str),
+            Some("true")
+        );
+    }
+
+    #[test]
+    fn test_storage_options_explicit_skip_signature_wins() {
+        let mut input = HashMap::new();
+        input.insert("anon".to_string(), "true".to_string());
+        input.insert("skip_signature".to_string(), "false".to_string());
+        let normalized = normalize_storage_options(Some(input));
+        assert_eq!(
+            normalized.get("skip_signature").map(String::as_str),
+            Some("false")
+        );
+    }
 
     #[test]
     fn test_extract_base_path() {
