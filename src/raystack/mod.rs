@@ -3,7 +3,7 @@
 //! This module provides tools for converting NEXRAD data to the raystack format,
 //! which is optimized for machine learning training pipelines.
 
-mod batch;
+pub(crate) mod batch;
 mod convert;
 mod parse;
 

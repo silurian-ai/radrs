@@ -2,6 +2,7 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::RUNTIME;
+use crate::raystack::batch::{add_activity_to_dict, compute_batch_activity};
 use crate::raystack::{self, QcOp, parse_qc_ops};
 use crate::xradar;
 use pyo3::prelude::*;
@@ -71,7 +72,9 @@ impl VolumeIterator {
                 match parse_result {
                     Ok(mut batch) => {
                         batch.add_qc_outputs(&self.qc_ops);
+                        let activity = compute_batch_activity(&batch);
                         let out = batch.to_python_dict(py)?;
+                        add_activity_to_dict(py, out.bind(py), activity)?;
                         return Ok(out.into());
                     }
                     Err(e) => {
@@ -192,7 +195,9 @@ impl VolumeIteratorAsync {
                         Ok(mut batch) => {
                             return Python::attach(|py| {
                                 batch.add_qc_outputs(&qc_ops);
+                                let activity = compute_batch_activity(&batch);
                                 let out = batch.to_python_dict(py)?;
+                                add_activity_to_dict(py, out.bind(py), activity)?;
                                 Ok::<Py<PyAny>, PyErr>(out.into())
                             })
                             .map_err(Into::into);
