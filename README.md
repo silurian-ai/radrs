@@ -45,7 +45,8 @@ async for dt in radrs.iter_volumes_async(source, prefetch=5):
 
 # Parse directly to raystack format (faster for ML)
 rs = rrs.parse(file_bytes, fold_size=128)
-print(rs["returns"]["DBZH"].shape)  # (n_returns, 128)
+print(rs["returns"]["DBZH"].shape)  # (n_returns * 128,) flat
+print(rs["returns"]["DBZH"].reshape(-1, 128).shape)  # (n_returns, 128)
 ```
 
 ## API Reference
@@ -73,12 +74,12 @@ Set `sort_by_azimuth=True` to sort radials by azimuth angle (0°→360°), match
 
 | Function | Description |
 |----------|-------------|
-| `parse(data, fold_size)` | Parse bytes directly to raystack dict (fastest) |
-| `from_xradar_datatree(dt, fold_size)` | Convert xradar-style DataTree to raystack dict |
+| `parse(data, fold_size, qc=None, include_activity=True)` | Parse bytes directly to raystack dict (fastest) |
+| `from_xradar_datatree(dt, fold_size, include_activity=True)` | Convert xradar-style DataTree to raystack dict |
 | `to_xradar_datatree(rs)` | Convert raystack dict to xradar-style DataTree |
 | `to_raystack_datatree(rs)` | Convert raystack dict to raystack-style DataTree |
-| `open_datatree(source, fold_size)` | Open file/URL/bytes as raystack-style DataTree (flat layout) |
-| `open_datatree_async(source, fold_size)` | Async version of open_datatree |
+| `open_datatree(source, fold_size, qc=None, include_activity=True)` | Open file/URL/bytes as raystack-style DataTree (flat layout) |
+| `open_datatree_async(source, fold_size, qc=None, include_activity=True)` | Async version of open_datatree |
 
 ### radrs.qc
 
@@ -108,48 +109,52 @@ DataTree('root')
 ```
 DataTree('root')
 ├── DataTree('vcps')
-│   └── Dataset: pattern_number, ...
+│   └── Dataset: vcp_number, vcp_name, vcp_time, num_sweeps, ...
 ├── DataTree('sweeps')
-│   └── Dataset: elevation_number, elevation_angle, n_radials, start_index, ...
-├── DataTree('qc')
-│   └── Dataset: rhohv_threshold_mask, sun_spike_mask, vradh_winding_number, ...
+│   └── Dataset: sweep_number, elevation_number, elevation_angle, num_returns, ...
 ├── DataTree('activity')
 │   └── Dataset: ray_valid_count, ray_valid_fraction, sweep_valid_count, sweep_valid_fraction, volume_valid_count, volume_valid_fraction
 └── DataTree('returns')
-    └── Dataset: azimuth, elevation, time, sweep_idx, DBZH, VRADH, ... (n_returns, fold_size)
+    └── Dataset: return_time, sweep_time, sweep_number, azimuth, elevation, DBZH, VRADH, ... (return_time, range)
 ```
 
 ### Raystack dict (ML-optimized)
 
 ```python
 {
-    "vcps": {"pattern_number": 215},
-    "sweeps": [
-        {"elevation_number": 1, "elevation_angle": 0.5, "n_radials": 720, "start_index": 0},
+    "vcps": {
+        "vcp_number": ndarray(n_vcps,),
+        "vcp_time": ndarray(n_vcps,),
+        "num_sweeps": ndarray(n_vcps,),
         ...
-    ],
+    },
+    "sweeps": {
+        "sweep_number": ndarray(n_sweeps,),
+        "sweep_time": ndarray(n_sweeps,),
+        "elevation_number": ndarray(n_sweeps,),
+        "elevation_angle": ndarray(n_sweeps,),
+        "num_returns": ndarray(n_sweeps,),
+        ...
+    },
     "returns": {
         "azimuth": ndarray(n_returns,),
         "elevation": ndarray(n_returns,),
-        "time": ndarray(n_returns,),
-        "sweep_idx": ndarray(n_returns,),
-        "DBZH": ndarray(n_returns, fold_size),
-        "VRADH": ndarray(n_returns, fold_size),
+        "return_time": ndarray(n_returns,),
+        "sweep_number": ndarray(n_returns,),
+        "base_range": ndarray(n_returns,),
+        "range_step": ndarray(n_returns,),
+        "DBZH": ndarray(n_returns * fold_size,),  # reshape to (n_returns, fold_size)
+        "VRADH": ndarray(n_returns * fold_size,),
         ...
-    },
-    "qc": {
-        "rhohv_threshold_mask": ndarray(n_returns, fold_size),
-        "sun_spike_mask": ndarray(n_returns, fold_size),
-        "vradh_winding_number": ndarray(n_returns, fold_size),
     },
     "activity": {
         "moment": ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"],
-        "ray_valid_count": ndarray(n_moments, n_returns),
+        "ray_valid_count": ndarray(n_moments, n_returns),      # per return chunk
         "ray_valid_fraction": ndarray(n_moments, n_returns),
         "sweep_valid_count": ndarray(n_moments, n_sweeps),
         "sweep_valid_fraction": ndarray(n_moments, n_sweeps),
-        "volume_valid_count": ndarray(n_moments, 1),
-        "volume_valid_fraction": ndarray(n_moments, 1),
+        "volume_valid_count": ndarray(n_moments, n_vcps),
+        "volume_valid_fraction": ndarray(n_moments, n_vcps),
     },
 }
 ```
@@ -160,12 +165,12 @@ Activity metrics summarize data availability for each radar moment (DBZH, VRADH,
 
 | Metric | Shape | Description |
 |--------|-------|-------------|
-| `ray_valid_count` | (n_moments, n_returns) | Count of finite values per ray |
-| `ray_valid_fraction` | (n_moments, n_returns) | Fraction of valid gates per ray (count / fold_size) |
+| `ray_valid_count` | (n_moments, n_returns) | Count of finite values per return chunk |
+| `ray_valid_fraction` | (n_moments, n_returns) | Fraction of valid gates per return chunk (count / fold_size) |
 | `sweep_valid_count` | (n_moments, n_sweeps) | Total valid values per sweep |
-| `sweep_valid_fraction` | (n_moments, n_sweeps) | Fraction valid per sweep (count / (n_radials * fold_size)) |
-| `volume_valid_count` | (n_moments, 1) | Total valid values in the volume |
-| `volume_valid_fraction` | (n_moments, 1) | Fraction valid across the volume |
+| `sweep_valid_fraction` | (n_moments, n_sweeps) | Fraction valid per sweep (count / (num_returns * fold_size)) |
+| `volume_valid_count` | (n_moments, n_vcps) | Total valid values per VCP |
+| `volume_valid_fraction` | (n_moments, n_vcps) | Fraction valid per VCP |
 
 Activity is computed during parsing and included by default. To disable:
 
@@ -174,11 +179,11 @@ rs = rrs.parse(file_bytes, include_activity=False)
 dt = rrs.open_datatree(source, include_activity=False)
 ```
 
-Fractions are normalized by the rays actually present in the raystack. If processing a partial volume (e.g., time-sliced), sweep/volume fractions reflect only the observed data, not full-sweep geometry.
+Fractions are normalized by return chunks actually present in the raystack. If processing a partial volume (e.g., time-sliced), sweep/volume fractions reflect only the observed data, not full-sweep geometry.
 
 ### QC masks
 
-Raystack parsing can emit QC outputs under a dedicated `qc` node/dict:
+Raystack parsing can emit QC outputs in `returns` with a `qc.` prefix:
 
 ## Compatibility notes (xradar / Py-ART)
 
@@ -192,11 +197,11 @@ import radrs.raystack as rrs
 import radrs.qc as qc
 
 rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(), qc.SunSpike()])
-mask = rs["qc"]["rhohv_threshold_mask"]  # int8, same shape as DBZH/RHOHV
+mask = rs["returns"]["qc.rhohv_threshold_mask"]  # int8, flat (n_returns * fold_size)
 
 # Winding number from VRADH dealiasing
 rs = rrs.parse(file_bytes, qc=[qc.VradhWindingNumber()])
-winding = rs["qc"]["vradh_winding_number"]  # float32, same shape as VRADH
+winding = rs["returns"]["qc.vradh_winding_number"]  # float32, flat (n_returns * fold_size)
 ```
 
 ## Development
