@@ -72,35 +72,31 @@ def test_parse_with_rhohv_qc_mask(test_file_bytes):
 
     rs = rrs.parse(test_file_bytes, qc=[qc.RhohvThreshold()])
     returns = rs["returns"]
-    qc_out = rs["qc"]
 
-    assert "rhohv_threshold_mask" in qc_out
-    mask = qc_out["rhohv_threshold_mask"]
+    assert "qc.rhohv_threshold_mask" in returns
+    mask = np.asarray(returns["qc.rhohv_threshold_mask"])
     assert mask.dtype == np.int8
 
-    base = returns.get("RHOHV")
-    if base is None:
-        base = returns.get("DBZH")
-    assert mask.shape == base.shape
+    rhohv = np.asarray(returns["RHOHV"]) if "RHOHV" in returns else np.asarray(returns["DBZH"])
+    assert mask.shape == rhohv.shape
     assert set(np.unique(mask)).issubset({-1, 0, 1})
 
     if "RHOHV" in returns:
-        rhohv = returns["RHOHV"]
+        rhohv = np.asarray(returns["RHOHV"])
         assert np.all(mask[np.isnan(rhohv)] == -1)
 
 
 def test_open_datatree_with_sun_spike_mask(test_file_path):
 
     dt = rrs.open_datatree(test_file_path, qc=[qc.SunSpike()])
-    returns = dt["/returns"].dataset
-    qc_ds = dt["/qc"].dataset
+    returns_ds = dt["returns"].dataset
 
-    assert "sun_spike_mask" in qc_ds
-    mask = qc_ds["sun_spike_mask"].values
-    assert mask.dtype == np.int8
+    assert "qc.sun_spike_mask" in returns_ds
+    mask = returns_ds["qc.sun_spike_mask"].values.astype(np.int8)
 
-    dbzh = returns["DBZH"].values
+    dbzh = returns_ds["DBZH"].values
     assert mask.shape == dbzh.shape
+    assert set(np.unique(mask)).issubset({-1, 0, 1})
     assert np.all(mask[np.isnan(dbzh)] == -1)
 
 
