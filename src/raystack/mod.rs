@@ -5,14 +5,12 @@
 
 mod batch;
 mod convert;
-mod fold;
 mod parse;
 
-pub use batch::BatchedRaystackPy;
+pub use batch::{BatchedRaystackPy, parse_single_volume};
 pub use convert::{from_xradar_datatree_py, to_xradar_datatree_py};
-pub use fold::{fold_ranges, fold_ranges_into};
-pub use parse::{QcOp, RaystackData, SweepInfo, parse_optimized, parse_py};
-pub(crate) use parse::{parse_qc_ops, raystack_to_python};
+pub(crate) use parse::parse_qc_ops;
+pub use parse::{QcOp, parse_py};
 
 use pyo3::prelude::*;
 

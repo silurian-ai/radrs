@@ -67,10 +67,12 @@ impl VolumeIterator {
             // Use if/else to make ownership clear - data is moved into exactly one branch
             if matches!(self.output, OutputKind::Raystack) {
                 let fold_size = self.fold_size;
-                let parse_result = py.detach(|| raystack::parse_optimized(&data, fold_size));
+                let parse_result = py.detach(|| raystack::parse_single_volume(&data, fold_size));
                 match parse_result {
-                    Ok(raystack) => {
-                        return raystack::raystack_to_python(py, raystack, &self.qc_ops, true);
+                    Ok(mut batch) => {
+                        batch.add_qc_outputs(&self.qc_ops);
+                        let out = batch.to_python_dict(py)?;
+                        return Ok(out.into());
                     }
                     Err(e) => {
                         tracing::warn!("Failed to parse volume (raystack), skipping: {}", e);
@@ -181,15 +183,17 @@ impl VolumeIteratorAsync {
                 // Use else to make ownership clear to the compiler - data is moved into exactly one branch
                 if matches!(output, OutputKind::Raystack) {
                     let parse_result = tokio::task::spawn_blocking(move || {
-                        raystack::parse_optimized(&data, fold_size)
+                        raystack::parse_single_volume(&data, fold_size)
                     })
                     .await
                     .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))?;
 
                     match parse_result {
-                        Ok(raystack) => {
+                        Ok(mut batch) => {
                             return Python::attach(|py| {
-                                raystack::raystack_to_python(py, raystack, &qc_ops, true)
+                                batch.add_qc_outputs(&qc_ops);
+                                let out = batch.to_python_dict(py)?;
+                                Ok::<Py<PyAny>, PyErr>(out.into())
                             })
                             .map_err(Into::into);
                         }
