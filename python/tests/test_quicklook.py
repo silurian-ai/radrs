@@ -190,3 +190,23 @@ def test_prepare_payload_supports_legacy_sweeps_schema() -> None:
     assert infos[0].num_returns == 2
     assert infos[0].elevation_deg == pytest.approx(0.5)
     assert payload.point_count == 6
+
+
+def test_prepare_volume_payload_cartesian_geometry() -> None:
+    returns, _ = _fixtures()
+
+    payload = ql.prepare_volume_payload(
+        returns=returns,
+        moment="DBZH",
+        max_points=None,
+    )
+
+    assert payload.point_count == 10
+    # First finite gate belongs to return 0, gate 0, az=0deg, el=0.5deg, range=100m
+    assert payload.return_index[0] == 0
+    assert payload.gate_index[0] == 0
+    np.testing.assert_allclose(payload.x_m[0], 0.0, atol=1e-5)
+    np.testing.assert_allclose(payload.y_m[0], 99.99619, rtol=1e-5)
+    np.testing.assert_allclose(payload.z_m[0], 0.87265, rtol=1e-5)
+    assert payload.vmax > payload.vmin
+    assert payload.max_abs_m > 0.0
