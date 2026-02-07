@@ -166,9 +166,9 @@ def _(mo, ql, returns, sweeps):
 
     sample_cap = mo.ui.slider(
         start=25_000,
-        stop=400_000,
+        stop=250_000,
         step=25_000,
-        value=150_000,
+        value=100_000,
         label="Sample cap (finite gates)",
         show_value=True,
     )
@@ -244,7 +244,12 @@ def _(
 ):
     mode = str(mode_selector.value)
     moment = str(moment_selector.value)
-    max_points = int(sample_cap.value)
+    requested_points = int(sample_cap.value)
+    # Keep widget output under marimo's default byte limit.
+    if mode == "Volume 3D":
+        max_points = min(requested_points, 120_000)
+    else:
+        max_points = min(requested_points, 180_000)
 
     try:
         if mode == "Sweep polar":
@@ -285,11 +290,11 @@ def _(
 
     widget_ui = mo.ui.anywidget(widget)
     widget_ui
-    return mode, payload, widget_ui
+    return max_points, mode, payload, requested_points, widget_ui
 
 
 @app.cell
-def _(mo, mode, payload, widget_ui):
+def _(max_points, mo, mode, payload, requested_points, widget_ui):
     hover = widget_ui.hover if isinstance(widget_ui.hover, dict) else {}
 
     if mode == "Sweep polar":
@@ -302,6 +307,11 @@ def _(mo, mode, payload, widget_ui):
             f"`mode={mode}`  `points={payload.point_count:,}`  "
             f"`moment={payload.moment}`  `max_abs={payload.max_abs_m / 1000.0:.2f} km`"
         )
+    cap_note = (
+        f"`requested_cap={requested_points:,}`  `effective_cap={max_points:,}`"
+        if requested_points != max_points
+        else f"`cap={max_points:,}`"
+    )
 
     if hover:
         hover_block = (
@@ -318,6 +328,8 @@ def _(mo, mode, payload, widget_ui):
     mo.md(
         f"""
     {header}
+    
+    {cap_note}
 
     {hover_block}
     """
