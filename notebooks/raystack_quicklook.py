@@ -1,6 +1,6 @@
 import marimo
 
-__generated_with = "0.19.4"
+__generated_with = "0.19.6"
 app = marimo.App(width="full")
 
 
@@ -10,22 +10,19 @@ def _():
 
     import radrs.quicklook as ql
     import radrs.raystack as rrs
-
     return mo, ql, rrs
 
 
 @app.cell
 def _(mo):
-    mo.md(
-        """
-        # Raystack Quicklook
+    mo.md("""
+    # Raystack Quicklook
 
-        Daily-driver polar quicklook for raystack data:
-        - sweep selector
-        - moment selector
-        - gate hover (value, azimuth, range, return index, time)
-        """
-    )
+    Daily-driver polar quicklook for raystack data:
+    - sweep selector
+    - moment selector
+    - gate hover (value, azimuth, range, return index, time)
+    """)
     return
 
 
@@ -120,7 +117,16 @@ def _(mo, ql, returns, sweeps):
 
 
 @app.cell
-def _(canvas_size, max_points, mo, moment_selector, ql, returns, sweep_selector, sweeps):
+def _(
+    canvas_size,
+    max_points,
+    mo,
+    moment_selector,
+    ql,
+    returns,
+    sweep_selector,
+    sweeps,
+):
     payload = ql.prepare_polar_payload(
         returns=returns,
         sweeps=sweeps,
