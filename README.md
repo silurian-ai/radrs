@@ -49,6 +49,17 @@ print(rs["returns"]["DBZH"].shape)  # (n_returns * 128,) flat
 print(rs["returns"]["DBZH"].reshape(-1, 128).shape)  # (n_returns, 128)
 ```
 
+## Quicklook app
+
+Run the interactive sweep/moment polar quicklook in marimo:
+
+```bash
+uv sync --group dev
+uv run marimo run notebooks/raystack_quicklook.py
+```
+
+The app includes sweep selection, moment selection, and gate hover metadata on the polar view.
+
 ## API Reference
 
 ### radrs (top-level)
