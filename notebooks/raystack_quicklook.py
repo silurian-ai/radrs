@@ -21,12 +21,11 @@ def _(mo):
     mo.md("""
     # Raystack Quicklook
 
-    Ray-centric viewer with three modes:
+    Ray-centric viewer with full-volume modes:
     - **Ray 3D**: one endpoint per return ray (sweep-independent)
     - **Gate cloud 3D**: all finite gates in a rotating 3D projection
-    - **Sweep polar**: single sweep polar view for focused inspection
 
-    Volume controls: drag rotate, wheel zoom, double-click reset.
+    Controls: drag rotate, wheel zoom, double-click reset.
 
     **Sample cap** means deterministic downsampling of rendered items.
     """)
@@ -152,9 +151,9 @@ def _(mo, returns, sweeps, volume_selector):
 
 
 @app.cell
-def _(mo, ql, returns, sweeps):
+def _(mo, ql, returns):
     mode_selector = mo.ui.dropdown(
-        options=["Ray 3D", "Gate cloud 3D", "Sweep polar"],
+        options=["Ray 3D", "Gate cloud 3D"],
         value="Ray 3D",
         label="Mode",
     )
@@ -184,25 +183,14 @@ def _(mo, ql, returns, sweeps):
         show_value=True,
     )
 
-    sweep_info = ql.sweep_infos(sweeps)
-    mo.stop(len(sweep_info) == 0, mo.md("*No sweeps available in this file.*"))
-    sweep_selector = mo.ui.dropdown(
-        options={info.label: info.index for info in sweep_info},
-        value=sweep_info[0].label,
-        label="Sweep (sweep mode)",
-        searchable=True,
-        full_width=True,
-    )
-
     mo.vstack(
         [
             mo.hstack([mode_selector, moment_selector], widths=[2, 2]),
             mo.hstack([sample_cap, canvas_size], widths=[4, 3]),
-            sweep_selector,
         ],
         align="stretch",
     )
-    return canvas_size, mode_selector, moment_selector, sample_cap, sweep_selector
+    return canvas_size, mode_selector, moment_selector, sample_cap
 
 
 @app.cell
@@ -214,35 +202,15 @@ def _(
     ql,
     returns,
     sample_cap,
-    sweep_selector,
-    sweeps,
 ):
     mode = str(mode_selector.value)
     moment = str(moment_selector.value)
     requested_points = int(sample_cap.value)
     # Keep widget output under marimo's default byte limit.
-    if mode == "Gate cloud 3D":
-        max_points = min(requested_points, 180_000)
-    elif mode == "Ray 3D":
-        max_points = min(requested_points, 180_000)
-    else:
-        max_points = min(requested_points, 180_000)
+    max_points = min(requested_points, 180_000)
 
     try:
-        if mode == "Sweep polar":
-            payload = ql.prepare_polar_payload(
-                returns=returns,
-                sweeps=sweeps,
-                sweep_index=int(sweep_selector.value),
-                moment=moment,
-                max_points=max_points,
-            )
-            widget = ql.QuicklookPolarWidget(
-                width=int(canvas_size.value),
-                height=int(canvas_size.value),
-            )
-            widget.set_payload(payload)
-        elif mode == "Ray 3D":
+        if mode == "Ray 3D":
             payload = ql.prepare_ray_payload(
                 returns=returns,
                 moment=moment,
@@ -282,19 +250,12 @@ def _(
 @app.cell
 def _(max_points, mo, mode, payload, requested_points, widget_ui):
     hover = widget_ui.hover if isinstance(widget_ui.hover, dict) else {}
-
-    if mode == "Sweep polar":
-        header = (
-            f"`mode={mode}`  `points={payload.point_count:,}`  "
-            f"`moment={payload.moment}`  `max_range={payload.max_range_m / 1000.0:.2f} km`"
-        )
-    else:
-        render_mode = getattr(payload, "render_mode", "points")
-        item_label = "rays" if render_mode == "rays" else "gates"
-        header = (
-            f"`mode={mode}`  `{item_label}={payload.point_count:,}`  "
-            f"`moment={payload.moment}`  `max_abs={payload.max_abs_m / 1000.0:.2f} km`"
-        )
+    render_mode = getattr(payload, "render_mode", "points")
+    item_label = "rays" if render_mode == "rays" else "gates"
+    header = (
+        f"`mode={mode}`  `{item_label}={payload.point_count:,}`  "
+        f"`moment={payload.moment}`  `max_abs={payload.max_abs_m / 1000.0:.2f} km`"
+    )
     cap_note = (
         f"`requested_cap={requested_points:,}`  `effective_cap={max_points:,}`"
         if requested_points != max_points
