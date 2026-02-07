@@ -161,12 +161,11 @@ def test_vradh_winding_number_matches_pyart_all_sweeps(available_test_files):
 def test_raystack_parse_adds_vradh_winding_number(test_file_bytes):
     rs = rrs.parse(test_file_bytes, qc=[qc.VradhWindingNumber()])
     returns = rs["returns"]
-    qc_out = rs["qc"]
     if "VRADH" not in returns:
         pytest.skip("VRADH not present in test volume")
 
-    assert "vradh_winding_number" in qc_out
-    assert qc_out["vradh_winding_number"].shape == returns["VRADH"].shape
+    assert "qc.vradh_winding_number" in returns
+    assert np.asarray(returns["qc.vradh_winding_number"]).shape == np.asarray(returns["VRADH"]).shape
 
 
 def test_vradh_winding_number_synthetic_masks():
