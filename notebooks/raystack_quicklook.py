@@ -79,7 +79,7 @@ def _(mo, ql, returns, sweeps):
 
     sweep_selector = mo.ui.dropdown(
         options={info.label: info.index for info in sweep_info},
-        value=sweep_info[0].index,
+        value=sweep_info[0].label,
         label="Sweep",
         full_width=True,
         searchable=True,

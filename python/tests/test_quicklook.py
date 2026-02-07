@@ -74,6 +74,22 @@ def _fixtures() -> tuple[xr.Dataset, xr.Dataset]:
     return returns, sweeps
 
 
+def _legacy_sweeps_fixture() -> xr.Dataset:
+    sweep_times = np.array(
+        ["2024-01-01T00:00:00", "2024-01-01T00:00:02"],
+        dtype="datetime64[ms]",
+    ).astype("datetime64[ns]")
+    return xr.Dataset(
+        data_vars={
+            "sweep_number": (("sweep_time",), np.array([0, 1], dtype=np.uint32)),
+            "sweep_fixed_angle": (("sweep_time",), np.array([0.5, 1.5], dtype=np.float32)),
+            "n_radials": (("sweep_time",), np.array([2, 1], dtype=np.uint32)),
+            "start_index": (("sweep_time",), np.array([0, 2], dtype=np.uint32)),
+        },
+        coords={"sweep_time": sweep_times},
+    )
+
+
 def test_available_moments_includes_core_and_qc() -> None:
     returns, _ = _fixtures()
 
@@ -155,3 +171,22 @@ def test_prepare_polar_payload_rejects_unknown_moment() -> None:
             sweep_index=0,
             moment="NOT_A_MOMENT",
         )
+
+
+def test_prepare_payload_supports_legacy_sweeps_schema() -> None:
+    returns, _ = _fixtures()
+    sweeps = _legacy_sweeps_fixture()
+
+    offsets = ql.sweep_offsets(sweeps)
+    infos = ql.sweep_infos(sweeps)
+    payload = ql.prepare_polar_payload(
+        returns=returns,
+        sweeps=sweeps,
+        sweep_index=0,
+        moment="DBZH",
+    )
+
+    np.testing.assert_array_equal(offsets, np.array([0, 2, 3], dtype=np.int64))
+    assert infos[0].num_returns == 2
+    assert infos[0].elevation_deg == pytest.approx(0.5)
+    assert payload.point_count == 6

@@ -111,12 +111,18 @@ def available_moments(returns: xr.Dataset, include_qc: bool = True) -> list[str]
     return moments
 
 
+def _sweep_counts(sweeps: xr.Dataset) -> np.ndarray:
+    if "num_returns" in sweeps:
+        return np.asarray(sweeps["num_returns"].values, dtype=np.int64)
+    if "n_radials" in sweeps:
+        return np.asarray(sweeps["n_radials"].values, dtype=np.int64)
+    raise KeyError("sweeps dataset missing 'num_returns' and 'n_radials'")
+
+
 def sweep_offsets(sweeps: xr.Dataset) -> np.ndarray:
     """Return cumulative return offsets per sweep, shape (n_sweeps + 1,)."""
 
-    if "num_returns" not in sweeps:
-        raise KeyError("sweeps dataset missing 'num_returns'")
-    counts = np.asarray(sweeps["num_returns"].values, dtype=np.int64)
+    counts = _sweep_counts(sweeps)
     offsets = np.zeros(counts.size + 1, dtype=np.int64)
     offsets[1:] = np.cumsum(counts, dtype=np.int64)
     return offsets
@@ -128,8 +134,16 @@ def sweep_infos(sweeps: xr.Dataset) -> list[SweepInfo]:
     offsets = sweep_offsets(sweeps)
     counts = np.diff(offsets)
 
-    numbers = np.asarray(sweeps["sweep_number"].values, dtype=np.int64)
-    elevations = np.asarray(sweeps["elevation_angle"].values, dtype=np.float32)
+    if "sweep_number" in sweeps:
+        numbers = np.asarray(sweeps["sweep_number"].values, dtype=np.int64)
+    else:
+        numbers = np.arange(counts.size, dtype=np.int64)
+    if "elevation_angle" in sweeps:
+        elevations = np.asarray(sweeps["elevation_angle"].values, dtype=np.float32)
+    elif "sweep_fixed_angle" in sweeps:
+        elevations = np.asarray(sweeps["sweep_fixed_angle"].values, dtype=np.float32)
+    else:
+        elevations = np.full(counts.size, np.nan, dtype=np.float32)
 
     infos: list[SweepInfo] = []
     for idx, (number, elev, count) in enumerate(zip(numbers, elevations, counts)):
@@ -194,9 +208,18 @@ def prepare_polar_payload(
     flat_values = moment_matrix.reshape(-1)
     finite = np.isfinite(flat_values)
 
-    sweep_number = int(np.asarray(sweeps["sweep_number"].values, dtype=np.int64)[sweep_index])
-    sweep_time = np.asarray(sweeps["sweep_time"].values, dtype="datetime64[ms]")
-    sweep_time_ms = int(np.asarray(sweep_time, dtype=np.int64)[sweep_index])
+    if "sweep_number" in sweeps:
+        sweep_number = int(np.asarray(sweeps["sweep_number"].values, dtype=np.int64)[sweep_index])
+    else:
+        sweep_number = int(sweep_index)
+    if "sweep_time" in sweeps.coords:
+        sweep_time = np.asarray(sweeps["sweep_time"].values, dtype="datetime64[ms]")
+        sweep_time_ms = int(np.asarray(sweep_time, dtype=np.int64)[sweep_index])
+    else:
+        return_time_full = np.asarray(returns["return_time"].values, dtype="datetime64[ms]")
+        sweep_time_ms = (
+            int(np.asarray(return_time_full, dtype=np.int64)[start]) if start < return_time_full.size else 0
+        )
 
     if n_returns == 0 or n_range == 0 or not np.any(finite):
         return PolarPayload(
