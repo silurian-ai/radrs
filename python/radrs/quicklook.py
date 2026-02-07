@@ -727,8 +727,7 @@ export default {
 """
 
 _VOLUME_WIDGET_ESM: Final[str] = r"""
-import { COORDINATE_SYSTEM, Deck, OrbitView } from "https://esm.sh/@deck.gl/core@9.2.2?bundle";
-import { PointCloudLayer } from "https://esm.sh/@deck.gl/layers@9.2.2?bundle";
+import { COORDINATE_SYSTEM, Deck, OrbitView, PointCloudLayer } from "https://esm.sh/deck.gl@9.2.2?bundle";
 
 function toArrayBuffer(raw) {
   if (!raw) return new ArrayBuffer(0);
