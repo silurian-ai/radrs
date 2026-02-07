@@ -21,13 +21,14 @@ def _(mo):
     mo.md("""
     # Raystack Quicklook
 
-    Ray-centric viewer with two modes:
-    - **Volume 3D**: all finite ray gates in a rotating 3D projection
+    Ray-centric viewer with three modes:
+    - **Ray 3D**: one endpoint per return ray (sweep-independent)
+    - **Gate cloud 3D**: all finite gates in a rotating 3D projection
     - **Sweep polar**: single sweep polar view for focused inspection
 
     Volume controls: drag rotate, wheel zoom, double-click reset.
 
-    **Sample cap** means deterministic downsampling to keep rendering interactive.
+    **Sample cap** means deterministic downsampling of rendered items.
     """)
     return
 
@@ -153,8 +154,8 @@ def _(mo, returns, sweeps, volume_selector):
 @app.cell
 def _(mo, ql, returns, sweeps):
     mode_selector = mo.ui.dropdown(
-        options=["Volume 3D", "Sweep polar"],
-        value="Volume 3D",
+        options=["Ray 3D", "Gate cloud 3D", "Sweep polar"],
+        value="Ray 3D",
         label="Mode",
     )
 
@@ -171,7 +172,7 @@ def _(mo, ql, returns, sweeps):
         stop=300_000,
         step=25_000,
         value=125_000,
-        label="Sample cap (finite gates)",
+        label="Sample cap (items)",
         show_value=True,
     )
     canvas_size = mo.ui.slider(
@@ -220,7 +221,9 @@ def _(
     moment = str(moment_selector.value)
     requested_points = int(sample_cap.value)
     # Keep widget output under marimo's default byte limit.
-    if mode == "Volume 3D":
+    if mode == "Gate cloud 3D":
+        max_points = min(requested_points, 180_000)
+    elif mode == "Ray 3D":
         max_points = min(requested_points, 180_000)
     else:
         max_points = min(requested_points, 180_000)
@@ -235,6 +238,17 @@ def _(
                 max_points=max_points,
             )
             widget = ql.QuicklookPolarWidget(
+                width=int(canvas_size.value),
+                height=int(canvas_size.value),
+            )
+            widget.set_payload(payload)
+        elif mode == "Ray 3D":
+            payload = ql.prepare_ray_payload(
+                returns=returns,
+                moment=moment,
+                max_points=max_points,
+            )
+            widget = ql.QuicklookVolumeWidget(
                 width=int(canvas_size.value),
                 height=int(canvas_size.value),
             )
@@ -275,8 +289,10 @@ def _(max_points, mo, mode, payload, requested_points, widget_ui):
             f"`moment={payload.moment}`  `max_range={payload.max_range_m / 1000.0:.2f} km`"
         )
     else:
+        render_mode = getattr(payload, "render_mode", "points")
+        item_label = "rays" if render_mode == "rays" else "gates"
         header = (
-            f"`mode={mode}`  `points={payload.point_count:,}`  "
+            f"`mode={mode}`  `{item_label}={payload.point_count:,}`  "
             f"`moment={payload.moment}`  `max_abs={payload.max_abs_m / 1000.0:.2f} km`"
         )
     cap_note = (

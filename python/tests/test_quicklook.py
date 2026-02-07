@@ -210,6 +210,7 @@ def test_prepare_volume_payload_cartesian_geometry() -> None:
     np.testing.assert_allclose(payload.z_m[0], 0.87265, rtol=1e-5)
     assert payload.vmax > payload.vmin
     assert payload.max_abs_m > 0.0
+    assert payload.render_mode == "points"
 
     state = payload.to_widget_state()
     assert "x_bytes" in state
@@ -220,3 +221,26 @@ def test_prepare_volume_payload_cartesian_geometry() -> None:
     assert "azimuth_bytes" not in state
     assert "elevation_bytes" not in state
     assert "return_time_ms_bytes" not in state
+    assert state["meta"]["render_mode"] == "points"
+
+
+def test_prepare_ray_payload_uses_returns_only() -> None:
+    returns, _ = _fixtures()
+
+    payload = ql.prepare_ray_payload(
+        returns=returns,
+        moment="DBZH",
+        max_points=None,
+    )
+
+    assert payload.render_mode == "rays"
+    assert payload.point_count == 3
+    np.testing.assert_array_equal(payload.return_index, np.array([0, 1, 2], dtype=np.uint32))
+    np.testing.assert_array_equal(payload.gate_index, np.array([3, 3, 3], dtype=np.uint16))
+    np.testing.assert_allclose(payload.values, np.array([4.0, 8.0, 12.0], dtype=np.float32))
+    np.testing.assert_allclose(payload.x_m[0], 0.0, atol=1e-5)
+    np.testing.assert_allclose(payload.y_m[0], 249.99048, rtol=1e-5)
+    np.testing.assert_allclose(payload.z_m[0], 2.18163, rtol=1e-5)
+
+    state = payload.to_widget_state()
+    assert state["meta"]["render_mode"] == "rays"

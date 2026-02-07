@@ -101,6 +101,7 @@ class VolumePayload:
     gate_index: np.ndarray
     return_index: np.ndarray
     moment: str
+    render_mode: str
     max_abs_m: float
     vmin: float
     vmax: float
@@ -124,6 +125,7 @@ class VolumePayload:
             "meta": {
                 "point_count": self.point_count,
                 "moment": self.moment,
+                "render_mode": self.render_mode,
                 "max_abs_m": float(self.max_abs_m),
                 "vmin": float(self.vmin),
                 "vmax": float(self.vmax),
@@ -218,6 +220,22 @@ def _value_bounds(values: np.ndarray) -> tuple[float, float]:
             return 0.0, 1.0
         return vmin, vmax
     return p05, p95
+
+
+def _polar_to_cartesian(
+    azimuth_deg: np.ndarray,
+    elevation_deg: np.ndarray,
+    range_m: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    azimuth_rad = np.deg2rad(azimuth_deg.astype(np.float64))
+    elevation_rad = np.deg2rad(elevation_deg.astype(np.float64))
+    horizontal = range_m.astype(np.float64) * np.cos(elevation_rad)
+
+    # x=east, y=north, z=up
+    x = horizontal * np.sin(azimuth_rad)
+    y = horizontal * np.cos(azimuth_rad)
+    z = range_m.astype(np.float64) * np.sin(elevation_rad)
+    return x, y, z
 
 
 def prepare_polar_payload(
@@ -360,6 +378,7 @@ def prepare_volume_payload(
             gate_index=np.empty(0, dtype=np.uint16),
             return_index=np.empty(0, dtype=np.uint32),
             moment=moment,
+            render_mode="points",
             max_abs_m=0.0,
             vmin=0.0,
             vmax=1.0,
@@ -384,14 +403,7 @@ def prepare_volume_payload(
     values_sel = flat_values[finite]
     range_sel = base_range_full[finite] + gate_index_sel.astype(np.float32) * range_step_full[finite]
 
-    azimuth_rad = np.deg2rad(azimuth_sel.astype(np.float64))
-    elevation_rad = np.deg2rad(elevation_sel.astype(np.float64))
-    horizontal = range_sel.astype(np.float64) * np.cos(elevation_rad)
-
-    # x=east, y=north, z=up
-    x_sel = horizontal * np.sin(azimuth_rad)
-    y_sel = horizontal * np.cos(azimuth_rad)
-    z_sel = range_sel.astype(np.float64) * np.sin(elevation_rad)
+    x_sel, y_sel, z_sel = _polar_to_cartesian(azimuth_sel, elevation_sel, range_sel)
 
     n_points = int(values_sel.size)
     if max_points is not None and max_points > 0 and n_points > max_points:
@@ -423,6 +435,106 @@ def prepare_volume_payload(
         gate_index=np.ascontiguousarray(gate_index_sel, dtype=np.uint16),
         return_index=np.ascontiguousarray(return_index_sel, dtype=np.uint32),
         moment=moment,
+        render_mode="points",
+        max_abs_m=max_abs_m,
+        vmin=vmin,
+        vmax=vmax,
+    )
+
+
+def prepare_ray_payload(
+    returns: xr.Dataset,
+    moment: str,
+    max_points: int | None = None,
+) -> VolumePayload:
+    """Create a ray-centric payload with one endpoint per return ray."""
+
+    if moment not in returns.data_vars:
+        raise KeyError(f"moment '{moment}' not found in returns dataset")
+
+    moment_matrix = np.asarray(returns[moment].values, dtype=np.float32)
+    if moment_matrix.ndim != 2:
+        raise ValueError(f"moment '{moment}' must be 2D on (return_time, range)")
+
+    n_returns, n_range = moment_matrix.shape
+    if n_returns == 0 or n_range == 0:
+        return VolumePayload(
+            x_m=np.empty(0, dtype=np.float32),
+            y_m=np.empty(0, dtype=np.float32),
+            z_m=np.empty(0, dtype=np.float32),
+            values=np.empty(0, dtype=np.float32),
+            gate_index=np.empty(0, dtype=np.uint16),
+            return_index=np.empty(0, dtype=np.uint32),
+            moment=moment,
+            render_mode="rays",
+            max_abs_m=0.0,
+            vmin=0.0,
+            vmax=1.0,
+        )
+
+    finite = np.isfinite(moment_matrix)
+    has_finite = np.any(finite, axis=1)
+    if not np.any(has_finite):
+        return VolumePayload(
+            x_m=np.empty(0, dtype=np.float32),
+            y_m=np.empty(0, dtype=np.float32),
+            z_m=np.empty(0, dtype=np.float32),
+            values=np.empty(0, dtype=np.float32),
+            gate_index=np.empty(0, dtype=np.uint16),
+            return_index=np.empty(0, dtype=np.uint32),
+            moment=moment,
+            render_mode="rays",
+            max_abs_m=0.0,
+            vmin=0.0,
+            vmax=1.0,
+        )
+
+    return_rows = np.nonzero(has_finite)[0]
+    finite_rows = finite[has_finite]
+    # finite_rows is guaranteed to have at least one True per row.
+    last_gate = (n_range - 1 - np.argmax(finite_rows[:, ::-1], axis=1)).astype(np.uint16)
+
+    azimuth = np.asarray(returns["azimuth"].values, dtype=np.float32)[has_finite]
+    elevation = np.asarray(returns["elevation"].values, dtype=np.float32)[has_finite]
+    base_range = np.asarray(returns["base_range"].values, dtype=np.float32)[has_finite]
+    range_step = np.asarray(returns["range_step"].values, dtype=np.float32)[has_finite]
+
+    endpoint_range = base_range + last_gate.astype(np.float32) * range_step
+    endpoint_values = moment_matrix[return_rows, last_gate.astype(np.int64)]
+
+    x_sel, y_sel, z_sel = _polar_to_cartesian(azimuth, elevation, endpoint_range)
+    gate_index_sel = last_gate
+    return_index_sel = return_rows.astype(np.uint32)
+    values_sel = endpoint_values.astype(np.float32, copy=False)
+
+    n_points = int(values_sel.size)
+    if max_points is not None and max_points > 0 and n_points > max_points:
+        keep = _sample_indices(n_points, max_points)
+        x_sel = x_sel[keep]
+        y_sel = y_sel[keep]
+        z_sel = z_sel[keep]
+        values_sel = values_sel[keep]
+        gate_index_sel = gate_index_sel[keep]
+        return_index_sel = return_index_sel[keep]
+
+    vmin, vmax = _value_bounds(values_sel)
+    max_abs_m = float(
+        max(
+            np.nanmax(np.abs(x_sel)) if x_sel.size else 0.0,
+            np.nanmax(np.abs(y_sel)) if y_sel.size else 0.0,
+            np.nanmax(np.abs(z_sel)) if z_sel.size else 0.0,
+        )
+    )
+
+    return VolumePayload(
+        x_m=np.ascontiguousarray(x_sel, dtype=np.float32),
+        y_m=np.ascontiguousarray(y_sel, dtype=np.float32),
+        z_m=np.ascontiguousarray(z_sel, dtype=np.float32),
+        values=np.ascontiguousarray(values_sel, dtype=np.float32),
+        gate_index=np.ascontiguousarray(gate_index_sel, dtype=np.uint16),
+        return_index=np.ascontiguousarray(return_index_sel, dtype=np.uint32),
+        moment=moment,
+        render_mode="rays",
         max_abs_m=max_abs_m,
         vmin=vmin,
         vmax=vmax,
@@ -727,7 +839,7 @@ export default {
 """
 
 _VOLUME_WIDGET_ESM: Final[str] = r"""
-import { COORDINATE_SYSTEM, Deck, OrbitView, PointCloudLayer } from "https://esm.sh/deck.gl@9.2.2?bundle";
+import { COORDINATE_SYSTEM, Deck, LineLayer, OrbitView, PointCloudLayer } from "https://esm.sh/deck.gl@9.2.2?bundle";
 
 function toArrayBuffer(raw) {
   if (!raw) return new ArrayBuffer(0);
@@ -825,6 +937,12 @@ function pointSizeForCount(n) {
   if (n > 160000) return 1.1;
   if (n > 100000) return 1.3;
   return 1.6;
+}
+
+function lineWidthForCount(n) {
+  if (n > 40000) return 0.8;
+  if (n > 20000) return 1.0;
+  return 1.2;
 }
 
 export default {
@@ -944,6 +1062,26 @@ export default {
     }
 
     function buildLayer() {
+      const meta = readMeta();
+      const renderMode = String(meta.render_mode || "points");
+      if (renderMode === "rays") {
+        return new LineLayer({
+          id: "radrs-volume-rays",
+          data: {
+            length: n,
+            attributes: {
+              getTargetPosition: { value: positions, size: 3 },
+              getColor: { value: colors, size: 3 },
+            },
+          },
+          getSourcePosition: [0, 0, 0],
+          coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+          pickable: true,
+          widthUnits: "pixels",
+          getWidth: lineWidthForCount(n),
+          opacity: 0.95,
+        });
+      }
       return new PointCloudLayer({
         id: "radrs-volume-points",
         data: {
@@ -966,8 +1104,10 @@ export default {
         overlay.textContent = "Volume 3D (deck.gl) | no finite points";
         return;
       }
+      const renderMode = String(meta.render_mode || "points");
+      const itemLabel = renderMode === "rays" ? "rays" : "gates";
       overlay.textContent = (
-        `Volume 3D (deck.gl) | points=${n.toLocaleString()} ` +
+        `Volume 3D (deck.gl) | ${itemLabel}=${n.toLocaleString()} ` +
         `moment=${String(meta.moment || "")} ` +
         `range=${(Number(meta.max_abs_m) / 1000.0).toFixed(2)}km`
       );
@@ -1287,7 +1427,7 @@ if _anywidget is not None and _traitlets is not None:
             self.value_bytes = b""
             self.gate_index_bytes = b""
             self.return_index_bytes = b""
-            self.meta = {"point_count": 0, "moment": ""}
+            self.meta = {"point_count": 0, "moment": "", "render_mode": "points"}
             self.hover = {}
 
 else:
@@ -1316,6 +1456,7 @@ __all__ = [
     "sweep_infos",
     "prepare_polar_payload",
     "prepare_volume_payload",
+    "prepare_ray_payload",
     "QuicklookPolarWidget",
     "QuicklookVolumeWidget",
 ]
