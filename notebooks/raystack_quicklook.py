@@ -25,6 +25,8 @@ def _(mo):
     - **Volume 3D**: all finite ray gates in a rotating 3D projection
     - **Sweep polar**: single sweep polar view for focused inspection
 
+    Volume controls: drag rotate, wheel zoom, double-click reset.
+
     **Sample cap** means deterministic downsampling to keep rendering interactive.
     """)
     return
@@ -64,11 +66,11 @@ def _(dt, mo):
         ],
         align="stretch",
     )
-    return base_uri, end_time, start_time, station_input
+    return base_uri, end_time, max_volumes, start_time, station_input
 
 
 @app.cell
-def _(base_uri, dt, end_time, mo, radrs, start_time, station_input):
+def _(base_uri, dt, end_time, max_volumes, mo, radrs, start_time, station_input):
     station = station_input.value.strip().upper()
     mo.stop(len(station) != 4, mo.md("*Station must be a 4-letter ICAO code (e.g., KABR).*"))
     mo.stop(start_time.value is None or end_time.value is None, mo.md("*Start/end time required.*"))
@@ -86,7 +88,7 @@ def _(base_uri, dt, end_time, mo, radrs, start_time, station_input):
             site_filter=[station],
         )
 
-    infos = sorted(infos, key=lambda item: item.vcp_time)
+    infos = sorted(infos, key=lambda item: item.vcp_time)[: int(max_volumes.value)]
     return end_utc, infos, start_utc, station
 
 
@@ -166,9 +168,9 @@ def _(mo, ql, returns, sweeps):
 
     sample_cap = mo.ui.slider(
         start=25_000,
-        stop=250_000,
+        stop=300_000,
         step=25_000,
-        value=100_000,
+        value=125_000,
         label="Sample cap (finite gates)",
         show_value=True,
     )
@@ -178,23 +180,6 @@ def _(mo, ql, returns, sweeps):
         step=20,
         value=820,
         label="Canvas size",
-        show_value=True,
-    )
-
-    yaw_deg = mo.ui.slider(
-        start=0,
-        stop=360,
-        step=5,
-        value=35,
-        label="Yaw (volume mode)",
-        show_value=True,
-    )
-    pitch_deg = mo.ui.slider(
-        start=-80,
-        stop=80,
-        step=2,
-        value=30,
-        label="Pitch (volume mode)",
         show_value=True,
     )
 
@@ -212,20 +197,11 @@ def _(mo, ql, returns, sweeps):
         [
             mo.hstack([mode_selector, moment_selector], widths=[2, 2]),
             mo.hstack([sample_cap, canvas_size], widths=[4, 3]),
-            mo.hstack([yaw_deg, pitch_deg], widths=[3, 3]),
             sweep_selector,
         ],
         align="stretch",
     )
-    return (
-        canvas_size,
-        mode_selector,
-        moment_selector,
-        pitch_deg,
-        sample_cap,
-        sweep_selector,
-        yaw_deg,
-    )
+    return canvas_size, mode_selector, moment_selector, sample_cap, sweep_selector
 
 
 @app.cell
@@ -234,20 +210,18 @@ def _(
     mo,
     mode_selector,
     moment_selector,
-    pitch_deg,
     ql,
     returns,
     sample_cap,
     sweep_selector,
     sweeps,
-    yaw_deg,
 ):
     mode = str(mode_selector.value)
     moment = str(moment_selector.value)
     requested_points = int(sample_cap.value)
     # Keep widget output under marimo's default byte limit.
     if mode == "Volume 3D":
-        max_points = min(requested_points, 120_000)
+        max_points = min(requested_points, 180_000)
     else:
         max_points = min(requested_points, 180_000)
 
@@ -274,8 +248,6 @@ def _(
             widget = ql.QuicklookVolumeWidget(
                 width=int(canvas_size.value),
                 height=int(canvas_size.value),
-                yaw_deg=float(yaw_deg.value),
-                pitch_deg=float(pitch_deg.value),
             )
             widget.set_payload(payload)
     except ImportError as exc:

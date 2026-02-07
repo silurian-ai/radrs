@@ -210,3 +210,13 @@ def test_prepare_volume_payload_cartesian_geometry() -> None:
     np.testing.assert_allclose(payload.z_m[0], 0.87265, rtol=1e-5)
     assert payload.vmax > payload.vmin
     assert payload.max_abs_m > 0.0
+
+    state = payload.to_widget_state()
+    assert "x_bytes" in state
+    assert "y_bytes" in state
+    assert "z_bytes" in state
+    assert "value_bytes" in state
+    assert "range_bytes" not in state
+    assert "azimuth_bytes" not in state
+    assert "elevation_bytes" not in state
+    assert "return_time_ms_bytes" not in state

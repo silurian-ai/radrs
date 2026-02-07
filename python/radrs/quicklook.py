@@ -97,11 +97,7 @@ class VolumePayload:
     x_m: np.ndarray
     y_m: np.ndarray
     z_m: np.ndarray
-    range_m: np.ndarray
-    azimuth_deg: np.ndarray
-    elevation_deg: np.ndarray
     values: np.ndarray
-    return_time_ms: np.ndarray
     gate_index: np.ndarray
     return_index: np.ndarray
     moment: str
@@ -118,15 +114,7 @@ class VolumePayload:
             "x_bytes": np.ascontiguousarray(self.x_m, dtype=np.float32).tobytes(),
             "y_bytes": np.ascontiguousarray(self.y_m, dtype=np.float32).tobytes(),
             "z_bytes": np.ascontiguousarray(self.z_m, dtype=np.float32).tobytes(),
-            "range_bytes": np.ascontiguousarray(self.range_m, dtype=np.float32).tobytes(),
-            "azimuth_bytes": np.ascontiguousarray(self.azimuth_deg, dtype=np.float32).tobytes(),
-            "elevation_bytes": np.ascontiguousarray(
-                self.elevation_deg, dtype=np.float32
-            ).tobytes(),
             "value_bytes": np.ascontiguousarray(self.values, dtype=np.float32).tobytes(),
-            "return_time_ms_bytes": np.ascontiguousarray(
-                self.return_time_ms, dtype=np.float64
-            ).tobytes(),
             "gate_index_bytes": np.ascontiguousarray(
                 self.gate_index, dtype=np.uint16
             ).tobytes(),
@@ -368,11 +356,7 @@ def prepare_volume_payload(
             x_m=np.empty(0, dtype=np.float32),
             y_m=np.empty(0, dtype=np.float32),
             z_m=np.empty(0, dtype=np.float32),
-            range_m=np.empty(0, dtype=np.float32),
-            azimuth_deg=np.empty(0, dtype=np.float32),
-            elevation_deg=np.empty(0, dtype=np.float32),
             values=np.empty(0, dtype=np.float32),
-            return_time_ms=np.empty(0, dtype=np.float64),
             gate_index=np.empty(0, dtype=np.uint16),
             return_index=np.empty(0, dtype=np.uint32),
             moment=moment,
@@ -385,8 +369,6 @@ def prepare_volume_payload(
     elevation = np.asarray(returns["elevation"].values, dtype=np.float32)
     base_range = np.asarray(returns["base_range"].values, dtype=np.float32)
     range_step = np.asarray(returns["range_step"].values, dtype=np.float32)
-    return_time = np.asarray(returns["return_time"].values, dtype="datetime64[ms]")
-    return_time_ms = np.asarray(return_time, dtype=np.int64).astype(np.float64, copy=False)
 
     gate_index_full = np.tile(np.arange(n_range, dtype=np.uint16), n_returns)
     return_index_full = np.repeat(np.arange(n_returns, dtype=np.uint32), n_range)
@@ -394,14 +376,12 @@ def prepare_volume_payload(
     elevation_full = np.repeat(elevation, n_range)
     base_range_full = np.repeat(base_range, n_range)
     range_step_full = np.repeat(range_step, n_range)
-    return_time_full = np.repeat(return_time_ms, n_range)
 
     gate_index_sel = gate_index_full[finite]
     return_index_sel = return_index_full[finite]
     azimuth_sel = azimuth_full[finite]
     elevation_sel = elevation_full[finite]
     values_sel = flat_values[finite]
-    return_time_sel = return_time_full[finite]
     range_sel = base_range_full[finite] + gate_index_sel.astype(np.float32) * range_step_full[finite]
 
     azimuth_rad = np.deg2rad(azimuth_sel.astype(np.float64))
@@ -423,7 +403,6 @@ def prepare_volume_payload(
         azimuth_sel = azimuth_sel[keep]
         elevation_sel = elevation_sel[keep]
         values_sel = values_sel[keep]
-        return_time_sel = return_time_sel[keep]
         gate_index_sel = gate_index_sel[keep]
         return_index_sel = return_index_sel[keep]
 
@@ -440,11 +419,7 @@ def prepare_volume_payload(
         x_m=np.ascontiguousarray(x_sel, dtype=np.float32),
         y_m=np.ascontiguousarray(y_sel, dtype=np.float32),
         z_m=np.ascontiguousarray(z_sel, dtype=np.float32),
-        range_m=np.ascontiguousarray(range_sel, dtype=np.float32),
-        azimuth_deg=np.ascontiguousarray(azimuth_sel, dtype=np.float32),
-        elevation_deg=np.ascontiguousarray(elevation_sel, dtype=np.float32),
         values=np.ascontiguousarray(values_sel, dtype=np.float32),
-        return_time_ms=np.ascontiguousarray(return_time_sel, dtype=np.float64),
         gate_index=np.ascontiguousarray(gate_index_sel, dtype=np.uint16),
         return_index=np.ascontiguousarray(return_index_sel, dtype=np.uint32),
         moment=moment,
@@ -752,6 +727,9 @@ export default {
 """
 
 _VOLUME_WIDGET_ESM: Final[str] = r"""
+import { COORDINATE_SYSTEM, Deck, OrbitView } from "https://esm.sh/@deck.gl/core@9.2.2?bundle";
+import { PointCloudLayer } from "https://esm.sh/@deck.gl/layers@9.2.2?bundle";
+
 function toArrayBuffer(raw) {
   if (!raw) return new ArrayBuffer(0);
   if (raw instanceof ArrayBuffer) return raw;
@@ -779,6 +757,12 @@ function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
+function clamp(v, lo, hi) {
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  return v;
+}
+
 function colorMap(t) {
   const x = clamp01(t);
   const stops = [
@@ -799,174 +783,94 @@ function colorMap(t) {
   ];
 }
 
-function nearestPick(pick, width, height, x, y) {
-  const ix = Math.round(x);
-  const iy = Math.round(y);
-  for (let radius = 0; radius <= 3; radius += 1) {
-    for (let dy = -radius; dy <= radius; dy += 1) {
-      const py = iy + dy;
-      if (py < 0 || py >= height) continue;
-      for (let dx = -radius; dx <= radius; dx += 1) {
-        const px = ix + dx;
-        if (px < 0 || px >= width) continue;
-        const idx = pick[py * width + px];
-        if (idx >= 0) {
-          return idx;
-        }
-      }
-    }
-  }
-  return -1;
+function computeHover(xVals, yVals, zVals, values, gateIndex, returnIndex, idx) {
+  const xx = xVals[idx];
+  const yy = yVals[idx];
+  const zz = zVals[idx];
+  const rr = Math.sqrt(xx * xx + yy * yy + zz * zz);
+  const az = ((Math.atan2(xx, yy) * 180.0) / Math.PI + 360.0) % 360.0;
+  const el = (Math.atan2(zz, Math.sqrt(xx * xx + yy * yy)) * 180.0) / Math.PI;
+  return {
+    index: idx,
+    value: Number(values[idx]),
+    x_m: Number(xx),
+    y_m: Number(yy),
+    z_m: Number(zz),
+    azimuth_deg: Number(az),
+    elevation_deg: Number(el),
+    range_m: Number(rr),
+    gate_index: Number(gateIndex[idx]),
+    return_index: Number(returnIndex[idx]),
+  };
 }
 
-function drawAxes(ctx, width, height) {
-  const cx = width / 2;
-  const cy = height / 2;
-  ctx.save();
-  ctx.strokeStyle = "rgba(110, 118, 129, 0.4)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, cy);
-  ctx.lineTo(width, cy);
-  ctx.moveTo(cx, 0);
-  ctx.lineTo(cx, height);
-  ctx.stroke();
-  ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
-  ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
-  ctx.fillText("Volume projection", 12, 18);
-  ctx.restore();
+function formatTooltip(hover) {
+  return (
+    `value=${hover.value.toFixed(2)} xyz=(${hover.x_m.toFixed(0)},${hover.y_m.toFixed(0)},${hover.z_m.toFixed(0)})m ` +
+    `az=${hover.azimuth_deg.toFixed(2)}deg el=${hover.elevation_deg.toFixed(2)}deg ` +
+    `r=${(hover.range_m / 1000.0).toFixed(2)}km ret=${hover.return_index} gate=${hover.gate_index}`
+  );
+}
+
+function fitZoomForExtent(maxAbsMeters, width, height) {
+  if (!Number.isFinite(maxAbsMeters) || maxAbsMeters <= 0) {
+    return -7.0;
+  }
+  const pixelRadius = Math.max(1.0, 0.45 * Math.min(width, height));
+  const pixelsPerMeter = pixelRadius / maxAbsMeters;
+  return Math.log2(pixelsPerMeter);
+}
+
+function pointSizeForCount(n) {
+  if (n > 240000) return 0.9;
+  if (n > 160000) return 1.1;
+  if (n > 100000) return 1.3;
+  return 1.6;
 }
 
 export default {
   render({ model, el }) {
     const root = document.createElement("div");
     root.className = "radrs-quicklook-root";
-    const canvas = document.createElement("canvas");
-    canvas.className = "radrs-quicklook-canvas";
+    const deckHost = document.createElement("div");
+    deckHost.className = "radrs-quicklook-deck-host";
+    const overlay = document.createElement("div");
+    overlay.className = "radrs-quicklook-overlay";
     const tooltip = document.createElement("div");
     tooltip.className = "radrs-quicklook-tooltip";
     tooltip.style.display = "none";
 
-    root.appendChild(canvas);
+    root.appendChild(deckHost);
+    root.appendChild(overlay);
     root.appendChild(tooltip);
     el.appendChild(root);
 
-    let pick = new Int32Array(0);
+    /** @type {Deck | null} */
+    let deck = null;
     let xVals = new Float32Array(0);
     let yVals = new Float32Array(0);
     let zVals = new Float32Array(0);
     let values = new Float32Array(0);
-    let ranges = new Float32Array(0);
-    let azimuth = new Float32Array(0);
-    let elevation = new Float32Array(0);
     let gateIndex = new Uint16Array(0);
     let returnIndex = new Uint32Array(0);
-    let returnTime = new Float64Array(0);
+    let positions = new Float32Array(0);
+    let colors = new Uint8Array(0);
+    let n = 0;
     let lastHover = -1;
+    let fitZoom = -7.0;
+    let viewState = null;
 
-    function redraw() {
-      const width = Number(model.get("width")) || 760;
-      const height = Number(model.get("height")) || 760;
-      const yawDeg = Number(model.get("yaw_deg")) || 35;
-      const pitchDeg = Number(model.get("pitch_deg")) || 30;
-      canvas.width = width;
-      canvas.height = height;
+    function readWidth() {
+      return Number(model.get("width")) || 760;
+    }
 
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.clearRect(0, 0, width, height);
+    function readHeight() {
+      return Number(model.get("height")) || 760;
+    }
 
-      xVals = decodeArray(model.get("x_bytes"), Float32Array);
-      yVals = decodeArray(model.get("y_bytes"), Float32Array);
-      zVals = decodeArray(model.get("z_bytes"), Float32Array);
-      values = decodeArray(model.get("value_bytes"), Float32Array);
-      ranges = decodeArray(model.get("range_bytes"), Float32Array);
-      azimuth = decodeArray(model.get("azimuth_bytes"), Float32Array);
-      elevation = decodeArray(model.get("elevation_bytes"), Float32Array);
-      gateIndex = decodeArray(model.get("gate_index_bytes"), Uint16Array);
-      returnIndex = decodeArray(model.get("return_index_bytes"), Uint32Array);
-      returnTime = decodeArray(model.get("return_time_ms_bytes"), Float64Array);
-
-      const meta = model.get("meta") || {};
-      const n = Math.min(
-        xVals.length,
-        yVals.length,
-        zVals.length,
-        values.length,
-        ranges.length,
-        azimuth.length,
-        elevation.length,
-        gateIndex.length,
-        returnIndex.length,
-        returnTime.length,
-      );
-      if (n === 0) {
-        drawAxes(ctx, width, height);
-        return;
-      }
-
-      const yaw = (yawDeg * Math.PI) / 180.0;
-      const pitch = (pitchDeg * Math.PI) / 180.0;
-      const cyaw = Math.cos(yaw);
-      const syaw = Math.sin(yaw);
-      const cpitch = Math.cos(pitch);
-      const spitch = Math.sin(pitch);
-
-      const xView = new Float32Array(n);
-      const yView = new Float32Array(n);
-      let maxAbs = 1.0;
-      for (let i = 0; i < n; i += 1) {
-        const x = xVals[i];
-        const y = yVals[i];
-        const z = zVals[i];
-
-        const x1 = cyaw * x - syaw * y;
-        const y1 = syaw * x + cyaw * y;
-        const y2 = cpitch * y1 - spitch * z;
-
-        xView[i] = x1;
-        yView[i] = y2;
-        const local = Math.max(Math.abs(x1), Math.abs(y2));
-        if (local > maxAbs) maxAbs = local;
-      }
-
-      const scale = 0.46 * Math.min(width, height) / maxAbs;
-      const cx = width / 2;
-      const cy = height / 2;
-
-      const vmin = Number(meta.vmin);
-      const vmax = Number(meta.vmax);
-      const denom = vmax > vmin ? (vmax - vmin) : 1.0;
-
-      const image = ctx.createImageData(width, height);
-      const pixels = image.data;
-      pick = new Int32Array(width * height);
-      pick.fill(-1);
-
-      for (let i = 0; i < n; i += 1) {
-        const vv = values[i];
-        if (!Number.isFinite(vv)) continue;
-
-        const sx = Math.round(cx + xView[i] * scale);
-        const sy = Math.round(cy - yView[i] * scale);
-        if (sx < 0 || sx >= width || sy < 0 || sy >= height) continue;
-
-        const [r, g, b] = colorMap((vv - vmin) / denom);
-        const pxOffset = (sy * width + sx) * 4;
-        pixels[pxOffset] = r;
-        pixels[pxOffset + 1] = g;
-        pixels[pxOffset + 2] = b;
-        pixels[pxOffset + 3] = 255;
-        pick[sy * width + sx] = i;
-      }
-
-      ctx.putImageData(image, 0, 0);
-      drawAxes(ctx, width, height);
-      ctx.save();
-      ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
-      ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
-      ctx.fillText(`yaw=${yawDeg.toFixed(0)}deg pitch=${pitchDeg.toFixed(0)}deg`, 12, 34);
-      ctx.restore();
+    function readMeta() {
+      const meta = model.get("meta");
+      return meta && typeof meta === "object" ? meta : {};
     }
 
     function hideTooltip() {
@@ -978,89 +882,232 @@ export default {
       }
     }
 
-    function onMove(event) {
-      if (pick.length === 0) {
-        hideTooltip();
-        return;
+    function loadAndColorize() {
+      xVals = decodeArray(model.get("x_bytes"), Float32Array);
+      yVals = decodeArray(model.get("y_bytes"), Float32Array);
+      zVals = decodeArray(model.get("z_bytes"), Float32Array);
+      values = decodeArray(model.get("value_bytes"), Float32Array);
+      gateIndex = decodeArray(model.get("gate_index_bytes"), Uint16Array);
+      returnIndex = decodeArray(model.get("return_index_bytes"), Uint32Array);
+
+      n = Math.min(
+        xVals.length,
+        yVals.length,
+        zVals.length,
+        values.length,
+        gateIndex.length,
+        returnIndex.length,
+      );
+
+      positions = new Float32Array(n * 3);
+      colors = new Uint8Array(n * 3);
+      const meta = readMeta();
+      const vmin = Number(meta.vmin);
+      const vmax = Number(meta.vmax);
+      const denom = Number.isFinite(vmin) && Number.isFinite(vmax) && vmax > vmin ? vmax - vmin : 1.0;
+      for (let i = 0; i < n; i += 1) {
+        const posOffset = 3 * i;
+        positions[posOffset] = xVals[i];
+        positions[posOffset + 1] = yVals[i];
+        positions[posOffset + 2] = zVals[i];
+        const [r, g, b] = colorMap((values[i] - vmin) / denom);
+        colors[posOffset] = r;
+        colors[posOffset + 1] = g;
+        colors[posOffset + 2] = b;
       }
 
-      const rect = canvas.getBoundingClientRect();
-      const x = event.clientX - rect.left;
-      const y = event.clientY - rect.top;
-      const width = canvas.width;
-      const height = canvas.height;
-      const idx = nearestPick(pick, width, height, x, y);
-      if (idx < 0) {
-        hideTooltip();
-        return;
-      }
-
-      const timeMs = returnTime[idx];
-      const iso = Number.isFinite(timeMs) ? new Date(timeMs).toISOString() : "n/a";
-      tooltip.style.left = `${Math.max(8, Math.round(x + 10))}px`;
-      tooltip.style.top = `${Math.max(8, Math.round(y + 10))}px`;
-      tooltip.style.display = "block";
-      tooltip.textContent =
-        `value=${values[idx].toFixed(2)} xyz=(${xVals[idx].toFixed(0)},${yVals[idx].toFixed(0)},${zVals[idx].toFixed(0)})m ` +
-        `az=${azimuth[idx].toFixed(2)}deg el=${elevation[idx].toFixed(2)}deg ` +
-        `r=${(ranges[idx] / 1000.0).toFixed(2)}km ret=${returnIndex[idx]} gate=${gateIndex[idx]} t=${iso}`;
-
-      if (idx !== lastHover) {
-        lastHover = idx;
-        model.set("hover", {
-          index: idx,
-          value: Number(values[idx]),
-          x_m: Number(xVals[idx]),
-          y_m: Number(yVals[idx]),
-          z_m: Number(zVals[idx]),
-          azimuth_deg: Number(azimuth[idx]),
-          elevation_deg: Number(elevation[idx]),
-          range_m: Number(ranges[idx]),
-          gate_index: Number(gateIndex[idx]),
-          return_index: Number(returnIndex[idx]),
-          return_time_ms: Number(timeMs),
-          return_time_iso: iso,
-        });
-        model.save_changes();
+      const width = readWidth();
+      const height = readHeight();
+      fitZoom = fitZoomForExtent(Number(meta.max_abs_m), width, height);
+      if (viewState === null) {
+        viewState = {
+          target: [0, 0, 0],
+          rotationOrbit: Number(model.get("yaw_deg")) || 35,
+          rotationX: Number(model.get("pitch_deg")) || 30,
+          zoom: fitZoom,
+          minZoom: fitZoom - 5.0,
+          maxZoom: fitZoom + 8.0,
+          minRotationX: -89,
+          maxRotationX: 89,
+        };
+      } else {
+        const zoomOffset = viewState.zoom - fitZoom;
+        viewState = {
+          ...viewState,
+          target: [0, 0, 0],
+          zoom: clamp(fitZoom + zoomOffset, fitZoom - 5.0, fitZoom + 8.0),
+          minZoom: fitZoom - 5.0,
+          maxZoom: fitZoom + 8.0,
+          minRotationX: -89,
+          maxRotationX: 89,
+        };
       }
     }
 
-    function onLeave() {
+    function buildLayer() {
+      return new PointCloudLayer({
+        id: "radrs-volume-points",
+        data: {
+          length: n,
+          attributes: {
+            getPosition: { value: positions, size: 3 },
+            getColor: { value: colors, size: 3 },
+          },
+        },
+        coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+        pickable: true,
+        pointSize: pointSizeForCount(n),
+        opacity: 0.95,
+      });
+    }
+
+    function updateOverlay() {
+      const meta = readMeta();
+      if (n === 0) {
+        overlay.textContent = "Volume 3D (deck.gl) | no finite points";
+        return;
+      }
+      overlay.textContent = (
+        `Volume 3D (deck.gl) | points=${n.toLocaleString()} ` +
+        `moment=${String(meta.moment || "")} ` +
+        `range=${(Number(meta.max_abs_m) / 1000.0).toFixed(2)}km`
+      );
+    }
+
+    function ensureDeck() {
+      if (deck !== null) {
+        return;
+      }
+      deck = new Deck({
+        parent: deckHost,
+        width: readWidth(),
+        height: readHeight(),
+        views: [new OrbitView({ id: "orbit" })],
+        controller: true,
+        viewState,
+        layers: [buildLayer()],
+        parameters: {
+          clearColor: [246, 248, 250, 255],
+        },
+        getCursor: ({ isDragging }) => (isDragging ? "grabbing" : "grab"),
+        onViewStateChange: ({ viewState: nextViewState }) => {
+          if (!nextViewState) return;
+          viewState = {
+            ...nextViewState,
+            minRotationX: -89,
+            maxRotationX: 89,
+          };
+          deck?.setProps({ viewState });
+        },
+        onHover: (info) => {
+          if (!info || typeof info.index !== "number" || info.index < 0 || info.index >= n) {
+            hideTooltip();
+            return;
+          }
+          const idx = info.index;
+          const hover = computeHover(xVals, yVals, zVals, values, gateIndex, returnIndex, idx);
+          const px = Number.isFinite(info.x) ? info.x : 8;
+          const py = Number.isFinite(info.y) ? info.y : 8;
+          tooltip.style.left = `${Math.max(8, Math.round(px + 10))}px`;
+          tooltip.style.top = `${Math.max(8, Math.round(py + 10))}px`;
+          tooltip.style.display = "block";
+          tooltip.textContent = formatTooltip(hover);
+          if (idx !== lastHover) {
+            lastHover = idx;
+            model.set("hover", hover);
+            model.save_changes();
+          }
+        },
+      });
+    }
+
+    function renderDeck() {
+      const width = readWidth();
+      const height = readHeight();
+      root.style.width = `${width}px`;
+      root.style.height = `${height}px`;
+      ensureDeck();
+      deck?.setProps({
+        width,
+        height,
+        viewState,
+        layers: [buildLayer()],
+      });
+      updateOverlay();
+    }
+
+    function refreshFromModel() {
+      loadAndColorize();
+      renderDeck();
       hideTooltip();
     }
 
-    const watched = [
-      "width",
-      "height",
-      "yaw_deg",
-      "pitch_deg",
-      "meta",
+    function onSizeChange() {
+      const width = readWidth();
+      const height = readHeight();
+      const nextFit = fitZoomForExtent(Number(readMeta().max_abs_m), width, height);
+      if (viewState !== null) {
+        const zoomOffset = viewState.zoom - fitZoom;
+        fitZoom = nextFit;
+        viewState = {
+          ...viewState,
+          zoom: clamp(nextFit + zoomOffset, nextFit - 5.0, nextFit + 8.0),
+          minZoom: nextFit - 5.0,
+          maxZoom: nextFit + 8.0,
+        };
+      }
+      renderDeck();
+    }
+
+    function onAngleChange() {
+      if (viewState === null) {
+        return;
+      }
+      viewState = {
+        ...viewState,
+        rotationOrbit: Number(model.get("yaw_deg")) || viewState.rotationOrbit,
+        rotationX: Number(model.get("pitch_deg")) || viewState.rotationX,
+      };
+      renderDeck();
+    }
+
+    const redrawWatched = ["meta"];
+    const dataWatched = [
       "x_bytes",
       "y_bytes",
       "z_bytes",
       "value_bytes",
-      "range_bytes",
-      "azimuth_bytes",
-      "elevation_bytes",
       "gate_index_bytes",
       "return_index_bytes",
-      "return_time_ms_bytes",
     ];
-    for (const key of watched) {
-      model.on(`change:${key}`, redraw);
+    for (const key of redrawWatched) {
+      model.on(`change:${key}`, refreshFromModel);
     }
+    for (const key of dataWatched) {
+      model.on(`change:${key}`, refreshFromModel);
+    }
+    model.on("change:width", onSizeChange);
+    model.on("change:height", onSizeChange);
+    model.on("change:yaw_deg", onAngleChange);
+    model.on("change:pitch_deg", onAngleChange);
 
-    canvas.addEventListener("mousemove", onMove);
-    canvas.addEventListener("mouseleave", onLeave);
-
-    redraw();
+    refreshFromModel();
 
     return () => {
-      for (const key of watched) {
-        model.off(`change:${key}`, redraw);
+      for (const key of redrawWatched) {
+        model.off(`change:${key}`, refreshFromModel);
       }
-      canvas.removeEventListener("mousemove", onMove);
-      canvas.removeEventListener("mouseleave", onLeave);
+      for (const key of dataWatched) {
+        model.off(`change:${key}`, refreshFromModel);
+      }
+      model.off("change:width", onSizeChange);
+      model.off("change:height", onSizeChange);
+      model.off("change:yaw_deg", onAngleChange);
+      model.off("change:pitch_deg", onAngleChange);
+      if (deck !== null) {
+        deck.finalize();
+        deck = null;
+      }
     };
   },
 };
@@ -1079,6 +1126,24 @@ _WIDGET_CSS: Final[str] = """
 .radrs-quicklook-canvas {
   display: block;
   background: #f6f8fa;
+}
+
+.radrs-quicklook-deck-host {
+  width: 100%;
+  height: 100%;
+}
+
+.radrs-quicklook-overlay {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  pointer-events: none;
+  background: rgba(17, 24, 39, 0.75);
+  color: #f9fafb;
+  font: 11px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  padding: 4px 6px;
+  border-radius: 4px;
+  z-index: 3;
 }
 
 .radrs-quicklook-tooltip {
@@ -1182,11 +1247,7 @@ if _anywidget is not None and _traitlets is not None:
         x_bytes = _traitlets.Bytes(b"").tag(sync=True)
         y_bytes = _traitlets.Bytes(b"").tag(sync=True)
         z_bytes = _traitlets.Bytes(b"").tag(sync=True)
-        range_bytes = _traitlets.Bytes(b"").tag(sync=True)
-        azimuth_bytes = _traitlets.Bytes(b"").tag(sync=True)
-        elevation_bytes = _traitlets.Bytes(b"").tag(sync=True)
         value_bytes = _traitlets.Bytes(b"").tag(sync=True)
-        return_time_ms_bytes = _traitlets.Bytes(b"").tag(sync=True)
         gate_index_bytes = _traitlets.Bytes(b"").tag(sync=True)
         return_index_bytes = _traitlets.Bytes(b"").tag(sync=True)
 
@@ -1211,11 +1272,7 @@ if _anywidget is not None and _traitlets is not None:
             self.x_bytes = _state_bytes(state, "x_bytes")
             self.y_bytes = _state_bytes(state, "y_bytes")
             self.z_bytes = _state_bytes(state, "z_bytes")
-            self.range_bytes = _state_bytes(state, "range_bytes")
-            self.azimuth_bytes = _state_bytes(state, "azimuth_bytes")
-            self.elevation_bytes = _state_bytes(state, "elevation_bytes")
             self.value_bytes = _state_bytes(state, "value_bytes")
-            self.return_time_ms_bytes = _state_bytes(state, "return_time_ms_bytes")
             self.gate_index_bytes = _state_bytes(state, "gate_index_bytes")
             self.return_index_bytes = _state_bytes(state, "return_index_bytes")
 
@@ -1228,11 +1285,7 @@ if _anywidget is not None and _traitlets is not None:
             self.x_bytes = b""
             self.y_bytes = b""
             self.z_bytes = b""
-            self.range_bytes = b""
-            self.azimuth_bytes = b""
-            self.elevation_bytes = b""
             self.value_bytes = b""
-            self.return_time_ms_bytes = b""
             self.gate_index_bytes = b""
             self.return_index_bytes = b""
             self.meta = {"point_count": 0, "moment": ""}
