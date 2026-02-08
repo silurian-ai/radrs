@@ -560,3 +560,65 @@ def test_volume_payload_optimized() -> None:
     np.testing.assert_allclose(payload.x_m[0], 0.0, atol=1e-5)
     np.testing.assert_allclose(payload.y_m[0], 99.99619, rtol=1e-5)
     np.testing.assert_allclose(payload.z_m[0], 0.87265, rtol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# to_html() static export tests
+# ---------------------------------------------------------------------------
+
+
+def test_polar_payload_to_html() -> None:
+    returns, sweeps = _fixtures()
+    payload = ql.prepare_polar_payload(returns, sweeps, 0, "DBZH")
+    html = payload.to_html()
+
+    assert isinstance(html, str)
+    assert "<!DOCTYPE html>" in html
+    assert '<script type="module">' in html
+    assert "radrs-quicklook-root" in html
+    assert "DBZH" in html
+
+
+def test_volume_payload_to_html() -> None:
+    returns, _ = _fixtures()
+    payload = ql.prepare_volume_payload(returns, moment="DBZH", max_points=None)
+    html = payload.to_html()
+
+    assert isinstance(html, str)
+    assert "<!DOCTYPE html>" in html
+    assert '<script type="module">' in html
+    assert "deck.gl" in html
+    assert "yaw_deg" in html
+    assert "pitch_deg" in html
+
+
+def test_grid_payload_to_html() -> None:
+    returns, sweeps = _fixtures()
+    payload = ql.prepare_cappi_payload(
+        returns, sweeps, "DBZH", altitude_m=100.0, tolerance_m=5000.0, grid_size=50
+    )
+    html = payload.to_html()
+
+    assert isinstance(html, str)
+    assert "<!DOCTYPE html>" in html
+    assert '"grid_mode"' in html or "cappi" in html
+
+
+def test_waterfall_payload_to_html() -> None:
+    returns, _ = _fixtures()
+    payload = ql.prepare_waterfall_payload(returns, moment="DBZH")
+    html = payload.to_html()
+
+    assert isinstance(html, str)
+    assert "<!DOCTYPE html>" in html
+    assert "n_returns" in html
+    assert "n_range" in html
+
+
+def test_to_html_custom_size() -> None:
+    returns, sweeps = _fixtures()
+    payload = ql.prepare_polar_payload(returns, sweeps, 0, "DBZH")
+    html = payload.to_html(width=1024, height=512)
+
+    assert "1024" in html
+    assert "512" in html

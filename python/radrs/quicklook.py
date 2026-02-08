@@ -9,6 +9,8 @@ This module provides:
 
 from __future__ import annotations
 
+import base64
+import json
 from dataclasses import dataclass
 from typing import Final
 
@@ -89,6 +91,10 @@ class PolarPayload:
             },
         }
 
+    def to_html(self, width: int = 760, height: int = 760) -> str:
+        """Render as a self-contained HTML document."""
+        return _payload_to_html(self.to_widget_state(), _WIDGET_ESM, _WIDGET_CSS, width, height)
+
 
 @dataclass(frozen=True)
 class VolumePayload:
@@ -131,6 +137,23 @@ class VolumePayload:
                 "vmax": float(self.vmax),
             },
         }
+
+    def to_html(
+        self,
+        width: int = 760,
+        height: int = 760,
+        yaw_deg: float = 35.0,
+        pitch_deg: float = 30.0,
+    ) -> str:
+        """Render as a self-contained HTML document."""
+        return _payload_to_html(
+            self.to_widget_state(),
+            _VOLUME_WIDGET_ESM,
+            _WIDGET_CSS,
+            width,
+            height,
+            extra_state={"yaw_deg": yaw_deg, "pitch_deg": pitch_deg},
+        )
 
 
 @dataclass(frozen=True)
@@ -204,6 +227,10 @@ class GridPayload:
             "meta": meta,
         }
 
+    def to_html(self, width: int = 760, height: int = 760) -> str:
+        """Render as a self-contained HTML document."""
+        return _payload_to_html(self.to_widget_state(), _GRID_WIDGET_ESM, _WIDGET_CSS, width, height)
+
 
 @dataclass(frozen=True)
 class WaterfallPayload:
@@ -267,6 +294,10 @@ class WaterfallPayload:
                 "range_end_m": float(self.range_end_m),
             },
         }
+
+    def to_html(self, width: int = 760, height: int = 760) -> str:
+        """Render as a self-contained HTML document."""
+        return _payload_to_html(self.to_widget_state(), _WATERFALL_WIDGET_ESM, _WIDGET_CSS, width, height)
 
 
 def get_returns_and_sweeps(dt: xr.DataTree) -> tuple[xr.Dataset, xr.Dataset]:
@@ -2845,6 +2876,65 @@ _WIDGET_CSS: Final[str] = """
   padding: 4px;
 }
 """
+
+
+def _payload_to_html(
+    state: dict[str, object],
+    esm_str: str,
+    css_str: str,
+    width: int,
+    height: int,
+    extra_state: dict[str, object] | None = None,
+) -> str:
+    """Render a payload's widget state as a self-contained HTML document."""
+
+    # Build JS state entries: base64-encode bytes, JSON-encode everything else.
+    js_entries: list[str] = []
+    for key, val in state.items():
+        if isinstance(val, (bytes, bytearray, memoryview)):
+            raw = bytes(val) if not isinstance(val, bytes) else val
+            b64 = base64.b64encode(raw).decode("ascii")
+            js_entries.append(f"{json.dumps(key)}: _b64ToAB({json.dumps(b64)})")
+        else:
+            js_entries.append(f"{json.dumps(key)}: {json.dumps(val)}")
+
+    # Merge width, height, and any extra_state scalars.
+    js_entries.append(f'"width": {json.dumps(width)}')
+    js_entries.append(f'"height": {json.dumps(height)}')
+    if extra_state:
+        for key, val in extra_state.items():
+            js_entries.append(f"{json.dumps(key)}: {json.dumps(val)}")
+
+    js_state_body = ", ".join(js_entries)
+
+    return (
+        "<!DOCTYPE html>\n"
+        '<html><head><meta charset="utf-8">\n'
+        f"<style>{css_str}\n"
+        f"#widget-root {{ width: {width}px; height: {height}px; }}\n"
+        "</style></head>\n"
+        '<body><div id="widget-root"></div>\n'
+        '<script type="module">\n'
+        "function _b64ToAB(b64) {\n"
+        "  const bin = atob(b64);\n"
+        "  const u8 = new Uint8Array(bin.length);\n"
+        "  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);\n"
+        "  return u8.buffer;\n"
+        "}\n"
+        f"const _S = {{{js_state_body}}};\n"
+        "const model = {\n"
+        "  get(k) { return _S[k]; },\n"
+        "  set() {},\n"
+        "  on() {},\n"
+        "};\n"
+        f"const _esm = {json.dumps(esm_str)};\n"
+        'const _blob = new Blob([_esm], {type:"text/javascript"});\n'
+        "const _url = URL.createObjectURL(_blob);\n"
+        "const _mod = await import(_url);\n"
+        "URL.revokeObjectURL(_url);\n"
+        '_mod.default.render({ model, el: document.getElementById("widget-root") });\n'
+        "</script></body></html>"
+    )
 
 
 try:
