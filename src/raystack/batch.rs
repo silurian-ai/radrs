@@ -3,9 +3,10 @@
 //! Pre-allocates flat arrays for P patterns, S sweeps, and R returns,
 //! then fills incrementally from volume Scans (not dicts).
 
+use crate::constants::MOMENT_NAMES;
 use crate::error::{RadrsError, Result};
 use crate::fetch::RUNTIME;
-use crate::iter::{VolumeMeta as PeekVolumeMeta, peek_volume_bytes, PEEK_SCAN_MAX};
+use crate::iter::{PEEK_SCAN_MAX, VolumeMeta as PeekVolumeMeta, peek_volume_bytes};
 use crate::metadata::extract_scan_meta;
 use crate::qc;
 use crate::raystack::QcOp;
@@ -16,6 +17,7 @@ use crate::raystack::parse::collect_metadata;
 use crate::raystack::parse::ungzip_if_needed;
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{MomentData, MomentDataKind, MomentValue, Radial, Scan};
+use numpy::ndarray::Array2;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
 use std::collections::VecDeque;
@@ -55,6 +57,219 @@ fn get_moment_datas(r: &Radial) -> [(MomentDataKind, Option<&MomentData>); 7] {
         ),
         (MomentDataKind::ClutterFilterPower, r.clutter_filter_power()),
     ];
+}
+
+pub(crate) struct ActivityData {
+    moments: Vec<&'static str>,
+    ray_valid_count: Vec<u32>,
+    ray_valid_fraction: Vec<f32>,
+    sweep_valid_count: Vec<u32>,
+    sweep_valid_fraction: Vec<f32>,
+    volume_valid_count: Vec<u32>,
+    volume_valid_fraction: Vec<f32>,
+    n_returns: usize,
+    n_sweeps: usize,
+    n_vcps: usize,
+}
+
+pub(crate) fn compute_batch_activity(batch: &RaystackBatchData) -> ActivityData {
+    let moment_data: [&[f32]; 7] = [
+        &batch.dbzh,
+        &batch.vradh,
+        &batch.wradh,
+        &batch.zdr,
+        &batch.phidp,
+        &batch.rhohv,
+        &batch.ccorh,
+    ];
+    let n_moments = MOMENT_NAMES.len();
+    let n_returns = batch.n_returns;
+    let n_sweeps = batch.n_sweeps;
+    let n_vcps = batch.n_vcps;
+    let fold_size = batch.fold_size;
+
+    let mut ray_valid_count = vec![0u32; n_moments * n_returns];
+    let mut ray_valid_fraction = vec![f32::NAN; n_moments * n_returns];
+
+    if n_returns > 0 && fold_size > 0 {
+        for (m_idx, data) in moment_data.iter().enumerate() {
+            for r_idx in 0..n_returns {
+                let start = r_idx * fold_size;
+                let end = start + fold_size;
+                let count = data[start..end].iter().filter(|v| v.is_finite()).count() as u32;
+                let idx = m_idx * n_returns + r_idx;
+                ray_valid_count[idx] = count;
+                ray_valid_fraction[idx] = count as f32 / fold_size as f32;
+            }
+        }
+    }
+
+    let mut sweep_valid_count = vec![0u32; n_moments * n_sweeps];
+    let mut sweep_valid_fraction = vec![f32::NAN; n_moments * n_sweeps];
+
+    let mut sweep_return_starts = vec![0usize; n_sweeps + 1];
+    for s_idx in 0..n_sweeps {
+        let n = batch.sweep_num_returns[s_idx] as usize;
+        sweep_return_starts[s_idx + 1] = (sweep_return_starts[s_idx] + n).min(n_returns);
+    }
+
+    if fold_size > 0 && n_sweeps > 0 {
+        for s_idx in 0..n_sweeps {
+            let start = sweep_return_starts[s_idx];
+            let end = sweep_return_starts[s_idx + 1];
+            let denom = end.saturating_sub(start) * fold_size;
+            for m_idx in 0..n_moments {
+                let base = m_idx * n_returns;
+                let count: u32 = ray_valid_count[base + start..base + end]
+                    .iter()
+                    .copied()
+                    .sum();
+                let idx = m_idx * n_sweeps + s_idx;
+                sweep_valid_count[idx] = count;
+                sweep_valid_fraction[idx] = if denom > 0 {
+                    count as f32 / denom as f32
+                } else {
+                    f32::NAN
+                };
+            }
+        }
+    }
+
+    let mut volume_valid_count = vec![0u32; n_moments * n_vcps];
+    let mut volume_valid_fraction = vec![f32::NAN; n_moments * n_vcps];
+
+    if n_vcps > 0 {
+        let mut sweep_start = 0usize;
+        for v_idx in 0..n_vcps {
+            let n_sweeps_in_vcp = batch.vcp_num_sweeps[v_idx] as usize;
+            let sweep_end = (sweep_start + n_sweeps_in_vcp).min(n_sweeps);
+            let return_start = sweep_return_starts[sweep_start];
+            let return_end = sweep_return_starts[sweep_end];
+            let denom = return_end.saturating_sub(return_start) * fold_size;
+
+            for m_idx in 0..n_moments {
+                let base = m_idx * n_returns;
+                let count: u32 = ray_valid_count[base + return_start..base + return_end]
+                    .iter()
+                    .copied()
+                    .sum();
+                let idx = m_idx * n_vcps + v_idx;
+                volume_valid_count[idx] = count;
+                volume_valid_fraction[idx] = if denom > 0 {
+                    count as f32 / denom as f32
+                } else {
+                    f32::NAN
+                };
+            }
+            sweep_start = sweep_end;
+        }
+    }
+
+    ActivityData {
+        moments: MOMENT_NAMES.to_vec(),
+        ray_valid_count,
+        ray_valid_fraction,
+        sweep_valid_count,
+        sweep_valid_fraction,
+        volume_valid_count,
+        volume_valid_fraction,
+        n_returns,
+        n_sweeps,
+        n_vcps,
+    }
+}
+
+pub(crate) fn add_activity_to_dict(
+    py: Python<'_>,
+    out: &Bound<'_, PyDict>,
+    activity: ActivityData,
+) -> PyResult<()> {
+    use numpy::IntoPyArray;
+
+    let activity_dict = PyDict::new(py);
+    activity_dict.set_item("moment", activity.moments.clone())?;
+
+    let ray_counts = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_returns),
+        activity.ray_valid_count,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("ray_valid_count", ray_counts.into_pyarray(py))?;
+
+    let ray_frac = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_returns),
+        activity.ray_valid_fraction,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("ray_valid_fraction", ray_frac.into_pyarray(py))?;
+
+    let sweep_counts = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_sweeps),
+        activity.sweep_valid_count,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("sweep_valid_count", sweep_counts.into_pyarray(py))?;
+
+    let sweep_frac = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_sweeps),
+        activity.sweep_valid_fraction,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("sweep_valid_fraction", sweep_frac.into_pyarray(py))?;
+
+    let volume_counts = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_vcps),
+        activity.volume_valid_count,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("volume_valid_count", volume_counts.into_pyarray(py))?;
+
+    let volume_frac = Array2::from_shape_vec(
+        (activity.moments.len(), activity.n_vcps),
+        activity.volume_valid_fraction,
+    )
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    activity_dict.set_item("volume_valid_fraction", volume_frac.into_pyarray(py))?;
+
+    out.set_item("activity", activity_dict)?;
+    Ok(())
+}
+
+/// Parse a single NEXRAD volume directly into batch-format raystack output.
+pub fn parse_single_volume(data: &[u8], fold_size: usize) -> Result<RaystackBatchData> {
+    let data = ungzip_if_needed(data)?;
+    let volume = VolumeFile::new(data.into_owned());
+    let scan_meta = extract_scan_meta(&volume);
+    let scan = volume.scan()?;
+    let vol_meta = collect_metadata(&scan);
+
+    let max_sweeps = vol_meta.sweeps.len().max(1);
+    let max_returns: usize = vol_meta
+        .sweeps
+        .iter()
+        .map(|sm| {
+            let folds_per_radial = if fold_size == 0 {
+                1
+            } else {
+                ((sm.max_gates + fold_size - 1) / fold_size).max(1)
+            };
+            sm.n_radials * folds_per_radial
+        })
+        .sum::<usize>()
+        .max(1);
+
+    let mut batch = RaystackBatchData::new(
+        1,
+        max_sweeps,
+        max_returns,
+        fold_size,
+        true,
+        false,
+        true,
+        true,
+    )?;
+    batch.add_scan(&volume, &scan, &scan_meta, &vol_meta)?;
+    Ok(batch)
 }
 
 /// Pre-allocated raystack batch accumulator
@@ -150,9 +365,17 @@ impl RaystackBatchData {
         include_sweeps: bool,
         include_returns: bool,
     ) -> Result<Self> {
+        let include_returns = include_sweeps && include_returns;
+
+        if include_returns && fold_size == 0 {
+            return Err(RadrsError::InvalidInput(
+                "fold_size must be greater than 0 when include_returns=true".into(),
+            ));
+        }
+
         if max_vcps == 0
             || (include_sweeps && max_sweeps == 0)
-            || (include_sweeps && include_returns && max_returns == 0)
+            || (include_returns && max_returns == 0)
         {
             return Err(RadrsError::InvalidInput(
                 "All capacities must be greater than 0".into(),
@@ -170,7 +393,7 @@ impl RaystackBatchData {
             drop_empty_returns,
 
             include_sweeps,
-            include_returns: include_sweeps && include_returns,
+            include_returns,
 
             n_vcps: 0,
             n_sweeps: 0,
@@ -380,7 +603,7 @@ impl RaystackBatchData {
         if self.n_vcps + 1 > self.max_vcps {
             return Err(RadrsError::Capacity(format!(
                 "VCP capacity exceeded: {} + {} > {}",
-                self.n_vcps, 1, self.max_sweeps
+                self.n_vcps, 1, self.max_vcps
             )));
         }
 
@@ -412,8 +635,237 @@ impl RaystackBatchData {
         return Ok(());
     }
 
+    pub fn add_vcp_metadata(
+        &mut self,
+        source_fs_size: i64,
+        instrument_name: Option<&str>,
+        latitude: Option<f32>,
+        longitude: Option<f32>,
+        altitude: Option<f32>,
+        vcp_number: u16,
+        vcp_time: i64,
+    ) -> Result<()> {
+        if self.is_finalized {
+            return Err(RadrsError::InvalidInput("Batch is finalized".into()));
+        }
+        if self.n_vcps + 1 > self.max_vcps {
+            return Err(RadrsError::Capacity(format!(
+                "VCP capacity exceeded: {} + {} > {}",
+                self.n_vcps, 1, self.max_vcps
+            )));
+        }
+
+        self.source_fs_size.push(source_fs_size);
+
+        match instrument_name {
+            Some(name) => {
+                self.instrument_name.push(name.to_string());
+                self.instrument_type.push("radar".to_string());
+                self.platform_type.push("fixed".to_string());
+            }
+            None => {
+                self.instrument_name.push(String::new());
+                self.instrument_type.push(String::new());
+                self.platform_type.push(String::new());
+            }
+        }
+
+        self.latitude.push(latitude.unwrap_or(f32::NAN));
+        self.longitude.push(longitude.unwrap_or(f32::NAN));
+        self.altitude.push(altitude.unwrap_or(f32::NAN));
+
+        self.vcp_name.push(format!("VCP-{}", vcp_number));
+        self.vcp_number.push(vcp_number);
+        self.vcp_time.push(vcp_time);
+        self.vcp_duration.push(0);
+        self.vcp_num_sweeps.push(0);
+        self.n_vcps += 1;
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_sweep_from_arrays(
+        &mut self,
+        vcp_time: i64,
+        sweep_time: i64,
+        elevation_angle: f32,
+        elevation_number: u8,
+        range_start_m: f32,
+        range_step_m: f32,
+        max_gates: usize,
+        azimuths: &[f32],
+        elevations: &[f32],
+        times: &[i64],
+        moments: [Option<&[f32]>; 7],
+        n_radials: usize,
+        n_range: usize,
+    ) -> Result<()> {
+        if self.is_finalized {
+            return Err(RadrsError::InvalidInput("Batch is finalized".into()));
+        }
+        if self.n_vcps == 0 {
+            return Err(RadrsError::InvalidInput(
+                "No VCP metadata present; call add_vcp_metadata first".into(),
+            ));
+        }
+
+        if self.include_sweeps && self.n_sweeps + 1 > self.max_sweeps {
+            return Err(RadrsError::Capacity(format!(
+                "Sweep capacity exceeded: {} + {} > {}",
+                self.n_sweeps, 1, self.max_sweeps
+            )));
+        }
+
+        if azimuths.len() != n_radials || elevations.len() != n_radials || times.len() != n_radials
+        {
+            return Err(RadrsError::InvalidInput(
+                "azimuths/elevations/times must all have length n_radials".into(),
+            ));
+        }
+
+        for maybe_values in &moments {
+            if let Some(values) = maybe_values {
+                let expected = n_radials * n_range;
+                if values.len() != expected {
+                    return Err(RadrsError::InvalidInput(format!(
+                        "Moment array length mismatch: expected {}, got {}",
+                        expected,
+                        values.len()
+                    )));
+                }
+            }
+        }
+
+        let n_folds = if self.fold_size == 0 {
+            1
+        } else {
+            (n_range + self.fold_size - 1) / self.fold_size
+        }
+        .max(1);
+
+        let expected_returns = n_radials * n_folds;
+        if self.include_returns && self.n_returns + expected_returns > self.max_returns {
+            return Err(RadrsError::Capacity(format!(
+                "Return capacity exceeded: {} + {} > {}",
+                self.n_returns, expected_returns, self.max_returns
+            )));
+        }
+
+        let sweep_number = self.n_sweeps as u32;
+        let sweep_duration = match (times.first(), times.last()) {
+            (Some(start), Some(end)) => end.saturating_sub(*start),
+            _ => 0,
+        };
+
+        if self.include_sweeps {
+            self.sweep_vcp_time.push(vcp_time);
+            self.sweep_number.push(sweep_number);
+            self.sweep_time.push(sweep_time);
+            self.sweep_duration.push(sweep_duration);
+            self.sweep_elevation_angle.push(elevation_angle);
+            self.sweep_elevation_number.push(elevation_number);
+            self.sweep_range_start_m.push(range_start_m);
+            self.sweep_range_step_m.push(range_step_m);
+            self.sweep_max_range_m.push(if max_gates == 0 {
+                f32::NAN
+            } else {
+                range_start_m + range_step_m * (max_gates.saturating_sub(1) as f32)
+            });
+            self.sweep_max_gates.push(max_gates as u32);
+        }
+
+        let sweep_return_start = self.n_returns;
+        if self.include_returns {
+            for radial_idx in 0..n_radials {
+                let azimuth = azimuths[radial_idx];
+                let elevation = elevations[radial_idx];
+                let return_time = times[radial_idx];
+
+                for fold_idx in 0..n_folds {
+                    let base_gate = fold_idx * self.fold_size;
+                    let start_out = self.n_returns * self.fold_size;
+                    let end_out = start_out + self.fold_size;
+
+                    let mut n_finite_values = 0usize;
+
+                    for (m_idx, maybe_values) in moments.iter().enumerate() {
+                        let out = match m_idx {
+                            0 => &mut self.dbzh,
+                            1 => &mut self.vradh,
+                            2 => &mut self.wradh,
+                            3 => &mut self.zdr,
+                            4 => &mut self.phidp,
+                            5 => &mut self.rhohv,
+                            6 => &mut self.ccorh,
+                            _ => unreachable!(),
+                        };
+                        out.resize(end_out, f32::NAN);
+
+                        if let Some(values) = maybe_values {
+                            if base_gate >= n_range {
+                                continue;
+                            }
+                            let src_row_start = radial_idx * n_range;
+                            let src_row_end = src_row_start + n_range;
+                            let row = &values[src_row_start..src_row_end];
+                            let copy_end = (base_gate + self.fold_size).min(n_range);
+                            for src_gate in base_gate..copy_end {
+                                let out_idx = start_out + (src_gate - base_gate);
+                                let val = row[src_gate];
+                                out[out_idx] = val;
+                                if val.is_finite() {
+                                    n_finite_values += 1;
+                                }
+                            }
+                        }
+                    }
+
+                    if self.drop_empty_returns && n_finite_values == 0 {
+                        self.dbzh.resize(start_out, f32::NAN);
+                        self.vradh.resize(start_out, f32::NAN);
+                        self.wradh.resize(start_out, f32::NAN);
+                        self.zdr.resize(start_out, f32::NAN);
+                        self.phidp.resize(start_out, f32::NAN);
+                        self.rhohv.resize(start_out, f32::NAN);
+                        self.ccorh.resize(start_out, f32::NAN);
+                        continue;
+                    }
+
+                    self.return_vcp_time.push(vcp_time);
+                    self.return_sweep_number.push(sweep_number);
+                    self.return_sweep_time.push(sweep_time);
+                    self.return_time.push(return_time);
+                    self.return_azimuth.push(azimuth);
+                    self.return_elevation.push(elevation);
+                    self.return_base_range_m
+                        .push(range_start_m + range_step_m * (base_gate as f32));
+                    self.return_range_step_m.push(range_step_m);
+
+                    self.n_returns += 1;
+                }
+            }
+        }
+
+        if self.include_sweeps {
+            self.sweep_num_returns
+                .push((self.n_returns - sweep_return_start) as u32);
+            self.n_sweeps += 1;
+        }
+
+        let vcp_idx = self.n_vcps - 1;
+        self.vcp_num_sweeps[vcp_idx] += 1;
+        let sweep_end = sweep_time.saturating_add(sweep_duration);
+        let vcp_start = self.vcp_time[vcp_idx].min(sweep_time);
+        let vcp_end = (self.vcp_time[vcp_idx] + self.vcp_duration[vcp_idx]).max(sweep_end);
+        self.vcp_time[vcp_idx] = vcp_start;
+        self.vcp_duration[vcp_idx] = vcp_end.saturating_sub(vcp_start);
+
+        Ok(())
+    }
+
     /// Add a scan directly (internal method)
-    fn add_scan(
+    pub(crate) fn add_scan(
         &mut self,
         file: &VolumeFile,
         scan: &Scan,
@@ -427,7 +879,7 @@ impl RaystackBatchData {
         if self.n_vcps + 1 > self.max_vcps {
             return Err(RadrsError::Capacity(format!(
                 "VCP capacity exceeded: {} + {} > {}",
-                self.n_vcps, 1, self.max_sweeps
+                self.n_vcps, 1, self.max_vcps
             )));
         }
 
@@ -440,10 +892,22 @@ impl RaystackBatchData {
             )));
         }
 
-        if self.include_returns && self.n_returns + vol_meta.total_radials > self.max_returns {
+        let max_scan_returns: usize = vol_meta
+            .sweeps
+            .iter()
+            .map(|sm| {
+                let folds_per_radial = if self.fold_size == 0 {
+                    1
+                } else {
+                    ((sm.max_gates + self.fold_size - 1) / self.fold_size).max(1)
+                };
+                sm.n_radials * folds_per_radial
+            })
+            .sum();
+        if self.include_returns && self.n_returns + max_scan_returns > self.max_returns {
             return Err(RadrsError::Capacity(format!(
                 "Return capacity exceeded: {} + {} > {}",
-                self.n_returns, vol_meta.total_radials, self.max_returns
+                self.n_returns, max_scan_returns, self.max_returns
             )));
         }
 
@@ -769,7 +1233,7 @@ impl RaystackBatchData {
         self.is_finalized = true;
     }
 
-    fn add_qc_outputs(&mut self, qc_ops: &[QcOp]) {
+    pub(crate) fn add_qc_outputs(&mut self, qc_ops: &[QcOp]) {
         for op in qc_ops {
             match op {
                 QcOp::RhohvThreshold { threshold, vname } => {

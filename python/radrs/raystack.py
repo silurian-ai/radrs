@@ -13,7 +13,9 @@ Example
 >>>
 >>> # rs is a dict with vcps/sweeps/returns/activity (and qc when requested)
 >>> print(rs.keys())  # ['vcps', 'sweeps', 'returns', 'activity']
->>> print(rs['returns']['DBZH'].shape)  # (n_returns, 128)
+>>> print(rs['returns']['DBZH'].shape)  # (n_returns * 128,) flat storage
+>>> print(rs['returns']['DBZH'].reshape(-1, 128).shape)  # (n_returns, 128)
+>>> print(rs['returns']['return_time'].shape)  # (n_returns,)
 >>>
 >>> # Convert DataTree to raystack format
 >>> import radrs.xradar as rxr
@@ -28,9 +30,9 @@ Example
 >>> # Write raystack to Zarr via xarray
 >>> rrs.to_raystack_datatree(rs).to_zarr("output.zarr")
 
-Note: activity metrics (if enabled) are computed over the rays present in the
-raystack window. If you time-slice or otherwise create partial raystacks, sweep
-activity reflects only observed rays (normalized by observed rays × fold_size).
+Note: returns are chunked segments of physical radials. A single radial can
+produce multiple returns when `n_gates > fold_size`. Activity metrics are
+computed over these return chunks.
 """
 
 from radrs.qc import compile_qc_steps
