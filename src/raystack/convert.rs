@@ -841,10 +841,9 @@ fn raystack_dict_to_raystack_datatree(
 
             let is_moment = MOMENT_NAMES.iter().any(|m| *m == key) || key.starts_with("qc.");
             if is_moment {
-                let flat = flatten_f32(&np, &value_obj)?;
-                let arr = Array2::from_shape_vec((n_returns, fold_size), flat)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                returns_vars.set_item(key, (("return_time", "range"), arr.into_pyarray(py)))?;
+                let arr = np.call_method1("asarray", (&value_obj,))?;
+                let reshaped = arr.call_method1("reshape", ((n_returns, fold_size),))?;
+                returns_vars.set_item(key, (("return_time", "range"), reshaped))?;
             } else {
                 returns_vars.set_item(key, (("return_time",), value_obj))?;
             }
