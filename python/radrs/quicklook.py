@@ -133,6 +133,142 @@ class VolumePayload:
         }
 
 
+@dataclass(frozen=True)
+class GridPayload:
+    """2D gridded payload for CAPPI or vertical cross-section views."""
+
+    grid: np.ndarray  # float32 (n_rows, n_cols), NaN = no data
+    grid_mode: str  # "cappi" or "xsec"
+    moment: str
+    vmin: float
+    vmax: float
+    x_min: float  # world-coordinate extents (meters)
+    x_max: float
+    y_min: float
+    y_max: float
+    x_label: str  # "East (km)" or "Ground range (km)"
+    y_label: str  # "North (km)" or "Altitude (km)"
+    # Mode-specific metadata
+    cappi_altitude_m: float | None = None
+    cappi_tolerance_m: float | None = None
+    xsec_azimuth_deg: float | None = None
+    xsec_azimuth_tolerance_deg: float | None = None
+    # Sweep context for overlay diagrams
+    sweep_elevations_deg: np.ndarray | None = None  # float32, one per sweep
+    sweep_num_returns: np.ndarray | None = None  # int32, one per sweep
+
+    @property
+    def n_rows(self) -> int:
+        return int(self.grid.shape[0])
+
+    @property
+    def n_cols(self) -> int:
+        return int(self.grid.shape[1])
+
+    def to_widget_state(self) -> dict[str, object]:
+        """Serialize payload to binary traits for widget transport."""
+
+        meta: dict[str, object] = {
+            "grid_mode": self.grid_mode,
+            "n_rows": self.n_rows,
+            "n_cols": self.n_cols,
+            "moment": self.moment,
+            "vmin": float(self.vmin),
+            "vmax": float(self.vmax),
+            "x_min": float(self.x_min),
+            "x_max": float(self.x_max),
+            "y_min": float(self.y_min),
+            "y_max": float(self.y_max),
+            "x_label": self.x_label,
+            "y_label": self.y_label,
+        }
+        if self.cappi_altitude_m is not None:
+            meta["cappi_altitude_m"] = float(self.cappi_altitude_m)
+        if self.cappi_tolerance_m is not None:
+            meta["cappi_tolerance_m"] = float(self.cappi_tolerance_m)
+        if self.xsec_azimuth_deg is not None:
+            meta["xsec_azimuth_deg"] = float(self.xsec_azimuth_deg)
+        if self.xsec_azimuth_tolerance_deg is not None:
+            meta["xsec_azimuth_tolerance_deg"] = float(self.xsec_azimuth_tolerance_deg)
+        if self.sweep_elevations_deg is not None:
+            meta["sweep_elevations_deg"] = [
+                float(e) for e in self.sweep_elevations_deg
+            ]
+        if self.sweep_num_returns is not None:
+            meta["sweep_num_returns"] = [int(n) for n in self.sweep_num_returns]
+
+        return {
+            "grid_bytes": np.ascontiguousarray(
+                self.grid.ravel(), dtype=np.float32
+            ).tobytes(),
+            "meta": meta,
+        }
+
+
+@dataclass(frozen=True)
+class WaterfallPayload:
+    """2D heatmap of the raw (return_time, range) moment matrix."""
+
+    grid: np.ndarray  # float32 (n_returns_ds, n_range_ds), NaN = no data
+    azimuth_deg: np.ndarray  # float32 (n_returns_ds,)
+    elevation_deg: np.ndarray  # float32 (n_returns_ds,)
+    return_time_ms: np.ndarray  # float64 (n_returns_ds,) — ms since epoch
+    sweep_number: np.ndarray  # uint16 (n_returns_ds,)
+    sweep_boundaries: np.ndarray  # int32 — indices where sweep changes
+    moment: str
+    vmin: float
+    vmax: float
+    n_returns_orig: int
+    n_range_orig: int
+    range_start_m: float
+    range_step_m: float
+    range_end_m: float
+
+    @property
+    def n_returns(self) -> int:
+        return int(self.grid.shape[0]) if self.grid.ndim == 2 else 0
+
+    @property
+    def n_range(self) -> int:
+        return int(self.grid.shape[1]) if self.grid.ndim == 2 else 0
+
+    def to_widget_state(self) -> dict[str, object]:
+        """Serialize payload to binary traits for widget transport."""
+
+        return {
+            "grid_bytes": np.ascontiguousarray(
+                self.grid.ravel(), dtype=np.float32
+            ).tobytes(),
+            "azimuth_bytes": np.ascontiguousarray(
+                self.azimuth_deg, dtype=np.float32
+            ).tobytes(),
+            "elevation_bytes": np.ascontiguousarray(
+                self.elevation_deg, dtype=np.float32
+            ).tobytes(),
+            "return_time_ms_bytes": np.ascontiguousarray(
+                self.return_time_ms, dtype=np.float64
+            ).tobytes(),
+            "sweep_number_bytes": np.ascontiguousarray(
+                self.sweep_number, dtype=np.uint16
+            ).tobytes(),
+            "sweep_boundary_bytes": np.ascontiguousarray(
+                self.sweep_boundaries, dtype=np.int32
+            ).tobytes(),
+            "meta": {
+                "n_returns": self.n_returns,
+                "n_range": self.n_range,
+                "moment": self.moment,
+                "vmin": float(self.vmin),
+                "vmax": float(self.vmax),
+                "n_returns_orig": self.n_returns_orig,
+                "n_range_orig": self.n_range_orig,
+                "range_start_m": float(self.range_start_m),
+                "range_step_m": float(self.range_step_m),
+                "range_end_m": float(self.range_end_m),
+            },
+        }
+
+
 def get_returns_and_sweeps(dt: xr.DataTree) -> tuple[xr.Dataset, xr.Dataset]:
     """Extract returns/sweeps datasets from a raystack DataTree."""
 
@@ -366,10 +502,10 @@ def prepare_volume_payload(
         raise ValueError(f"moment '{moment}' must be 2D on (return_time, range)")
 
     n_returns, n_range = moment_matrix.shape
-    flat_values = moment_matrix.reshape(-1)
-    finite = np.isfinite(flat_values)
+    finite = np.isfinite(moment_matrix)
+    n_finite = int(finite.sum())
 
-    if n_returns == 0 or n_range == 0 or not np.any(finite):
+    if n_returns == 0 or n_range == 0 or n_finite == 0:
         return VolumePayload(
             x_m=np.empty(0, dtype=np.float32),
             y_m=np.empty(0, dtype=np.float32),
@@ -384,39 +520,27 @@ def prepare_volume_payload(
             vmax=1.0,
         )
 
+    row_idx, col_idx = np.nonzero(finite)
+    values_sel = moment_matrix[row_idx, col_idx]
+
+    if max_points is not None and max_points > 0 and n_finite > max_points:
+        keep = _sample_indices(n_finite, max_points)
+        row_idx = row_idx[keep]
+        col_idx = col_idx[keep]
+        values_sel = values_sel[keep]
+
     azimuth = np.asarray(returns["azimuth"].values, dtype=np.float32)
     elevation = np.asarray(returns["elevation"].values, dtype=np.float32)
     base_range = np.asarray(returns["base_range"].values, dtype=np.float32)
     range_step = np.asarray(returns["range_step"].values, dtype=np.float32)
 
-    gate_index_full = np.tile(np.arange(n_range, dtype=np.uint16), n_returns)
-    return_index_full = np.repeat(np.arange(n_returns, dtype=np.uint32), n_range)
-    azimuth_full = np.repeat(azimuth, n_range)
-    elevation_full = np.repeat(elevation, n_range)
-    base_range_full = np.repeat(base_range, n_range)
-    range_step_full = np.repeat(range_step, n_range)
-
-    gate_index_sel = gate_index_full[finite]
-    return_index_sel = return_index_full[finite]
-    azimuth_sel = azimuth_full[finite]
-    elevation_sel = elevation_full[finite]
-    values_sel = flat_values[finite]
-    range_sel = base_range_full[finite] + gate_index_sel.astype(np.float32) * range_step_full[finite]
+    azimuth_sel = azimuth[row_idx]
+    elevation_sel = elevation[row_idx]
+    range_sel = base_range[row_idx] + col_idx.astype(np.float32) * range_step[row_idx]
+    gate_index_sel = col_idx.astype(np.uint16)
+    return_index_sel = row_idx.astype(np.uint32)
 
     x_sel, y_sel, z_sel = _polar_to_cartesian(azimuth_sel, elevation_sel, range_sel)
-
-    n_points = int(values_sel.size)
-    if max_points is not None and max_points > 0 and n_points > max_points:
-        keep = _sample_indices(n_points, max_points)
-        x_sel = x_sel[keep]
-        y_sel = y_sel[keep]
-        z_sel = z_sel[keep]
-        range_sel = range_sel[keep]
-        azimuth_sel = azimuth_sel[keep]
-        elevation_sel = elevation_sel[keep]
-        values_sel = values_sel[keep]
-        gate_index_sel = gate_index_sel[keep]
-        return_index_sel = return_index_sel[keep]
 
     vmin, vmax = _value_bounds(values_sel)
     max_abs_m = float(
@@ -447,7 +571,7 @@ def prepare_ray_payload(
     moment: str,
     max_points: int | None = None,
 ) -> VolumePayload:
-    """Create a ray-centric payload with one endpoint per return ray."""
+    """Create a ray-centric payload with one full-length ray per return."""
 
     if moment not in returns.data_vars:
         raise KeyError(f"moment '{moment}' not found in returns dataset")
@@ -472,40 +596,25 @@ def prepare_ray_payload(
             vmax=1.0,
         )
 
-    finite = np.isfinite(moment_matrix)
-    has_finite = np.any(finite, axis=1)
-    if not np.any(has_finite):
-        return VolumePayload(
-            x_m=np.empty(0, dtype=np.float32),
-            y_m=np.empty(0, dtype=np.float32),
-            z_m=np.empty(0, dtype=np.float32),
-            values=np.empty(0, dtype=np.float32),
-            gate_index=np.empty(0, dtype=np.uint16),
-            return_index=np.empty(0, dtype=np.uint32),
-            moment=moment,
-            render_mode="rays",
-            max_abs_m=0.0,
-            vmin=0.0,
-            vmax=1.0,
-        )
-
-    return_rows = np.nonzero(has_finite)[0]
-    finite_rows = finite[has_finite]
-    # finite_rows is guaranteed to have at least one True per row.
-    last_gate = (n_range - 1 - np.argmax(finite_rows[:, ::-1], axis=1)).astype(np.uint16)
-
-    azimuth = np.asarray(returns["azimuth"].values, dtype=np.float32)[has_finite]
-    elevation = np.asarray(returns["elevation"].values, dtype=np.float32)[has_finite]
-    base_range = np.asarray(returns["base_range"].values, dtype=np.float32)[has_finite]
-    range_step = np.asarray(returns["range_step"].values, dtype=np.float32)[has_finite]
+    azimuth = np.asarray(returns["azimuth"].values, dtype=np.float32)
+    elevation = np.asarray(returns["elevation"].values, dtype=np.float32)
+    base_range = np.asarray(returns["base_range"].values, dtype=np.float32)
+    range_step = np.asarray(returns["range_step"].values, dtype=np.float32)
+    return_rows = np.arange(n_returns, dtype=np.uint32)
+    last_gate = np.full(n_returns, n_range - 1, dtype=np.uint16)
 
     endpoint_range = base_range + last_gate.astype(np.float32) * range_step
-    endpoint_values = moment_matrix[return_rows, last_gate.astype(np.int64)]
-
     x_sel, y_sel, z_sel = _polar_to_cartesian(azimuth, elevation, endpoint_range)
     gate_index_sel = last_gate
-    return_index_sel = return_rows.astype(np.uint32)
-    values_sel = endpoint_values.astype(np.float32, copy=False)
+    return_index_sel = return_rows
+
+    # Color each full ray by its strongest finite gate in this moment.
+    finite = np.isfinite(moment_matrix)
+    has_finite = np.any(finite, axis=1)
+    safe_matrix = np.where(finite, moment_matrix, -np.inf)
+    ray_max = np.max(safe_matrix, axis=1)
+    ray_values = np.where(has_finite, ray_max, np.nan).astype(np.float32, copy=False)
+    values_sel = ray_values
 
     n_points = int(values_sel.size)
     if max_points is not None and max_points > 0 and n_points > max_points:
@@ -517,7 +626,8 @@ def prepare_ray_payload(
         gate_index_sel = gate_index_sel[keep]
         return_index_sel = return_index_sel[keep]
 
-    vmin, vmax = _value_bounds(values_sel)
+    finite_values = values_sel[np.isfinite(values_sel)]
+    vmin, vmax = _value_bounds(finite_values if finite_values.size else values_sel)
     max_abs_m = float(
         max(
             np.nanmax(np.abs(x_sel)) if x_sel.size else 0.0,
@@ -538,6 +648,383 @@ def prepare_ray_payload(
         max_abs_m=max_abs_m,
         vmin=vmin,
         vmax=vmax,
+    )
+
+
+def _extract_all_gates(
+    returns: xr.Dataset, moment: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Extract all finite gates and return (azimuth, elevation, range, values, finite_mask) arrays.
+
+    Returns flat arrays for azimuth_deg, elevation_deg, range_m, values
+    over all finite gates.
+    """
+    moment_matrix = np.asarray(returns[moment].values, dtype=np.float32)
+    if moment_matrix.ndim != 2:
+        raise ValueError(f"moment '{moment}' must be 2D on (return_time, range)")
+
+    n_returns, n_range = moment_matrix.shape
+    flat_values = moment_matrix.reshape(-1)
+    finite = np.isfinite(flat_values)
+
+    if n_returns == 0 or n_range == 0 or not np.any(finite):
+        empty = np.empty(0, dtype=np.float32)
+        return empty, empty, empty, empty, finite
+
+    azimuth = np.asarray(returns["azimuth"].values, dtype=np.float32)
+    elevation = np.asarray(returns["elevation"].values, dtype=np.float32)
+    base_range = np.asarray(returns["base_range"].values, dtype=np.float32)
+    range_step = np.asarray(returns["range_step"].values, dtype=np.float32)
+
+    gate_indices = np.tile(np.arange(n_range, dtype=np.float32), n_returns)
+    azimuth_full = np.repeat(azimuth, n_range)
+    elevation_full = np.repeat(elevation, n_range)
+    base_range_full = np.repeat(base_range, n_range)
+    range_step_full = np.repeat(range_step, n_range)
+
+    range_full = base_range_full + gate_indices * range_step_full
+
+    return (
+        azimuth_full[finite],
+        elevation_full[finite],
+        range_full[finite],
+        flat_values[finite],
+        finite,
+    )
+
+
+def _sweep_metadata(
+    sweeps: xr.Dataset,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Extract per-sweep elevations and return counts."""
+    infos = sweep_infos(sweeps)
+    elevations = np.array([s.elevation_deg for s in infos], dtype=np.float32)
+    counts = np.array([s.num_returns for s in infos], dtype=np.int32)
+    return elevations, counts
+
+
+def prepare_cappi_payload(
+    returns: xr.Dataset,
+    sweeps: xr.Dataset,
+    moment: str,
+    altitude_m: float,
+    tolerance_m: float | None = None,
+    grid_size: int = 500,
+    max_range_m: float | None = None,
+) -> GridPayload:
+    """Create a CAPPI (constant altitude) horizontal slice through the volume."""
+
+    if moment not in returns.data_vars:
+        raise KeyError(f"moment '{moment}' not found in returns dataset")
+
+    az, el, rng, vals, finite = _extract_all_gates(returns, moment)
+
+    if az.size == 0:
+        grid = np.full((grid_size, grid_size), np.nan, dtype=np.float32)
+        sweep_el, sweep_nr = _sweep_metadata(sweeps)
+        return GridPayload(
+            grid=grid,
+            grid_mode="cappi",
+            moment=moment,
+            vmin=0.0,
+            vmax=1.0,
+            x_min=-1.0,
+            x_max=1.0,
+            y_min=-1.0,
+            y_max=1.0,
+            x_label="East (km)",
+            y_label="North (km)",
+            cappi_altitude_m=altitude_m,
+            cappi_tolerance_m=tolerance_m or 500.0,
+            sweep_elevations_deg=sweep_el,
+            sweep_num_returns=sweep_nr,
+        )
+
+    x, y, z = _polar_to_cartesian(az, el, rng)
+
+    # Auto-compute tolerance if not provided
+    if tolerance_m is None:
+        z_finite = z[np.isfinite(z)]
+        if z_finite.size > 1:
+            unique_els = np.unique(np.round(el, decimals=1))
+            n_els = max(len(unique_els), 1)
+            z_range = float(np.ptp(z_finite))
+            tolerance_m = max(z_range / (2.0 * n_els), 100.0)
+        else:
+            tolerance_m = 500.0
+
+    # Select gates in altitude band
+    mask = np.abs(z - altitude_m) < tolerance_m
+    x_sel = x[mask]
+    y_sel = y[mask]
+    vals_sel = vals[mask]
+
+    # Determine grid extents
+    if max_range_m is not None:
+        extent = float(max_range_m)
+    elif x_sel.size > 0:
+        extent = float(
+            max(np.nanmax(np.abs(x_sel)), np.nanmax(np.abs(y_sel)), 1.0)
+        )
+    else:
+        extent = float(max(np.nanmax(np.abs(x)), np.nanmax(np.abs(y)), 1.0))
+
+    x_min, x_max = -extent, extent
+    y_min, y_max = -extent, extent
+
+    # Bin into regular grid
+    grid = np.full((grid_size, grid_size), np.nan, dtype=np.float64)
+    count = np.zeros((grid_size, grid_size), dtype=np.int32)
+
+    if x_sel.size > 0:
+        col = ((x_sel - x_min) / (x_max - x_min) * grid_size).astype(np.int64)
+        row = ((y_max - y_sel) / (y_max - y_min) * grid_size).astype(np.int64)
+        valid = (col >= 0) & (col < grid_size) & (row >= 0) & (row < grid_size)
+        col = col[valid]
+        row = row[valid]
+        v = vals_sel[valid].astype(np.float64)
+
+        # Use np.add.at for accumulation
+        accum = np.zeros((grid_size, grid_size), dtype=np.float64)
+        np.add.at(accum, (row, col), v)
+        np.add.at(count, (row, col), 1)
+
+        has_data = count > 0
+        grid[has_data] = accum[has_data] / count[has_data]
+
+    grid = grid.astype(np.float32)
+    finite_grid = grid[np.isfinite(grid)]
+    vmin, vmax = _value_bounds(finite_grid) if finite_grid.size > 0 else (0.0, 1.0)
+
+    sweep_el, sweep_nr = _sweep_metadata(sweeps)
+
+    return GridPayload(
+        grid=grid,
+        grid_mode="cappi",
+        moment=moment,
+        vmin=vmin,
+        vmax=vmax,
+        x_min=x_min,
+        x_max=x_max,
+        y_min=y_min,
+        y_max=y_max,
+        x_label="East (km)",
+        y_label="North (km)",
+        cappi_altitude_m=altitude_m,
+        cappi_tolerance_m=tolerance_m,
+        sweep_elevations_deg=sweep_el,
+        sweep_num_returns=sweep_nr,
+    )
+
+
+def prepare_xsec_payload(
+    returns: xr.Dataset,
+    sweeps: xr.Dataset,
+    moment: str,
+    azimuth_deg: float,
+    azimuth_tolerance_deg: float = 2.0,
+    grid_size: int = 500,
+) -> GridPayload:
+    """Create a vertical cross-section along a target azimuth (and its opposite)."""
+
+    if moment not in returns.data_vars:
+        raise KeyError(f"moment '{moment}' not found in returns dataset")
+
+    az, el, rng, vals, finite = _extract_all_gates(returns, moment)
+
+    sweep_el, sweep_nr = _sweep_metadata(sweeps)
+
+    if az.size == 0:
+        grid = np.full((grid_size, grid_size), np.nan, dtype=np.float32)
+        return GridPayload(
+            grid=grid,
+            grid_mode="xsec",
+            moment=moment,
+            vmin=0.0,
+            vmax=1.0,
+            x_min=-1.0,
+            x_max=1.0,
+            y_min=0.0,
+            y_max=1.0,
+            x_label="Ground range (km)",
+            y_label="Altitude (km)",
+            xsec_azimuth_deg=azimuth_deg,
+            xsec_azimuth_tolerance_deg=azimuth_tolerance_deg,
+            sweep_elevations_deg=sweep_el,
+            sweep_num_returns=sweep_nr,
+        )
+
+    x, y, z = _polar_to_cartesian(az, el, rng)
+
+    # Compute angular difference with wraparound for forward direction
+    target = azimuth_deg % 360.0
+    opposite = (azimuth_deg + 180.0) % 360.0
+    tol = azimuth_tolerance_deg
+
+    diff_fwd = np.abs(((az - target + 180.0) % 360.0) - 180.0)
+    diff_bwd = np.abs(((az - opposite + 180.0) % 360.0) - 180.0)
+
+    mask_fwd = diff_fwd < tol
+    mask_bwd = diff_bwd < tol
+
+    # Signed ground range: positive = forward, negative = backward
+    ground_range = np.sqrt(x**2 + y**2)
+    signed_range = np.where(mask_fwd, ground_range, np.where(mask_bwd, -ground_range, 0.0))
+
+    mask = mask_fwd | mask_bwd
+    sr_sel = signed_range[mask]
+    z_sel = z[mask]
+    vals_sel = vals[mask]
+
+    # Determine grid extents
+    if sr_sel.size > 0:
+        r_max = float(np.nanmax(np.abs(sr_sel)))
+        z_max = float(np.nanmax(z_sel)) if z_sel.size > 0 else 1.0
+        z_min_val = float(np.nanmin(z_sel)) if z_sel.size > 0 else 0.0
+    else:
+        r_max = float(np.nanmax(ground_range)) if ground_range.size > 0 else 1.0
+        z_max = float(np.nanmax(z)) if z.size > 0 else 1.0
+        z_min_val = 0.0
+
+    x_min = -r_max
+    x_max = r_max
+    y_min = min(z_min_val, 0.0)
+    y_max = max(z_max, 1.0)
+
+    # Bin into regular grid (rows=altitude, cols=ground_range)
+    grid = np.full((grid_size, grid_size), np.nan, dtype=np.float64)
+    count = np.zeros((grid_size, grid_size), dtype=np.int32)
+
+    if sr_sel.size > 0:
+        col = ((sr_sel - x_min) / (x_max - x_min) * grid_size).astype(np.int64)
+        row = ((y_max - z_sel) / (y_max - y_min) * grid_size).astype(np.int64)
+        valid = (col >= 0) & (col < grid_size) & (row >= 0) & (row < grid_size)
+        col = col[valid]
+        row = row[valid]
+        v = vals_sel[valid].astype(np.float64)
+
+        accum = np.zeros((grid_size, grid_size), dtype=np.float64)
+        np.add.at(accum, (row, col), v)
+        np.add.at(count, (row, col), 1)
+
+        has_data = count > 0
+        grid[has_data] = accum[has_data] / count[has_data]
+
+    grid = grid.astype(np.float32)
+    finite_grid = grid[np.isfinite(grid)]
+    vmin, vmax = _value_bounds(finite_grid) if finite_grid.size > 0 else (0.0, 1.0)
+
+    return GridPayload(
+        grid=grid,
+        grid_mode="xsec",
+        moment=moment,
+        vmin=vmin,
+        vmax=vmax,
+        x_min=x_min,
+        x_max=x_max,
+        y_min=y_min,
+        y_max=y_max,
+        x_label="Ground range (km)",
+        y_label="Altitude (km)",
+        xsec_azimuth_deg=azimuth_deg,
+        xsec_azimuth_tolerance_deg=azimuth_tolerance_deg,
+        sweep_elevations_deg=sweep_el,
+        sweep_num_returns=sweep_nr,
+    )
+
+
+def prepare_waterfall_payload(
+    returns: xr.Dataset,
+    moment: str,
+    max_returns: int = 2048,
+    max_range: int = 1024,
+    fold_size: int | None = None,
+) -> WaterfallPayload:
+    """Create a waterfall heatmap payload from the raw (return_time, range) matrix.
+
+    Parameters
+    ----------
+    fold_size : int | None
+        If given, crop the range dimension to at most this many gates before
+        downsampling.  ``None`` (default) keeps all gates.
+    """
+
+    if moment not in returns.data_vars:
+        raise KeyError(f"moment '{moment}' not found in returns dataset")
+
+    moment_matrix = np.asarray(returns[moment].values, dtype=np.float32)
+    if moment_matrix.ndim != 2:
+        raise ValueError(f"moment '{moment}' must be 2D on (return_time, range)")
+
+    n_returns, n_range_full = moment_matrix.shape
+
+    # Crop range dimension to fold_size if requested
+    n_range = n_range_full
+    if fold_size is not None and fold_size > 0 and fold_size < n_range_full:
+        moment_matrix = moment_matrix[:, :fold_size]
+        n_range = fold_size
+
+    if n_returns == 0 or n_range == 0:
+        return WaterfallPayload(
+            grid=np.empty((0, 0), dtype=np.float32),
+            azimuth_deg=np.empty(0, dtype=np.float32),
+            elevation_deg=np.empty(0, dtype=np.float32),
+            return_time_ms=np.empty(0, dtype=np.float64),
+            sweep_number=np.empty(0, dtype=np.uint16),
+            sweep_boundaries=np.empty(0, dtype=np.int32),
+            moment=moment,
+            vmin=0.0,
+            vmax=1.0,
+            n_returns_orig=n_returns,
+            n_range_orig=n_range_full,
+            range_start_m=0.0,
+            range_step_m=0.0,
+            range_end_m=0.0,
+        )
+
+    # Compute strides for downsampling
+    return_stride = max(1, int(np.ceil(n_returns / max_returns)))
+    range_stride = max(1, int(np.ceil(n_range / max_range)))
+
+    grid = moment_matrix[::return_stride, ::range_stride]
+
+    # Per-return metadata
+    azimuth = np.asarray(returns["azimuth"].values, dtype=np.float32)[::return_stride]
+    elevation = np.asarray(returns["elevation"].values, dtype=np.float32)[::return_stride]
+    return_time_raw = returns["return_time"].values
+    return_time_ms = (
+        return_time_raw.astype("datetime64[ms]").astype(np.float64)[::return_stride]
+    )
+    sweep_num = np.asarray(returns["sweep_number"].values, dtype=np.uint16)[::return_stride]
+
+    # Sweep boundaries: indices where sweep_number changes
+    changes = np.where(np.diff(sweep_num) != 0)[0] + 1
+    sweep_boundaries = changes.astype(np.int32)
+
+    # Range metadata
+    base_range = np.asarray(returns["base_range"].values, dtype=np.float32)
+    range_step_arr = np.asarray(returns["range_step"].values, dtype=np.float32)
+    range_start_m = float(np.median(base_range))
+    range_step_m = float(np.median(range_step_arr))
+    range_end_m = range_start_m + (n_range - 1) * range_step_m
+
+    vmin, vmax = _value_bounds(grid[np.isfinite(grid)]) if np.any(np.isfinite(grid)) else (0.0, 1.0)
+
+    return WaterfallPayload(
+        grid=np.ascontiguousarray(grid, dtype=np.float32),
+        azimuth_deg=np.ascontiguousarray(azimuth, dtype=np.float32),
+        elevation_deg=np.ascontiguousarray(elevation, dtype=np.float32),
+        return_time_ms=np.ascontiguousarray(return_time_ms, dtype=np.float64),
+        sweep_number=np.ascontiguousarray(sweep_num, dtype=np.uint16),
+        sweep_boundaries=sweep_boundaries,
+        moment=moment,
+        vmin=vmin,
+        vmax=vmax,
+        n_returns_orig=n_returns,
+        n_range_orig=n_range_full,
+        range_start_m=range_start_m,
+        range_step_m=range_step_m,
+        range_end_m=range_end_m,
     )
 
 
@@ -1231,8 +1718,20 @@ export default {
     model.on("change:pitch_deg", onAngleChange);
 
     refreshFromModel();
+    // deck.gl may skip the first paint if the container isn't visible yet
+    // (e.g. marimo defers widget display).  Re-render once it enters the
+    // viewport so the WebGL canvas gets the correct dimensions.
+    let visObs = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && deck) {
+        visObs.disconnect();
+        visObs = null;
+        deck.setProps({ width: readWidth(), height: readHeight(), layers: [buildLayer()] });
+      }
+    }, { threshold: 0.01 });
+    visObs.observe(root);
 
     return () => {
+      if (visObs) { visObs.disconnect(); visObs = null; }
       for (const key of redrawWatched) {
         model.off(`change:${key}`, refreshFromModel);
       }
@@ -1247,6 +1746,1046 @@ export default {
         deck.finalize();
         deck = null;
       }
+    };
+  },
+};
+"""
+
+_GRID_WIDGET_ESM: Final[str] = r"""
+function toArrayBuffer(raw) {
+  if (!raw) return new ArrayBuffer(0);
+  if (raw instanceof ArrayBuffer) return raw;
+  if (ArrayBuffer.isView(raw)) {
+    return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+  }
+  return new Uint8Array(raw).buffer;
+}
+
+function decodeArray(raw, ctor) {
+  const buffer = toArrayBuffer(raw);
+  if (buffer.byteLength === 0) return new ctor(0);
+  const bytesPerElement = ctor.BYTES_PER_ELEMENT;
+  const trimmed = buffer.byteLength - (buffer.byteLength % bytesPerElement);
+  return new ctor(buffer.slice(0, trimmed));
+}
+
+function clamp01(x) {
+  if (x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function colorMap(t) {
+  const x = clamp01(t);
+  const stops = [
+    [68, 1, 84],
+    [59, 82, 139],
+    [33, 145, 140],
+    [94, 201, 98],
+    [253, 231, 37],
+  ];
+  const scaled = x * (stops.length - 1);
+  const lo = Math.floor(scaled);
+  const hi = Math.min(stops.length - 1, lo + 1);
+  const local = scaled - lo;
+  return [
+    Math.round(lerp(stops[lo][0], stops[hi][0], local)),
+    Math.round(lerp(stops[lo][1], stops[hi][1], local)),
+    Math.round(lerp(stops[lo][2], stops[hi][2], local)),
+  ];
+}
+
+/** Compute nice round tick positions within [lo, hi] in world units. */
+function niceTicks(lo, hi, maxTicks) {
+  const range = hi - lo;
+  if (range <= 0) return [];
+  const rough = range / maxTicks;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  let step = mag;
+  if (rough / mag >= 5) step = mag * 5;
+  else if (rough / mag >= 2) step = mag * 2;
+  const ticks = [];
+  const start = Math.ceil(lo / step) * step;
+  for (let v = start; v <= hi; v += step) {
+    ticks.push(v);
+  }
+  return ticks;
+}
+
+function drawGridImage(ctx, grid, nRows, nCols, vmin, vmax, marginLeft, marginTop, plotW, plotH) {
+  if (nRows === 0 || nCols === 0) return;
+  const denom = vmax > vmin ? (vmax - vmin) : 1.0;
+  const image = ctx.createImageData(plotW, plotH);
+  const pixels = image.data;
+
+  for (let py = 0; py < plotH; py++) {
+    const row = Math.floor((py / plotH) * nRows);
+    for (let px = 0; px < plotW; px++) {
+      const col = Math.floor((px / plotW) * nCols);
+      const val = grid[row * nCols + col];
+      const off = (py * plotW + px) * 4;
+      if (!Number.isFinite(val)) {
+        pixels[off + 3] = 0;
+        continue;
+      }
+      const [r, g, b] = colorMap((val - vmin) / denom);
+      pixels[off] = r;
+      pixels[off + 1] = g;
+      pixels[off + 2] = b;
+      pixels[off + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, marginLeft, marginTop);
+}
+
+function drawAxes(ctx, meta, marginLeft, marginTop, plotW, plotH, canvasW, canvasH) {
+  const xMin = Number(meta.x_min);
+  const xMax = Number(meta.x_max);
+  const yMin = Number(meta.y_min);
+  const yMax = Number(meta.y_max);
+  const xLabel = String(meta.x_label || "");
+  const yLabel = String(meta.y_label || "");
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(110, 118, 129, 0.5)";
+  ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
+  ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+  ctx.lineWidth = 1;
+
+  // X-axis ticks (bottom)
+  const xTicks = niceTicks(xMin / 1000, xMax / 1000, 8);
+  const marginBottom = canvasH - marginTop - plotH;
+  for (const km of xTicks) {
+    const px = marginLeft + ((km * 1000 - xMin) / (xMax - xMin)) * plotW;
+    ctx.beginPath();
+    ctx.moveTo(px, marginTop + plotH);
+    ctx.lineTo(px, marginTop + plotH + 4);
+    ctx.stroke();
+    ctx.fillText(km.toFixed(0), px - 8, marginTop + plotH + 14);
+  }
+  ctx.fillText(xLabel, marginLeft + plotW / 2 - 30, canvasH - 4);
+
+  // Y-axis ticks (left)
+  const yTicks = niceTicks(yMin / 1000, yMax / 1000, 8);
+  for (const km of yTicks) {
+    const py = marginTop + (1 - (km * 1000 - yMin) / (yMax - yMin)) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(marginLeft - 4, py);
+    ctx.lineTo(marginLeft, py);
+    ctx.stroke();
+    ctx.fillText(km.toFixed(0), 4, py + 4);
+  }
+  ctx.save();
+  ctx.translate(10, marginTop + plotH / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(yLabel, -30, 0);
+  ctx.restore();
+
+  // Border around plot area
+  ctx.strokeStyle = "rgba(110, 118, 129, 0.7)";
+  ctx.strokeRect(marginLeft, marginTop, plotW, plotH);
+
+  ctx.restore();
+}
+
+function drawCappiGuides(ctx, meta, marginLeft, marginTop, plotW, plotH) {
+  const xMin = Number(meta.x_min);
+  const xMax = Number(meta.x_max);
+  const yMin = Number(meta.y_min);
+  const yMax = Number(meta.y_max);
+
+  ctx.save();
+
+  // Range rings centered on radar (x=0, y=0)
+  const cx = marginLeft + ((0 - xMin) / (xMax - xMin)) * plotW;
+  const cy = marginTop + ((yMax - 0) / (yMax - yMin)) * plotH;
+  const maxExtent = Math.max(Math.abs(xMin), xMax, Math.abs(yMin), yMax);
+  const ringStep = maxExtent > 200000 ? 100000 : maxExtent > 50000 ? 50000 : 10000;
+
+  ctx.strokeStyle = "rgba(110, 118, 129, 0.25)";
+  ctx.lineWidth = 0.5;
+  for (let r = ringStep; r < maxExtent * 1.5; r += ringStep) {
+    const rpx = (r / (xMax - xMin)) * plotW;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rpx, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Crosshairs through radar
+  ctx.strokeStyle = "rgba(110, 118, 129, 0.35)";
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(marginLeft, cy);
+  ctx.lineTo(marginLeft + plotW, cy);
+  ctx.moveTo(cx, marginTop);
+  ctx.lineTo(cx, marginTop + plotH);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // N/E/S/W labels
+  ctx.fillStyle = "rgba(17, 24, 39, 0.7)";
+  ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+  ctx.fillText("N", cx + 2, marginTop + 10);
+  ctx.fillText("S", cx + 2, marginTop + plotH - 4);
+  ctx.fillText("E", marginLeft + plotW - 10, cy - 4);
+  ctx.fillText("W", marginLeft + 2, cy - 4);
+
+  ctx.restore();
+}
+
+function drawXsecGuides(ctx, meta, marginLeft, marginTop, plotW, plotH) {
+  const xMin = Number(meta.x_min);
+  const xMax = Number(meta.x_max);
+  const yMin = Number(meta.y_min);
+  const yMax = Number(meta.y_max);
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(110, 118, 129, 0.3)";
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([4, 4]);
+
+  // Horizontal lines at round km altitudes
+  const altTicks = niceTicks(yMin / 1000, yMax / 1000, 6);
+  for (const km of altTicks) {
+    const py = marginTop + (1 - (km * 1000 - yMin) / (yMax - yMin)) * plotH;
+    ctx.beginPath();
+    ctx.moveTo(marginLeft, py);
+    ctx.lineTo(marginLeft + plotW, py);
+    ctx.stroke();
+  }
+
+  // Vertical lines at round km ranges
+  const rngTicks = niceTicks(xMin / 1000, xMax / 1000, 8);
+  for (const km of rngTicks) {
+    const px = marginLeft + ((km * 1000 - xMin) / (xMax - xMin)) * plotW;
+    ctx.beginPath();
+    ctx.moveTo(px, marginTop);
+    ctx.lineTo(px, marginTop + plotH);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // Emphasized vertical line at range=0 (the radar)
+  const radarX = marginLeft + ((0 - xMin) / (xMax - xMin)) * plotW;
+  ctx.strokeStyle = "rgba(220, 38, 38, 0.5)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(radarX, marginTop);
+  ctx.lineTo(radarX, marginTop + plotH);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawElevationDiagram(ctx, meta, canvasW, canvasH) {
+  const sweepElevations = meta.sweep_elevations_deg;
+  if (!sweepElevations || sweepElevations.length === 0) return;
+
+  const dw = 160;
+  const dh = 100;
+  const dx = canvasW - dw - 12;
+  const dy = canvasH - dh - 12;
+
+  ctx.save();
+  // Background panel
+  ctx.fillStyle = "rgba(17, 24, 39, 0.80)";
+  ctx.beginPath();
+  ctx.roundRect(dx, dy, dw, dh, 4);
+  ctx.fill();
+
+  const mode = String(meta.grid_mode);
+  const ox = dx + 10;
+  const oy = dy + dh - 10;
+  const maxLen = dw - 20;
+  const maxAlt = dh - 20;
+
+  // Determine active sweeps
+  const cappiAlt = Number(meta.cappi_altitude_m) || 0;
+  const cappiTol = Number(meta.cappi_tolerance_m) || 0;
+  const xMaxM = Number(meta.x_max) || 1;
+
+  for (let i = 0; i < sweepElevations.length; i++) {
+    const el = sweepElevations[i];
+    const rad = (el * Math.PI) / 180;
+    let active = false;
+
+    if (mode === "cappi") {
+      const maxZ = xMaxM * Math.sin(rad);
+      active = el > 0 && (cappiAlt - cappiTol) < maxZ && (cappiAlt + cappiTol) > 0;
+    } else {
+      active = true;
+    }
+
+    ctx.strokeStyle = active ? "rgba(34, 197, 94, 0.8)" : "rgba(110, 118, 129, 0.5)";
+    ctx.lineWidth = active ? 1.5 : 0.8;
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    const endX = ox + maxLen * Math.cos(rad);
+    const endY = oy - maxLen * Math.sin(rad);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+  }
+
+  // CAPPI altitude line
+  if (mode === "cappi") {
+    const maxElRad = Math.max(...sweepElevations) * Math.PI / 180;
+    const altScale = maxAlt / (xMaxM * Math.sin(Math.max(maxElRad, 0.01)));
+    const altPx = Math.min(cappiAlt * altScale, maxAlt);
+    ctx.strokeStyle = "rgba(253, 231, 37, 0.7)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(ox, oy - altPx);
+    ctx.lineTo(ox + maxLen, oy - altPx);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Label
+  ctx.fillStyle = "rgba(249, 250, 251, 0.8)";
+  ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+  ctx.fillText("Elevation beams", dx + 6, dy + 12);
+
+  ctx.restore();
+}
+
+function drawAzimuthIndicator(ctx, meta, canvasW) {
+  const mode = String(meta.grid_mode);
+  const dw = 80;
+  const dh = 80;
+  const dx = canvasW - dw - 12;
+  const dy = 12;
+
+  ctx.save();
+  ctx.fillStyle = "rgba(17, 24, 39, 0.80)";
+  ctx.beginPath();
+  ctx.roundRect(dx, dy, dw, dh, 4);
+  ctx.fill();
+
+  const cx = dx + dw / 2;
+  const cy = dy + dh / 2 + 4;
+  const r = 28;
+
+  ctx.strokeStyle = "rgba(110, 118, 129, 0.5)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // N marker
+  ctx.fillStyle = "rgba(249, 250, 251, 0.8)";
+  ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+  ctx.fillText("N", cx - 3, dy + 10);
+
+  if (mode === "cappi") {
+    // Full circle fill for 360-degree coverage
+    ctx.fillStyle = "rgba(34, 197, 94, 0.2)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 2, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (mode === "xsec") {
+    // Line through center at target azimuth
+    const az = Number(meta.xsec_azimuth_deg) || 0;
+    const rad = ((90 - az) * Math.PI) / 180;
+    ctx.strokeStyle = "rgba(253, 231, 37, 0.8)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - r * Math.cos(rad), cy + r * Math.sin(rad));
+    ctx.lineTo(cx + r * Math.cos(rad), cy - r * Math.sin(rad));
+    ctx.stroke();
+    ctx.fillStyle = "rgba(253, 231, 37, 0.9)";
+    ctx.fillText(`${az.toFixed(0)}°`, dx + 4, dy + dh - 6);
+  }
+
+  ctx.restore();
+}
+
+function drawSweepInfo(ctx, meta, marginLeft) {
+  const sweepElevations = meta.sweep_elevations_deg;
+  const sweepCounts = meta.sweep_num_returns;
+  if (!sweepElevations || sweepElevations.length === 0) return;
+
+  const mode = String(meta.grid_mode);
+  const cappiAlt = Number(meta.cappi_altitude_m) || 0;
+  const cappiTol = Number(meta.cappi_tolerance_m) || 0;
+  const xMaxM = Number(meta.x_max) || 1;
+
+  ctx.save();
+  ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+
+  let y = 40;
+  const x = marginLeft + 4;
+
+  // Build sweep labels, max 2 lines
+  const parts = [];
+  for (let i = 0; i < sweepElevations.length; i++) {
+    const el = sweepElevations[i];
+    const cnt = sweepCounts ? sweepCounts[i] : "?";
+    let active = false;
+    if (mode === "cappi") {
+      const rad = (el * Math.PI) / 180;
+      const maxZ = xMaxM * Math.sin(rad);
+      active = el > 0 && (cappiAlt - cappiTol) < maxZ && (cappiAlt + cappiTol) > 0;
+    } else {
+      active = true;
+    }
+    parts.push({ text: `${el.toFixed(1)}°(${cnt})`, active });
+  }
+
+  // Render up to 2 lines, 10 items per line
+  const perLine = 10;
+  for (let line = 0; line < 2 && line * perLine < parts.length; line++) {
+    let lineX = x;
+    const start = line * perLine;
+    const end = Math.min(start + perLine, parts.length);
+    for (let i = start; i < end; i++) {
+      const p = parts[i];
+      ctx.fillStyle = p.active ? "rgba(34, 197, 94, 0.9)" : "rgba(110, 118, 129, 0.7)";
+      ctx.fillText(p.text, lineX, y);
+      lineX += ctx.measureText(p.text).width + 6;
+    }
+    if (end < parts.length && line === 1) {
+      ctx.fillStyle = "rgba(110, 118, 129, 0.7)";
+      ctx.fillText("...", lineX, y);
+    }
+    y += 12;
+  }
+
+  ctx.restore();
+}
+
+function drawModeOverlay(ctx, meta, marginLeft) {
+  const mode = String(meta.grid_mode);
+  const moment = String(meta.moment || "");
+
+  ctx.save();
+  ctx.fillStyle = "rgba(17, 24, 39, 0.75)";
+  ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+
+  let label;
+  if (mode === "cappi") {
+    const altKm = ((Number(meta.cappi_altitude_m) || 0) / 1000).toFixed(1);
+    const tolKm = ((Number(meta.cappi_tolerance_m) || 0) / 1000).toFixed(1);
+    label = `CAPPI alt=${altKm}km | moment=${moment} | tol=${tolKm}km`;
+  } else {
+    const az = (Number(meta.xsec_azimuth_deg) || 0).toFixed(1);
+    label = `Cross-section az=${az}° | moment=${moment}`;
+  }
+
+  // Background for overlay text
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = "rgba(17, 24, 39, 0.75)";
+  ctx.fillRect(marginLeft, 4, tw + 12, 20);
+  ctx.fillStyle = "#f9fafb";
+  ctx.fillText(label, marginLeft + 6, 18);
+
+  ctx.restore();
+}
+
+export default {
+  render({ model, el }) {
+    const root = document.createElement("div");
+    root.className = "radrs-quicklook-root";
+    const canvas = document.createElement("canvas");
+    canvas.className = "radrs-quicklook-canvas";
+    const tooltip = document.createElement("div");
+    tooltip.className = "radrs-quicklook-tooltip";
+    tooltip.style.display = "none";
+
+    root.appendChild(canvas);
+    root.appendChild(tooltip);
+    el.appendChild(root);
+
+    let grid = new Float32Array(0);
+    let lastHover = "";
+
+    const marginLeft = 50;
+    const marginTop = 20;
+    const marginRight = 20;
+    const marginBottom = 40;
+
+    function redraw() {
+      const width = Number(model.get("width")) || 760;
+      const height = Number(model.get("height")) || 760;
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, width, height);
+
+      const meta = model.get("meta") || {};
+      grid = decodeArray(model.get("grid_bytes"), Float32Array);
+
+      const nRows = Number(meta.n_rows) || 0;
+      const nCols = Number(meta.n_cols) || 0;
+      const vmin = Number(meta.vmin);
+      const vmax = Number(meta.vmax);
+      const mode = String(meta.grid_mode || "cappi");
+
+      const plotW = width - marginLeft - marginRight;
+      const plotH = height - marginTop - marginBottom;
+
+      if (nRows > 0 && nCols > 0 && grid.length >= nRows * nCols) {
+        drawGridImage(ctx, grid, nRows, nCols, vmin, vmax, marginLeft, marginTop, plotW, plotH);
+      }
+
+      // Axes
+      drawAxes(ctx, meta, marginLeft, marginTop, plotW, plotH, width, height);
+
+      // Mode-specific guides
+      if (mode === "cappi") {
+        drawCappiGuides(ctx, meta, marginLeft, marginTop, plotW, plotH);
+      } else {
+        drawXsecGuides(ctx, meta, marginLeft, marginTop, plotW, plotH);
+      }
+
+      // Overlay diagrams
+      drawModeOverlay(ctx, meta, marginLeft);
+      drawSweepInfo(ctx, meta, marginLeft);
+      drawElevationDiagram(ctx, meta, width, height);
+      drawAzimuthIndicator(ctx, meta, width);
+    }
+
+    function hideTooltip() {
+      tooltip.style.display = "none";
+      if (lastHover !== "") {
+        lastHover = "";
+        model.set("hover", {});
+        model.save_changes();
+      }
+    }
+
+    function onMove(event) {
+      const meta = model.get("meta") || {};
+      const nRows = Number(meta.n_rows) || 0;
+      const nCols = Number(meta.n_cols) || 0;
+      if (nRows === 0 || nCols === 0 || grid.length === 0) {
+        hideTooltip();
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const px = event.clientX - rect.left;
+      const py = event.clientY - rect.top;
+      const width = canvas.width;
+      const height = canvas.height;
+      const plotW = width - marginLeft - marginRight;
+      const plotH = height - marginTop - marginBottom;
+
+      // Check if inside plot area
+      if (px < marginLeft || px > marginLeft + plotW || py < marginTop || py > marginTop + plotH) {
+        hideTooltip();
+        return;
+      }
+
+      const col = Math.floor(((px - marginLeft) / plotW) * nCols);
+      const row = Math.floor(((py - marginTop) / plotH) * nRows);
+      if (row < 0 || row >= nRows || col < 0 || col >= nCols) {
+        hideTooltip();
+        return;
+      }
+
+      const val = grid[row * nCols + col];
+      if (!Number.isFinite(val)) {
+        hideTooltip();
+        return;
+      }
+
+      const xMin = Number(meta.x_min);
+      const xMax = Number(meta.x_max);
+      const yMin = Number(meta.y_min);
+      const yMax = Number(meta.y_max);
+      const worldX = xMin + (col + 0.5) / nCols * (xMax - xMin);
+      const worldY = yMax - (row + 0.5) / nRows * (yMax - yMin);
+      const mode = String(meta.grid_mode || "cappi");
+
+      let tooltipText;
+      if (mode === "cappi") {
+        const eastKm = (worldX / 1000).toFixed(2);
+        const northKm = (worldY / 1000).toFixed(2);
+        const rangeKm = (Math.sqrt(worldX * worldX + worldY * worldY) / 1000).toFixed(2);
+        tooltipText = `value=${val.toFixed(2)} east=${eastKm}km north=${northKm}km range=${rangeKm}km`;
+      } else {
+        const grndKm = (worldX / 1000).toFixed(2);
+        const altKm = (worldY / 1000).toFixed(2);
+        tooltipText = `value=${val.toFixed(2)} ground_range=${grndKm}km altitude=${altKm}km`;
+      }
+
+      tooltip.style.left = `${Math.max(8, Math.round(px + 10))}px`;
+      tooltip.style.top = `${Math.max(8, Math.round(py + 10))}px`;
+      tooltip.style.display = "block";
+      tooltip.textContent = tooltipText;
+
+      const hoverKey = `${row},${col}`;
+      if (hoverKey !== lastHover) {
+        lastHover = hoverKey;
+        const hover = { row, col, value: Number(val) };
+        if (mode === "cappi") {
+          hover.east_m = Number(worldX);
+          hover.north_m = Number(worldY);
+          hover.range_m = Math.sqrt(worldX * worldX + worldY * worldY);
+        } else {
+          hover.ground_range_m = Number(worldX);
+          hover.altitude_m = Number(worldY);
+        }
+        model.set("hover", hover);
+        model.save_changes();
+      }
+    }
+
+    function onLeave() {
+      hideTooltip();
+    }
+
+    const watched = ["width", "height", "meta", "grid_bytes"];
+    for (const key of watched) {
+      model.on(`change:${key}`, redraw);
+    }
+
+    canvas.addEventListener("mousemove", onMove);
+    canvas.addEventListener("mouseleave", onLeave);
+
+    redraw();
+
+    return () => {
+      for (const key of watched) {
+        model.off(`change:${key}`, redraw);
+      }
+      canvas.removeEventListener("mousemove", onMove);
+      canvas.removeEventListener("mouseleave", onLeave);
+    };
+  },
+};
+"""
+
+_WATERFALL_WIDGET_ESM: Final[str] = r"""
+function toArrayBuffer(raw) {
+  if (!raw) return new ArrayBuffer(0);
+  if (raw instanceof ArrayBuffer) return raw;
+  if (ArrayBuffer.isView(raw)) {
+    return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+  }
+  return new Uint8Array(raw).buffer;
+}
+
+function decodeArray(raw, ctor) {
+  const buffer = toArrayBuffer(raw);
+  if (buffer.byteLength === 0) return new ctor(0);
+  const bytesPerElement = ctor.BYTES_PER_ELEMENT;
+  const trimmed = buffer.byteLength - (buffer.byteLength % bytesPerElement);
+  return new ctor(buffer.slice(0, trimmed));
+}
+
+function clamp01(x) {
+  if (x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function colorMap(t) {
+  const x = clamp01(t);
+  const stops = [
+    [68, 1, 84],
+    [59, 82, 139],
+    [33, 145, 140],
+    [94, 201, 98],
+    [253, 231, 37],
+  ];
+  const scaled = x * (stops.length - 1);
+  const lo = Math.floor(scaled);
+  const hi = Math.min(stops.length - 1, lo + 1);
+  const local = scaled - lo;
+  return [
+    Math.round(lerp(stops[lo][0], stops[hi][0], local)),
+    Math.round(lerp(stops[lo][1], stops[hi][1], local)),
+    Math.round(lerp(stops[lo][2], stops[hi][2], local)),
+  ];
+}
+
+function niceTicks(lo, hi, maxTicks) {
+  const range = hi - lo;
+  if (range <= 0) return [];
+  const rough = range / maxTicks;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  let step = mag;
+  if (rough / mag >= 5) step = mag * 5;
+  else if (rough / mag >= 2) step = mag * 2;
+  const ticks = [];
+  const start = Math.ceil(lo / step) * step;
+  for (let v = start; v <= hi; v += step) {
+    ticks.push(v);
+  }
+  return ticks;
+}
+
+/** Map elevation to blue-red colour. */
+function elevationColor(t) {
+  const x = clamp01(t);
+  return [
+    Math.round(lerp(50, 220, x)),
+    Math.round(lerp(50, 50, x)),
+    Math.round(lerp(220, 50, 1 - x)),
+  ];
+}
+
+export default {
+  render({ model, el }) {
+    const root = document.createElement("div");
+    root.className = "radrs-quicklook-root";
+    const canvas = document.createElement("canvas");
+    canvas.className = "radrs-quicklook-canvas";
+    const tooltip = document.createElement("div");
+    tooltip.className = "radrs-quicklook-tooltip";
+    tooltip.style.display = "none";
+
+    root.appendChild(canvas);
+    root.appendChild(tooltip);
+    el.appendChild(root);
+
+    let grid = new Float32Array(0);
+    let azimuth = new Float32Array(0);
+    let elevation = new Float32Array(0);
+    let returnTimeMs = new Float64Array(0);
+    let sweepNumber = new Uint16Array(0);
+    let sweepBoundaries = new Int32Array(0);
+
+    function formatTimeUTC(ms) {
+      const d = new Date(ms);
+      const hh = String(d.getUTCHours()).padStart(2, "0");
+      const mm = String(d.getUTCMinutes()).padStart(2, "0");
+      const ss = String(d.getUTCSeconds()).padStart(2, "0");
+      return `${hh}:${mm}:${ss}`;
+    }
+    let lastHoverKey = "";
+
+    const marginLeft = 60;
+    const marginTop = 28;
+    const marginRight = 40;
+    const marginBottom = 40;
+    const elevStripW = 30;
+
+    function redraw() {
+      const width = Number(model.get("width")) || 760;
+      const height = Number(model.get("height")) || 760;
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, width, height);
+
+      const meta = model.get("meta") || {};
+      grid = decodeArray(model.get("grid_bytes"), Float32Array);
+      azimuth = decodeArray(model.get("azimuth_bytes"), Float32Array);
+      elevation = decodeArray(model.get("elevation_bytes"), Float32Array);
+      returnTimeMs = decodeArray(model.get("return_time_ms_bytes"), Float64Array);
+      sweepNumber = decodeArray(model.get("sweep_number_bytes"), Uint16Array);
+      sweepBoundaries = decodeArray(model.get("sweep_boundary_bytes"), Int32Array);
+
+      const nReturns = Number(meta.n_returns) || 0;
+      const nRange = Number(meta.n_range) || 0;
+      const vmin = Number(meta.vmin);
+      const vmax = Number(meta.vmax);
+
+      const plotW = width - marginLeft - marginRight - elevStripW;
+      const plotH = height - marginTop - marginBottom;
+
+      // --- Main heatmap ---
+      if (nReturns > 0 && nRange > 0 && grid.length >= nReturns * nRange) {
+        const denom = vmax > vmin ? (vmax - vmin) : 1.0;
+        const image = ctx.createImageData(plotW, plotH);
+        const pixels = image.data;
+
+        for (let py = 0; py < plotH; py++) {
+          const row = Math.floor((py / plotH) * nReturns);
+          for (let px = 0; px < plotW; px++) {
+            const col = Math.floor((px / plotW) * nRange);
+            const val = grid[row * nRange + col];
+            const off = (py * plotW + px) * 4;
+            if (!Number.isFinite(val)) {
+              pixels[off + 3] = 0;
+              continue;
+            }
+            const [r, g, b] = colorMap((val - vmin) / denom);
+            pixels[off] = r;
+            pixels[off + 1] = g;
+            pixels[off + 2] = b;
+            pixels[off + 3] = 255;
+          }
+        }
+        ctx.putImageData(image, marginLeft, marginTop);
+      }
+
+      // --- Sweep boundary lines ---
+      if (nReturns > 0) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+        ctx.lineWidth = 1;
+        for (let i = 0; i < sweepBoundaries.length; i++) {
+          const bndIdx = sweepBoundaries[i];
+          const py = marginTop + (bndIdx / nReturns) * plotH;
+          ctx.beginPath();
+          ctx.moveTo(marginLeft, py);
+          ctx.lineTo(marginLeft + plotW, py);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // --- Elevation side strip ---
+      if (nReturns > 0 && elevation.length >= nReturns) {
+        let elMin = Infinity, elMax = -Infinity;
+        for (let i = 0; i < nReturns; i++) {
+          const e = elevation[i];
+          if (Number.isFinite(e)) {
+            if (e < elMin) elMin = e;
+            if (e > elMax) elMax = e;
+          }
+        }
+        const elRange = elMax > elMin ? elMax - elMin : 1.0;
+        const stripX = marginLeft + plotW + 2;
+        const stripImage = ctx.createImageData(elevStripW - 4, plotH);
+        const sp = stripImage.data;
+        const sw = elevStripW - 4;
+        for (let py = 0; py < plotH; py++) {
+          const row = Math.floor((py / plotH) * nReturns);
+          const t = (elevation[row] - elMin) / elRange;
+          const [r, g, b] = elevationColor(t);
+          for (let px = 0; px < sw; px++) {
+            const off = (py * sw + px) * 4;
+            sp[off] = r;
+            sp[off + 1] = g;
+            sp[off + 2] = b;
+            sp[off + 3] = 255;
+          }
+        }
+        ctx.putImageData(stripImage, stripX, marginTop);
+
+        // Elevation ticks
+        ctx.save();
+        ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
+        ctx.font = "9px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+        ctx.fillText(`${elMax.toFixed(1)}°`, stripX, marginTop - 2);
+        ctx.fillText(`${elMin.toFixed(1)}°`, stripX, marginTop + plotH + 10);
+        ctx.fillText("El", stripX + sw / 2 - 4, marginTop + plotH + 20);
+        ctx.restore();
+      }
+
+      // --- X-axis: Range in km ---
+      const rangeStartM = Number(meta.range_start_m) || 0;
+      const rangeStepM = Number(meta.range_step_m) || 1;
+      const nRangeOrig = Number(meta.n_range_orig) || nRange;
+      const rangeStride = nRange > 0 ? Math.max(1, Math.ceil(nRangeOrig / nRange)) : 1;
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(110, 118, 129, 0.5)";
+      ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
+      ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+      ctx.lineWidth = 1;
+
+      const rangeMinKm = rangeStartM / 1000;
+      const rangeMaxKm = (rangeStartM + (nRange - 1) * rangeStepM * rangeStride) / 1000;
+      const xTicks = niceTicks(rangeMinKm, rangeMaxKm, 8);
+      for (const km of xTicks) {
+        const col = ((km * 1000 - rangeStartM) / (rangeStepM * rangeStride)) / nRange;
+        const px = marginLeft + col * plotW;
+        if (px < marginLeft || px > marginLeft + plotW) continue;
+        ctx.beginPath();
+        ctx.moveTo(px, marginTop + plotH);
+        ctx.lineTo(px, marginTop + plotH + 4);
+        ctx.stroke();
+        ctx.fillText(km.toFixed(0), px - 8, marginTop + plotH + 14);
+      }
+      ctx.fillText("Range (km)", marginLeft + plotW / 2 - 30, height - 4);
+
+      // --- Y-axis: Time with sweep labels ---
+      const nReturnsOrig = Number(meta.n_returns_orig) || nReturns;
+      const returnStride = nReturns > 0 ? Math.max(1, Math.ceil(nReturnsOrig / nReturns)) : 1;
+
+      // Tick at each sweep boundary
+      for (let i = 0; i < sweepBoundaries.length; i++) {
+        const bndIdx = sweepBoundaries[i];
+        const py = marginTop + (bndIdx / nReturns) * plotH;
+        ctx.beginPath();
+        ctx.moveTo(marginLeft - 4, py);
+        ctx.lineTo(marginLeft, py);
+        ctx.stroke();
+        const swpNum = bndIdx < sweepNumber.length ? sweepNumber[bndIdx] : "?";
+        ctx.fillText(`S${swpNum}`, 4, py + 4);
+      }
+      // First sweep label
+      if (sweepNumber.length > 0) {
+        ctx.fillText(`S${sweepNumber[0]}`, 4, marginTop + 10);
+      }
+
+      // Time ticks on y-axis
+      if (returnTimeMs.length >= nReturns && nReturns > 0) {
+        const t0 = returnTimeMs[0];
+        const t1 = returnTimeMs[nReturns - 1];
+        const tRange = t1 - t0;
+        if (tRange > 0) {
+          // Pick nice tick interval in seconds
+          const tRangeSec = tRange / 1000;
+          const niceIntervals = [1, 2, 5, 10, 15, 30, 60, 120, 300];
+          let stepSec = 60;
+          for (const s of niceIntervals) {
+            if (tRangeSec / s <= 8) { stepSec = s; break; }
+          }
+          const stepMs = stepSec * 1000;
+          const startTick = Math.ceil(t0 / stepMs) * stepMs;
+          for (let t = startTick; t <= t1; t += stepMs) {
+            const frac = (t - t0) / tRange;
+            const py = marginTop + frac * plotH;
+            if (py < marginTop || py > marginTop + plotH) continue;
+            ctx.beginPath();
+            ctx.moveTo(marginLeft - 4, py);
+            ctx.lineTo(marginLeft, py);
+            ctx.stroke();
+            ctx.fillText(formatTimeUTC(t), 14, py + 4);
+          }
+        }
+        // Always label first and last time at edges
+        ctx.fillText(formatTimeUTC(t0), 14, marginTop + 10);
+        if (t1 !== t0) {
+          ctx.fillText(formatTimeUTC(t1), 14, marginTop + plotH - 2);
+        }
+      }
+
+      // Border around plot area
+      ctx.strokeStyle = "rgba(110, 118, 129, 0.7)";
+      ctx.strokeRect(marginLeft, marginTop, plotW, plotH);
+
+      ctx.restore();
+
+      // --- Overlay text ---
+      const moment = String(meta.moment || "");
+      const label = `Waterfall | moment=${moment} | ${nReturns}\u00d7${nRange} (from ${nReturnsOrig}\u00d7${nRangeOrig})`;
+      ctx.save();
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = "rgba(17, 24, 39, 0.75)";
+      ctx.fillRect(marginLeft, 4, tw + 12, 20);
+      ctx.fillStyle = "#f9fafb";
+      ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+      ctx.fillText(label, marginLeft + 6, 18);
+      ctx.restore();
+    }
+
+    function hideTooltip() {
+      tooltip.style.display = "none";
+      if (lastHoverKey !== "") {
+        lastHoverKey = "";
+        model.set("hover", {});
+        model.save_changes();
+      }
+    }
+
+    function onMove(event) {
+      const meta = model.get("meta") || {};
+      const nReturns = Number(meta.n_returns) || 0;
+      const nRange = Number(meta.n_range) || 0;
+      if (nReturns === 0 || nRange === 0 || grid.length === 0) {
+        hideTooltip();
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const px = event.clientX - rect.left;
+      const py = event.clientY - rect.top;
+      const width = canvas.width;
+      const height = canvas.height;
+      const plotW = width - marginLeft - marginRight - elevStripW;
+      const plotH = height - marginTop - marginBottom;
+
+      if (px < marginLeft || px > marginLeft + plotW || py < marginTop || py > marginTop + plotH) {
+        hideTooltip();
+        return;
+      }
+
+      const col = Math.floor(((px - marginLeft) / plotW) * nRange);
+      const row = Math.floor(((py - marginTop) / plotH) * nReturns);
+      if (row < 0 || row >= nReturns || col < 0 || col >= nRange) {
+        hideTooltip();
+        return;
+      }
+
+      const val = grid[row * nRange + col];
+      const az = row < azimuth.length ? azimuth[row] : NaN;
+      const el = row < elevation.length ? elevation[row] : NaN;
+      const swp = row < sweepNumber.length ? sweepNumber[row] : -1;
+
+      const rangeStartM = Number(meta.range_start_m) || 0;
+      const rangeStepM = Number(meta.range_step_m) || 1;
+      const nRangeOrig = Number(meta.n_range_orig) || nRange;
+      const rangeStride = Math.max(1, Math.ceil(nRangeOrig / nRange));
+      const rangeKm = (rangeStartM + col * rangeStepM * rangeStride) / 1000;
+
+      const nReturnsOrig = Number(meta.n_returns_orig) || nReturns;
+      const returnStride = Math.max(1, Math.ceil(nReturnsOrig / nReturns));
+      const origRetIdx = row * returnStride;
+
+      const tMs = row < returnTimeMs.length ? returnTimeMs[row] : NaN;
+      const timeStr = Number.isFinite(tMs) ? formatTimeUTC(tMs) : "?";
+      const valStr = Number.isFinite(val) ? val.toFixed(2) : "NaN";
+      tooltip.style.left = `${Math.max(8, Math.round(px + 10))}px`;
+      tooltip.style.top = `${Math.max(8, Math.round(py + 10))}px`;
+      tooltip.style.display = "block";
+      tooltip.textContent =
+        `value=${valStr} time=${timeStr}Z ` +
+        `az=${az.toFixed(2)}° el=${el.toFixed(2)}° sweep=${swp} range=${rangeKm.toFixed(2)}km`;
+
+      const hoverKey = `${row},${col}`;
+      if (hoverKey !== lastHoverKey) {
+        lastHoverKey = hoverKey;
+        model.set("hover", {
+          row,
+          col,
+          value: Number(val),
+          return_index: origRetIdx,
+          gate_index: col * rangeStride,
+          azimuth_deg: Number(az),
+          elevation_deg: Number(el),
+          sweep_number: Number(swp),
+          range_km: rangeKm,
+          time_utc: timeStr,
+        });
+        model.save_changes();
+      }
+    }
+
+    function onLeave() {
+      hideTooltip();
+    }
+
+    const watched = [
+      "width", "height", "meta", "grid_bytes",
+      "azimuth_bytes", "elevation_bytes", "return_time_ms_bytes",
+      "sweep_number_bytes", "sweep_boundary_bytes",
+    ];
+    for (const key of watched) {
+      model.on(`change:${key}`, redraw);
+    }
+
+    canvas.addEventListener("mousemove", onMove);
+    canvas.addEventListener("mouseleave", onLeave);
+
+    redraw();
+
+    return () => {
+      for (const key of watched) {
+        model.off(`change:${key}`, redraw);
+      }
+      canvas.removeEventListener("mousemove", onMove);
+      canvas.removeEventListener("mouseleave", onLeave);
     };
   },
 };
@@ -1296,6 +2835,14 @@ _WIDGET_CSS: Final[str] = """
   max-width: 640px;
   white-space: nowrap;
   z-index: 2;
+}
+
+.radrs-quicklook-inset {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(17, 24, 39, 0.80);
+  border-radius: 4px;
+  padding: 4px;
 }
 """
 
@@ -1372,6 +2919,25 @@ if _anywidget is not None and _traitlets is not None:
             self.meta = {"point_count": 0, "moment": "", "sweep_number": -1}
             self.hover = {}
 
+        @classmethod
+        def from_datatree(
+            cls,
+            dt: xr.DataTree,
+            moment: str,
+            *,
+            sweep_index: int = 0,
+            max_points: int | None = None,
+            width: int = 760,
+            height: int = 760,
+        ) -> "QuicklookPolarWidget":
+            returns, sweeps = get_returns_and_sweeps(dt)
+            payload = prepare_polar_payload(
+                returns, sweeps, sweep_index, moment, max_points=max_points
+            )
+            w = cls(width=width, height=height)
+            w.set_payload(payload)
+            return w
+
     class QuicklookVolumeWidget(_anywidget.AnyWidget):
         """Binary anywidget renderer for volume-wide ray points."""
 
@@ -1430,10 +2996,177 @@ if _anywidget is not None and _traitlets is not None:
             self.meta = {"point_count": 0, "moment": "", "render_mode": "points"}
             self.hover = {}
 
+        @classmethod
+        def from_datatree(
+            cls,
+            dt: xr.DataTree,
+            moment: str,
+            *,
+            max_points: int = 125_000,
+            render_mode: str = "points",
+            width: int = 760,
+            height: int = 760,
+        ) -> "QuicklookVolumeWidget":
+            returns, _sweeps = get_returns_and_sweeps(dt)
+            if render_mode == "rays":
+                payload = prepare_ray_payload(returns, moment, max_points=max_points)
+            else:
+                payload = prepare_volume_payload(returns, moment, max_points=max_points)
+            w = cls(width=width, height=height)
+            w.set_payload(payload)
+            return w
+
+    class QuicklookGridWidget(_anywidget.AnyWidget):
+        """Binary anywidget renderer for 2D gridded CAPPI / cross-section views."""
+
+        _esm = _GRID_WIDGET_ESM
+        _css = _WIDGET_CSS
+
+        width = _traitlets.Int(760).tag(sync=True)
+        height = _traitlets.Int(760).tag(sync=True)
+        grid_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        meta = _traitlets.Dict(default_value={}).tag(sync=True)
+        hover = _traitlets.Dict(default_value={}).tag(sync=True)
+
+        def __init__(self, width: int = 760, height: int = 760):
+            super().__init__()
+            self.width = int(width)
+            self.height = int(height)
+
+        def set_payload(self, payload: GridPayload) -> None:
+            state = payload.to_widget_state()
+            self.grid_bytes = _state_bytes(state, "grid_bytes")
+
+            meta = state.get("meta")
+            if not isinstance(meta, dict):
+                raise TypeError("widget state meta must be a dict")
+            self.meta = meta
+
+        def clear(self) -> None:
+            self.grid_bytes = b""
+            self.meta = {"grid_mode": "cappi", "n_rows": 0, "n_cols": 0, "moment": ""}
+            self.hover = {}
+
+        @classmethod
+        def from_cappi(
+            cls,
+            dt: xr.DataTree,
+            moment: str,
+            *,
+            altitude_m: float = 2000.0,
+            tolerance_m: float = 500.0,
+            grid_size: int = 500,
+            width: int = 760,
+            height: int = 760,
+        ) -> "QuicklookGridWidget":
+            returns, sweeps = get_returns_and_sweeps(dt)
+            payload = prepare_cappi_payload(
+                returns, sweeps, moment,
+                altitude_m=altitude_m, tolerance_m=tolerance_m,
+                grid_size=grid_size,
+            )
+            w = cls(width=width, height=height)
+            w.set_payload(payload)
+            return w
+
+        @classmethod
+        def from_xsec(
+            cls,
+            dt: xr.DataTree,
+            moment: str,
+            *,
+            azimuth_deg: float = 0.0,
+            azimuth_tolerance_deg: float = 2.0,
+            grid_size: int = 500,
+            width: int = 760,
+            height: int = 760,
+        ) -> "QuicklookGridWidget":
+            returns, sweeps = get_returns_and_sweeps(dt)
+            payload = prepare_xsec_payload(
+                returns, sweeps, moment,
+                azimuth_deg=azimuth_deg,
+                azimuth_tolerance_deg=azimuth_tolerance_deg,
+                grid_size=grid_size,
+            )
+            w = cls(width=width, height=height)
+            w.set_payload(payload)
+            return w
+
+    class QuicklookWaterfallWidget(_anywidget.AnyWidget):
+        """Binary anywidget renderer for waterfall (return_time x range) heatmaps."""
+
+        _esm = _WATERFALL_WIDGET_ESM
+        _css = _WIDGET_CSS
+
+        width = _traitlets.Int(760).tag(sync=True)
+        height = _traitlets.Int(760).tag(sync=True)
+        grid_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        azimuth_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        elevation_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        return_time_ms_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        sweep_number_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        sweep_boundary_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        meta = _traitlets.Dict(default_value={}).tag(sync=True)
+        hover = _traitlets.Dict(default_value={}).tag(sync=True)
+
+        def __init__(self, width: int = 760, height: int = 760):
+            super().__init__()
+            self.width = int(width)
+            self.height = int(height)
+
+        def set_payload(self, payload: WaterfallPayload) -> None:
+            state = payload.to_widget_state()
+            self.grid_bytes = _state_bytes(state, "grid_bytes")
+            self.azimuth_bytes = _state_bytes(state, "azimuth_bytes")
+            self.elevation_bytes = _state_bytes(state, "elevation_bytes")
+            self.return_time_ms_bytes = _state_bytes(state, "return_time_ms_bytes")
+            self.sweep_number_bytes = _state_bytes(state, "sweep_number_bytes")
+            self.sweep_boundary_bytes = _state_bytes(state, "sweep_boundary_bytes")
+
+            meta = state.get("meta")
+            if not isinstance(meta, dict):
+                raise TypeError("widget state meta must be a dict")
+            self.meta = meta
+
+        def clear(self) -> None:
+            self.grid_bytes = b""
+            self.azimuth_bytes = b""
+            self.elevation_bytes = b""
+            self.return_time_ms_bytes = b""
+            self.sweep_number_bytes = b""
+            self.sweep_boundary_bytes = b""
+            self.meta = {"n_returns": 0, "n_range": 0, "moment": ""}
+            self.hover = {}
+
+        @classmethod
+        def from_datatree(
+            cls,
+            dt: xr.DataTree,
+            moment: str,
+            *,
+            max_returns: int = 2048,
+            max_range: int = 1024,
+            width: int = 760,
+            height: int = 760,
+        ) -> "QuicklookWaterfallWidget":
+            returns, _sweeps = get_returns_and_sweeps(dt)
+            payload = prepare_waterfall_payload(
+                returns, moment, max_returns=max_returns, max_range=max_range
+            )
+            w = cls(width=width, height=height)
+            w.set_payload(payload)
+            return w
+
 else:
 
     class QuicklookPolarWidget:  # pragma: no cover - runtime guard for optional deps
         def __init__(self, *args: object, **kwargs: object):
+            raise ImportError(
+                "QuicklookPolarWidget requires optional dependencies: anywidget and traitlets"
+            )
+
+        @classmethod
+        def from_datatree(cls, *args: object, **kwargs: object) -> "QuicklookPolarWidget":
             raise ImportError(
                 "QuicklookPolarWidget requires optional dependencies: anywidget and traitlets"
             )
@@ -1444,12 +3177,53 @@ else:
                 "QuicklookVolumeWidget requires optional dependencies: anywidget and traitlets"
             )
 
+        @classmethod
+        def from_datatree(cls, *args: object, **kwargs: object) -> "QuicklookVolumeWidget":
+            raise ImportError(
+                "QuicklookVolumeWidget requires optional dependencies: anywidget and traitlets"
+            )
+
+    class QuicklookGridWidget:  # pragma: no cover - runtime guard for optional deps
+        def __init__(self, *args: object, **kwargs: object):
+            raise ImportError(
+                "QuicklookGridWidget requires optional dependencies: anywidget and traitlets"
+            )
+
+        @classmethod
+        def from_cappi(cls, *args: object, **kwargs: object) -> "QuicklookGridWidget":
+            raise ImportError(
+                "QuicklookGridWidget requires optional dependencies: anywidget and traitlets"
+            )
+
+        @classmethod
+        def from_xsec(cls, *args: object, **kwargs: object) -> "QuicklookGridWidget":
+            raise ImportError(
+                "QuicklookGridWidget requires optional dependencies: anywidget and traitlets"
+            )
+
+    class QuicklookWaterfallWidget:  # pragma: no cover - runtime guard for optional deps
+        def __init__(self, *args: object, **kwargs: object):
+            raise ImportError(
+                "QuicklookWaterfallWidget requires optional dependencies: anywidget and traitlets"
+            )
+
+        @classmethod
+        def from_datatree(cls, *args: object, **kwargs: object) -> "QuicklookWaterfallWidget":
+            raise ImportError(
+                "QuicklookWaterfallWidget requires optional dependencies: anywidget and traitlets"
+            )
+
+
+Payload = PolarPayload | VolumePayload | GridPayload | WaterfallPayload
 
 __all__ = [
     "MOMENT_NAMES",
     "SweepInfo",
     "PolarPayload",
     "VolumePayload",
+    "GridPayload",
+    "WaterfallPayload",
+    "Payload",
     "available_moments",
     "get_returns_and_sweeps",
     "sweep_offsets",
@@ -1457,6 +3231,11 @@ __all__ = [
     "prepare_polar_payload",
     "prepare_volume_payload",
     "prepare_ray_payload",
+    "prepare_cappi_payload",
+    "prepare_xsec_payload",
+    "prepare_waterfall_payload",
     "QuicklookPolarWidget",
     "QuicklookVolumeWidget",
+    "QuicklookGridWidget",
+    "QuicklookWaterfallWidget",
 ]
