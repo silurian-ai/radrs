@@ -1,4 +1,4 @@
-"""Quicklook helpers for interactive raystack visualization.
+"""Visualization helpers for interactive raystack visualization.
 
 This module provides:
 
@@ -1172,11 +1172,11 @@ function nearestPick(pick, width, height, x, y) {
 export default {
   render({ model, el }) {
     const root = document.createElement("div");
-    root.className = "radrs-quicklook-root";
+    root.className = "radrs-viz-root";
     const canvas = document.createElement("canvas");
-    canvas.className = "radrs-quicklook-canvas";
+    canvas.className = "radrs-viz-canvas";
     const tooltip = document.createElement("div");
-    tooltip.className = "radrs-quicklook-tooltip";
+    tooltip.className = "radrs-viz-tooltip";
     tooltip.style.display = "none";
 
     root.appendChild(canvas);
@@ -1466,13 +1466,13 @@ function lineWidthForCount(n) {
 export default {
   render({ model, el }) {
     const root = document.createElement("div");
-    root.className = "radrs-quicklook-root";
+    root.className = "radrs-viz-root";
     const deckHost = document.createElement("div");
-    deckHost.className = "radrs-quicklook-deck-host";
+    deckHost.className = "radrs-viz-deck-host";
     const overlay = document.createElement("div");
-    overlay.className = "radrs-quicklook-overlay";
+    overlay.className = "radrs-viz-overlay";
     const tooltip = document.createElement("div");
-    tooltip.className = "radrs-quicklook-tooltip";
+    tooltip.className = "radrs-viz-tooltip";
     tooltip.style.display = "none";
 
     root.appendChild(deckHost);
@@ -2221,11 +2221,11 @@ function drawModeOverlay(ctx, meta, marginLeft) {
 export default {
   render({ model, el }) {
     const root = document.createElement("div");
-    root.className = "radrs-quicklook-root";
+    root.className = "radrs-viz-root";
     const canvas = document.createElement("canvas");
-    canvas.className = "radrs-quicklook-canvas";
+    canvas.className = "radrs-viz-canvas";
     const tooltip = document.createElement("div");
-    tooltip.className = "radrs-quicklook-tooltip";
+    tooltip.className = "radrs-viz-tooltip";
     tooltip.style.display = "none";
 
     root.appendChild(canvas);
@@ -2472,11 +2472,11 @@ function elevationColor(t) {
 export default {
   render({ model, el }) {
     const root = document.createElement("div");
-    root.className = "radrs-quicklook-root";
+    root.className = "radrs-viz-root";
     const canvas = document.createElement("canvas");
-    canvas.className = "radrs-quicklook-canvas";
+    canvas.className = "radrs-viz-canvas";
     const tooltip = document.createElement("div");
-    tooltip.className = "radrs-quicklook-tooltip";
+    tooltip.className = "radrs-viz-tooltip";
     tooltip.style.display = "none";
 
     root.appendChild(canvas);
@@ -2823,7 +2823,7 @@ export default {
 """
 
 _WIDGET_CSS: Final[str] = """
-.radrs-quicklook-root {
+.radrs-viz-root {
   position: relative;
   display: inline-block;
   border: 1px solid #d0d7de;
@@ -2832,17 +2832,17 @@ _WIDGET_CSS: Final[str] = """
   background: #ffffff;
 }
 
-.radrs-quicklook-canvas {
+.radrs-viz-canvas {
   display: block;
   background: #f6f8fa;
 }
 
-.radrs-quicklook-deck-host {
+.radrs-viz-deck-host {
   width: 100%;
   height: 100%;
 }
 
-.radrs-quicklook-overlay {
+.radrs-viz-overlay {
   position: absolute;
   top: 8px;
   left: 8px;
@@ -2855,7 +2855,7 @@ _WIDGET_CSS: Final[str] = """
   z-index: 3;
 }
 
-.radrs-quicklook-tooltip {
+.radrs-viz-tooltip {
   position: absolute;
   pointer-events: none;
   background: rgba(17, 24, 39, 0.95);
@@ -2868,7 +2868,7 @@ _WIDGET_CSS: Final[str] = """
   z-index: 2;
 }
 
-.radrs-quicklook-inset {
+.radrs-viz-inset {
   position: absolute;
   pointer-events: none;
   background: rgba(17, 24, 39, 0.80);
@@ -2958,7 +2958,7 @@ def _state_bytes(state: dict[str, object], key: str) -> bytes:
 
 if _anywidget is not None and _traitlets is not None:
 
-    class QuicklookPolarWidget(_anywidget.AnyWidget):
+    class PolarWidget(_anywidget.AnyWidget):
         """Binary anywidget renderer for quick polar inspection."""
 
         _esm = _WIDGET_ESM
@@ -3019,7 +3019,7 @@ if _anywidget is not None and _traitlets is not None:
             max_points: int | None = None,
             width: int = 760,
             height: int = 760,
-        ) -> "QuicklookPolarWidget":
+        ) -> "PolarWidget":
             returns, sweeps = get_returns_and_sweeps(dt)
             payload = prepare_polar_payload(
                 returns, sweeps, sweep_index, moment, max_points=max_points
@@ -3028,7 +3028,7 @@ if _anywidget is not None and _traitlets is not None:
             w.set_payload(payload)
             return w
 
-    class QuicklookVolumeWidget(_anywidget.AnyWidget):
+    class VolumeWidget(_anywidget.AnyWidget):
         """Binary anywidget renderer for volume-wide ray points."""
 
         _esm = _VOLUME_WIDGET_ESM
@@ -3096,7 +3096,7 @@ if _anywidget is not None and _traitlets is not None:
             render_mode: str = "points",
             width: int = 760,
             height: int = 760,
-        ) -> "QuicklookVolumeWidget":
+        ) -> "VolumeWidget":
             returns, _sweeps = get_returns_and_sweeps(dt)
             if render_mode == "rays":
                 payload = prepare_ray_payload(returns, moment, max_points=max_points)
@@ -3106,7 +3106,7 @@ if _anywidget is not None and _traitlets is not None:
             w.set_payload(payload)
             return w
 
-    class QuicklookGridWidget(_anywidget.AnyWidget):
+    class GridWidget(_anywidget.AnyWidget):
         """Binary anywidget renderer for 2D gridded CAPPI / cross-section views."""
 
         _esm = _GRID_WIDGET_ESM
@@ -3148,7 +3148,7 @@ if _anywidget is not None and _traitlets is not None:
             grid_size: int = 500,
             width: int = 760,
             height: int = 760,
-        ) -> "QuicklookGridWidget":
+        ) -> "GridWidget":
             returns, sweeps = get_returns_and_sweeps(dt)
             payload = prepare_cappi_payload(
                 returns, sweeps, moment,
@@ -3170,7 +3170,7 @@ if _anywidget is not None and _traitlets is not None:
             grid_size: int = 500,
             width: int = 760,
             height: int = 760,
-        ) -> "QuicklookGridWidget":
+        ) -> "GridWidget":
             returns, sweeps = get_returns_and_sweeps(dt)
             payload = prepare_xsec_payload(
                 returns, sweeps, moment,
@@ -3182,7 +3182,7 @@ if _anywidget is not None and _traitlets is not None:
             w.set_payload(payload)
             return w
 
-    class QuicklookWaterfallWidget(_anywidget.AnyWidget):
+    class WaterfallWidget(_anywidget.AnyWidget):
         """Binary anywidget renderer for waterfall (return_time x range) heatmaps."""
 
         _esm = _WATERFALL_WIDGET_ESM
@@ -3238,7 +3238,7 @@ if _anywidget is not None and _traitlets is not None:
             max_range: int = 1024,
             width: int = 760,
             height: int = 760,
-        ) -> "QuicklookWaterfallWidget":
+        ) -> "WaterfallWidget":
             returns, _sweeps = get_returns_and_sweeps(dt)
             payload = prepare_waterfall_payload(
                 returns, moment, max_returns=max_returns, max_range=max_range
@@ -3249,58 +3249,58 @@ if _anywidget is not None and _traitlets is not None:
 
 else:
 
-    class QuicklookPolarWidget:  # pragma: no cover - runtime guard for optional deps
+    class PolarWidget:  # pragma: no cover - runtime guard for optional deps
         def __init__(self, *args: object, **kwargs: object):
             raise ImportError(
-                "QuicklookPolarWidget requires optional dependencies: anywidget and traitlets"
+                "PolarWidget requires optional dependencies: anywidget and traitlets"
             )
 
         @classmethod
-        def from_datatree(cls, *args: object, **kwargs: object) -> "QuicklookPolarWidget":
+        def from_datatree(cls, *args: object, **kwargs: object) -> "PolarWidget":
             raise ImportError(
-                "QuicklookPolarWidget requires optional dependencies: anywidget and traitlets"
+                "PolarWidget requires optional dependencies: anywidget and traitlets"
             )
 
-    class QuicklookVolumeWidget:  # pragma: no cover - runtime guard for optional deps
+    class VolumeWidget:  # pragma: no cover - runtime guard for optional deps
         def __init__(self, *args: object, **kwargs: object):
             raise ImportError(
-                "QuicklookVolumeWidget requires optional dependencies: anywidget and traitlets"
+                "VolumeWidget requires optional dependencies: anywidget and traitlets"
             )
 
         @classmethod
-        def from_datatree(cls, *args: object, **kwargs: object) -> "QuicklookVolumeWidget":
+        def from_datatree(cls, *args: object, **kwargs: object) -> "VolumeWidget":
             raise ImportError(
-                "QuicklookVolumeWidget requires optional dependencies: anywidget and traitlets"
+                "VolumeWidget requires optional dependencies: anywidget and traitlets"
             )
 
-    class QuicklookGridWidget:  # pragma: no cover - runtime guard for optional deps
+    class GridWidget:  # pragma: no cover - runtime guard for optional deps
         def __init__(self, *args: object, **kwargs: object):
             raise ImportError(
-                "QuicklookGridWidget requires optional dependencies: anywidget and traitlets"
+                "GridWidget requires optional dependencies: anywidget and traitlets"
             )
 
         @classmethod
-        def from_cappi(cls, *args: object, **kwargs: object) -> "QuicklookGridWidget":
+        def from_cappi(cls, *args: object, **kwargs: object) -> "GridWidget":
             raise ImportError(
-                "QuicklookGridWidget requires optional dependencies: anywidget and traitlets"
+                "GridWidget requires optional dependencies: anywidget and traitlets"
             )
 
         @classmethod
-        def from_xsec(cls, *args: object, **kwargs: object) -> "QuicklookGridWidget":
+        def from_xsec(cls, *args: object, **kwargs: object) -> "GridWidget":
             raise ImportError(
-                "QuicklookGridWidget requires optional dependencies: anywidget and traitlets"
+                "GridWidget requires optional dependencies: anywidget and traitlets"
             )
 
-    class QuicklookWaterfallWidget:  # pragma: no cover - runtime guard for optional deps
+    class WaterfallWidget:  # pragma: no cover - runtime guard for optional deps
         def __init__(self, *args: object, **kwargs: object):
             raise ImportError(
-                "QuicklookWaterfallWidget requires optional dependencies: anywidget and traitlets"
+                "WaterfallWidget requires optional dependencies: anywidget and traitlets"
             )
 
         @classmethod
-        def from_datatree(cls, *args: object, **kwargs: object) -> "QuicklookWaterfallWidget":
+        def from_datatree(cls, *args: object, **kwargs: object) -> "WaterfallWidget":
             raise ImportError(
-                "QuicklookWaterfallWidget requires optional dependencies: anywidget and traitlets"
+                "WaterfallWidget requires optional dependencies: anywidget and traitlets"
             )
 
 
@@ -3324,8 +3324,8 @@ __all__ = [
     "prepare_cappi_payload",
     "prepare_xsec_payload",
     "prepare_waterfall_payload",
-    "QuicklookPolarWidget",
-    "QuicklookVolumeWidget",
-    "QuicklookGridWidget",
-    "QuicklookWaterfallWidget",
+    "PolarWidget",
+    "VolumeWidget",
+    "GridWidget",
+    "WaterfallWidget",
 ]

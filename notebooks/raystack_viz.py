@@ -11,15 +11,15 @@ def _():
     import marimo as mo
 
     import radrs
-    import radrs.quicklook as ql
+    import radrs.viz as viz
     import radrs.raystack as rrs
-    return dt, mo, ql, radrs, rrs
+    return dt, mo, viz, radrs, rrs
 
 
 @app.cell
 def _(mo):
     mo.md("""
-    # Raystack Quicklook
+    # Raystack Viz
 
     Volume viewer with multiple visualization modes:
     - **Ray 3D**: one endpoint per return ray (sweep-independent)
@@ -144,14 +144,14 @@ def _(base_uri, end_utc, infos, mo, start_utc, station):
 
 
 @app.cell
-def _(fold_size_input, mo, ql, rrs, volume_selector):
+def _(fold_size_input, mo, viz, rrs, volume_selector):
     with mo.status.spinner("Loading selected volume..."):
         dtree = rrs.open_datatree(
             volume_selector.value,
             fold_size=int(fold_size_input.value),
             include_activity=False,
         )
-        returns, sweeps = ql.get_returns_and_sweeps(dtree)
+        returns, sweeps = viz.get_returns_and_sweeps(dtree)
     return dtree, returns, sweeps
 
 
@@ -189,14 +189,14 @@ def _(dtree, mo, returns, sweeps, volume_selector):
 
 
 @app.cell
-def _(mo, ql, returns):
+def _(mo, viz, returns):
     mode_selector = mo.ui.dropdown(
         options=["Ray 3D", "Gate cloud 3D", "CAPPI", "Cross-section", "Waterfall"],
         value="Ray 3D",
         label="Mode",
     )
 
-    moment_names = ql.available_moments(returns, include_qc=True)
+    moment_names = viz.available_moments(returns, include_qc=True)
     mo.stop(len(moment_names) == 0, mo.md("*No moment fields in returns dataset.*"))
     moment_selector = mo.ui.dropdown(
         options=moment_names,
@@ -351,7 +351,7 @@ def _(
     mo,
     mode_selector,
     moment_selector,
-    ql,
+    viz,
     returns,
     sample_cap,
     sweeps,
@@ -368,19 +368,19 @@ def _(
 
     try:
         if mode == "Ray 3D":
-            payload = ql.prepare_ray_payload(
+            payload = viz.prepare_ray_payload(
                 returns=returns,
                 moment=moment,
                 max_points=max_points,
             )
         elif mode == "Gate cloud 3D":
-            payload = ql.prepare_volume_payload(
+            payload = viz.prepare_volume_payload(
                 returns=returns,
                 moment=moment,
                 max_points=max_points,
             )
         elif mode == "CAPPI":
-            payload = ql.prepare_cappi_payload(
+            payload = viz.prepare_cappi_payload(
                 returns=returns,
                 sweeps=sweeps,
                 moment=moment,
@@ -397,14 +397,14 @@ def _(
                 _scale = (_max_cells / (_wf_ret * _wf_rng)) ** 0.5
                 _wf_ret = max(256, int(_wf_ret * _scale))
                 _wf_rng = max(256, int(_wf_rng * _scale))
-            payload = ql.prepare_waterfall_payload(
+            payload = viz.prepare_waterfall_payload(
                 returns=returns,
                 moment=moment,
                 max_returns=_wf_ret,
                 max_range=_wf_rng,
             )
         else:
-            payload = ql.prepare_xsec_payload(
+            payload = viz.prepare_xsec_payload(
                 returns=returns,
                 sweeps=sweeps,
                 moment=moment,
@@ -416,7 +416,7 @@ def _(
         mo.stop(
             True,
             mo.md(
-                f"*Quicklook widget dependencies are missing: `{exc}`. "
+                f"*Viz widget dependencies are missing: `{exc}`. "
                 "Install `anywidget` + `traitlets` in the environment.*"
             ),
         )
@@ -425,16 +425,16 @@ def _(
 
 
 @app.cell
-def _(canvas_size, mo, payload, ql):
+def _(canvas_size, mo, payload, viz):
     size = int(canvas_size.value)
-    if isinstance(payload, ql.VolumePayload):
-        widget = ql.QuicklookVolumeWidget(width=size, height=size)
-    elif isinstance(payload, ql.PolarPayload):
-        widget = ql.QuicklookPolarWidget(width=size, height=size)
-    elif isinstance(payload, ql.WaterfallPayload):
-        widget = ql.QuicklookWaterfallWidget(width=size, height=size)
+    if isinstance(payload, viz.VolumePayload):
+        widget = viz.VolumeWidget(width=size, height=size)
+    elif isinstance(payload, viz.PolarPayload):
+        widget = viz.PolarWidget(width=size, height=size)
+    elif isinstance(payload, viz.WaterfallPayload):
+        widget = viz.WaterfallWidget(width=size, height=size)
     else:
-        widget = ql.QuicklookGridWidget(width=size, height=size)
+        widget = viz.GridWidget(width=size, height=size)
     widget.set_payload(payload)
     widget_ui = mo.ui.anywidget(widget)
     widget_ui
@@ -442,17 +442,17 @@ def _(canvas_size, mo, payload, ql):
 
 
 @app.cell
-def _(max_points, mo, mode, payload, ql, requested_points, widget_ui):
+def _(max_points, mo, mode, payload, viz, requested_points, widget_ui):
     hover = widget_ui.hover if isinstance(widget_ui.hover, dict) else {}
 
-    if isinstance(payload, ql.WaterfallPayload):
+    if isinstance(payload, viz.WaterfallPayload):
         header = (
             f"`mode={mode}`  `grid={payload.n_returns}x{payload.n_range}`  "
             f"`moment={payload.moment}`  "
             f"`from {payload.n_returns_orig}x{payload.n_range_orig}`"
         )
         cap_note = ""
-    elif isinstance(payload, ql.GridPayload):
+    elif isinstance(payload, viz.GridPayload):
         header = (
             f"`mode={mode}`  `grid={payload.n_rows}x{payload.n_cols}`  "
             f"`moment={payload.moment}`"
@@ -476,7 +476,7 @@ def _(max_points, mo, mode, payload, ql, requested_points, widget_ui):
         )
 
     if hover:
-        if isinstance(payload, ql.WaterfallPayload):
+        if isinstance(payload, viz.WaterfallPayload):
             hover_block = (
                 f"hover value={hover.get('value', float('nan')):.2f} "
                 f"ret={hover.get('return_index', -1)} gate={hover.get('gate_index', -1)} "
@@ -485,7 +485,7 @@ def _(max_points, mo, mode, payload, ql, requested_points, widget_ui):
                 f"sweep={hover.get('sweep_number', -1)} "
                 f"range={hover.get('range_km', 0.0):.2f}km"
             )
-        elif isinstance(payload, ql.GridPayload):
+        elif isinstance(payload, viz.GridPayload):
             if payload.grid_mode == "cappi":
                 hover_block = (
                     f"hover value={hover.get('value', float('nan')):.2f} "

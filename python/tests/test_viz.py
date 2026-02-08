@@ -1,10 +1,10 @@
-"""Tests for radrs.quicklook adapter utilities."""
+"""Tests for radrs.viz adapter utilities."""
 
 import numpy as np
 import pytest
 import xarray as xr
 
-import radrs.quicklook as ql
+import radrs.viz as viz
 
 
 def _fixtures() -> tuple[xr.Dataset, xr.Dataset]:
@@ -98,7 +98,7 @@ def _legacy_sweeps_fixture() -> xr.Dataset:
 def test_available_moments_includes_core_and_qc() -> None:
     returns, _ = _fixtures()
 
-    moments = ql.available_moments(returns, include_qc=True)
+    moments = viz.available_moments(returns, include_qc=True)
 
     assert "DBZH" in moments
     assert "qc.demo_mask" in moments
@@ -107,8 +107,8 @@ def test_available_moments_includes_core_and_qc() -> None:
 def test_sweep_offsets_and_infos() -> None:
     _, sweeps = _fixtures()
 
-    offsets = ql.sweep_offsets(sweeps)
-    infos = ql.sweep_infos(sweeps)
+    offsets = viz.sweep_offsets(sweeps)
+    infos = viz.sweep_infos(sweeps)
 
     np.testing.assert_array_equal(offsets, np.array([0, 2, 3], dtype=np.int64))
     assert len(infos) == 2
@@ -121,7 +121,7 @@ def test_sweep_offsets_and_infos() -> None:
 def test_prepare_polar_payload_builds_expected_gate_geometry() -> None:
     returns, sweeps = _fixtures()
 
-    payload = ql.prepare_polar_payload(
+    payload = viz.prepare_polar_payload(
         returns=returns,
         sweeps=sweeps,
         sweep_index=0,
@@ -154,7 +154,7 @@ def test_prepare_polar_payload_builds_expected_gate_geometry() -> None:
 def test_prepare_polar_payload_applies_sampling_cap() -> None:
     returns, sweeps = _fixtures()
 
-    payload = ql.prepare_polar_payload(
+    payload = viz.prepare_polar_payload(
         returns=returns,
         sweeps=sweeps,
         sweep_index=0,
@@ -170,7 +170,7 @@ def test_prepare_polar_payload_rejects_unknown_moment() -> None:
     returns, sweeps = _fixtures()
 
     with pytest.raises(KeyError):
-        ql.prepare_polar_payload(
+        viz.prepare_polar_payload(
             returns=returns,
             sweeps=sweeps,
             sweep_index=0,
@@ -182,9 +182,9 @@ def test_prepare_payload_supports_legacy_sweeps_schema() -> None:
     returns, _ = _fixtures()
     sweeps = _legacy_sweeps_fixture()
 
-    offsets = ql.sweep_offsets(sweeps)
-    infos = ql.sweep_infos(sweeps)
-    payload = ql.prepare_polar_payload(
+    offsets = viz.sweep_offsets(sweeps)
+    infos = viz.sweep_infos(sweeps)
+    payload = viz.prepare_polar_payload(
         returns=returns,
         sweeps=sweeps,
         sweep_index=0,
@@ -200,7 +200,7 @@ def test_prepare_payload_supports_legacy_sweeps_schema() -> None:
 def test_prepare_volume_payload_cartesian_geometry() -> None:
     returns, _ = _fixtures()
 
-    payload = ql.prepare_volume_payload(
+    payload = viz.prepare_volume_payload(
         returns=returns,
         moment="DBZH",
         max_points=None,
@@ -232,7 +232,7 @@ def test_prepare_volume_payload_cartesian_geometry() -> None:
 def test_prepare_ray_payload_uses_returns_only() -> None:
     returns, _ = _fixtures()
 
-    payload = ql.prepare_ray_payload(
+    payload = viz.prepare_ray_payload(
         returns=returns,
         moment="DBZH",
         max_points=None,
@@ -254,7 +254,7 @@ def test_prepare_ray_payload_uses_returns_only() -> None:
 def test_prepare_cappi_payload_basic() -> None:
     returns, sweeps = _fixtures()
 
-    payload = ql.prepare_cappi_payload(
+    payload = viz.prepare_cappi_payload(
         returns=returns,
         sweeps=sweeps,
         moment="DBZH",
@@ -291,7 +291,7 @@ def test_prepare_cappi_payload_empty_band() -> None:
     returns, sweeps = _fixtures()
 
     # Very high altitude — no gates should fall in this band
-    payload = ql.prepare_cappi_payload(
+    payload = viz.prepare_cappi_payload(
         returns=returns,
         sweeps=sweeps,
         moment="DBZH",
@@ -310,7 +310,7 @@ def test_prepare_cappi_payload_rejects_unknown_moment() -> None:
     returns, sweeps = _fixtures()
 
     with pytest.raises(KeyError):
-        ql.prepare_cappi_payload(
+        viz.prepare_cappi_payload(
             returns=returns,
             sweeps=sweeps,
             moment="NOT_A_MOMENT",
@@ -321,7 +321,7 @@ def test_prepare_cappi_payload_rejects_unknown_moment() -> None:
 def test_prepare_xsec_payload_basic() -> None:
     returns, sweeps = _fixtures()
 
-    payload = ql.prepare_xsec_payload(
+    payload = viz.prepare_xsec_payload(
         returns=returns,
         sweeps=sweeps,
         moment="DBZH",
@@ -346,7 +346,7 @@ def test_prepare_xsec_payload_includes_opposite_azimuth() -> None:
     returns, sweeps = _fixtures()
 
     # Fixture has returns at az=0, 90, 180. Targeting az=0 should also pick up az=180.
-    payload = ql.prepare_xsec_payload(
+    payload = viz.prepare_xsec_payload(
         returns=returns,
         sweeps=sweeps,
         moment="DBZH",
@@ -363,7 +363,7 @@ def test_prepare_xsec_payload_rejects_unknown_moment() -> None:
     returns, sweeps = _fixtures()
 
     with pytest.raises(KeyError):
-        ql.prepare_xsec_payload(
+        viz.prepare_xsec_payload(
             returns=returns,
             sweeps=sweeps,
             moment="NOT_A_MOMENT",
@@ -374,7 +374,7 @@ def test_prepare_xsec_payload_rejects_unknown_moment() -> None:
 def test_prepare_waterfall_payload_basic() -> None:
     returns, _ = _fixtures()
 
-    payload = ql.prepare_waterfall_payload(
+    payload = viz.prepare_waterfall_payload(
         returns=returns,
         moment="DBZH",
     )
@@ -423,7 +423,7 @@ def test_prepare_waterfall_payload_basic() -> None:
 def test_prepare_waterfall_payload_downsamples() -> None:
     returns, _ = _fixtures()
 
-    payload = ql.prepare_waterfall_payload(
+    payload = viz.prepare_waterfall_payload(
         returns=returns,
         moment="DBZH",
         max_returns=2,
@@ -440,7 +440,7 @@ def test_prepare_waterfall_payload_rejects_unknown_moment() -> None:
     returns, _ = _fixtures()
 
     with pytest.raises(KeyError):
-        ql.prepare_waterfall_payload(
+        viz.prepare_waterfall_payload(
             returns=returns,
             moment="NOT_A_MOMENT",
         )
@@ -449,7 +449,7 @@ def test_prepare_waterfall_payload_rejects_unknown_moment() -> None:
 def test_prepare_waterfall_payload_fold_size_crops_range() -> None:
     returns, _ = _fixtures()
 
-    payload = ql.prepare_waterfall_payload(
+    payload = viz.prepare_waterfall_payload(
         returns=returns,
         moment="DBZH",
         fold_size=2,
@@ -469,7 +469,7 @@ def test_prepare_waterfall_payload_fold_size_crops_range() -> None:
 def test_prepare_waterfall_payload_preserves_nan() -> None:
     returns, _ = _fixtures()
 
-    payload = ql.prepare_waterfall_payload(
+    payload = viz.prepare_waterfall_payload(
         returns=returns,
         moment="DBZH",
     )
@@ -482,7 +482,7 @@ def test_prepare_waterfall_payload_preserves_nan() -> None:
 def test_volume_widget_from_datatree() -> None:
     dt = _datatree_fixture()
 
-    w = ql.QuicklookVolumeWidget.from_datatree(dt, "DBZH")
+    w = viz.VolumeWidget.from_datatree(dt, "DBZH")
 
     assert w.meta["point_count"] == 10
     assert w.meta["render_mode"] == "points"
@@ -492,7 +492,7 @@ def test_volume_widget_from_datatree() -> None:
 def test_volume_widget_from_datatree_rays() -> None:
     dt = _datatree_fixture()
 
-    w = ql.QuicklookVolumeWidget.from_datatree(dt, "DBZH", render_mode="rays")
+    w = viz.VolumeWidget.from_datatree(dt, "DBZH", render_mode="rays")
 
     assert w.meta["point_count"] == 3
     assert w.meta["render_mode"] == "rays"
@@ -501,7 +501,7 @@ def test_volume_widget_from_datatree_rays() -> None:
 def test_grid_widget_from_cappi() -> None:
     dt = _datatree_fixture()
 
-    w = ql.QuicklookGridWidget.from_cappi(
+    w = viz.GridWidget.from_cappi(
         dt, "DBZH", altitude_m=100.0, tolerance_m=5000.0, grid_size=50
     )
 
@@ -514,7 +514,7 @@ def test_grid_widget_from_cappi() -> None:
 def test_grid_widget_from_xsec() -> None:
     dt = _datatree_fixture()
 
-    w = ql.QuicklookGridWidget.from_xsec(
+    w = viz.GridWidget.from_xsec(
         dt, "DBZH", azimuth_deg=0.0, azimuth_tolerance_deg=5.0, grid_size=50
     )
 
@@ -527,7 +527,7 @@ def test_grid_widget_from_xsec() -> None:
 def test_waterfall_widget_from_datatree() -> None:
     dt = _datatree_fixture()
 
-    w = ql.QuicklookWaterfallWidget.from_datatree(dt, "DBZH")
+    w = viz.WaterfallWidget.from_datatree(dt, "DBZH")
 
     assert w.meta["n_returns"] == 3
     assert w.meta["n_range"] == 4
@@ -537,7 +537,7 @@ def test_waterfall_widget_from_datatree() -> None:
 def test_polar_widget_from_datatree() -> None:
     dt = _datatree_fixture()
 
-    w = ql.QuicklookPolarWidget.from_datatree(dt, "DBZH", sweep_index=0)
+    w = viz.PolarWidget.from_datatree(dt, "DBZH", sweep_index=0)
 
     assert w.meta["point_count"] == 6
     assert w.meta["moment"] == "DBZH"
@@ -548,7 +548,7 @@ def test_volume_payload_optimized() -> None:
     """Optimized prepare_volume_payload produces correct finite values and coordinates."""
     returns, _ = _fixtures()
 
-    payload = ql.prepare_volume_payload(returns=returns, moment="DBZH", max_points=None)
+    payload = viz.prepare_volume_payload(returns=returns, moment="DBZH", max_points=None)
 
     # 10 finite values in the fixture (12 total, 2 NaN)
     assert payload.point_count == 10
@@ -569,19 +569,19 @@ def test_volume_payload_optimized() -> None:
 
 def test_polar_payload_to_html() -> None:
     returns, sweeps = _fixtures()
-    payload = ql.prepare_polar_payload(returns, sweeps, 0, "DBZH")
+    payload = viz.prepare_polar_payload(returns, sweeps, 0, "DBZH")
     html = payload.to_html()
 
     assert isinstance(html, str)
     assert "<!DOCTYPE html>" in html
     assert '<script type="module">' in html
-    assert "radrs-quicklook-root" in html
+    assert "radrs-viz-root" in html
     assert "DBZH" in html
 
 
 def test_volume_payload_to_html() -> None:
     returns, _ = _fixtures()
-    payload = ql.prepare_volume_payload(returns, moment="DBZH", max_points=None)
+    payload = viz.prepare_volume_payload(returns, moment="DBZH", max_points=None)
     html = payload.to_html()
 
     assert isinstance(html, str)
@@ -594,7 +594,7 @@ def test_volume_payload_to_html() -> None:
 
 def test_grid_payload_to_html() -> None:
     returns, sweeps = _fixtures()
-    payload = ql.prepare_cappi_payload(
+    payload = viz.prepare_cappi_payload(
         returns, sweeps, "DBZH", altitude_m=100.0, tolerance_m=5000.0, grid_size=50
     )
     html = payload.to_html()
@@ -606,7 +606,7 @@ def test_grid_payload_to_html() -> None:
 
 def test_waterfall_payload_to_html() -> None:
     returns, _ = _fixtures()
-    payload = ql.prepare_waterfall_payload(returns, moment="DBZH")
+    payload = viz.prepare_waterfall_payload(returns, moment="DBZH")
     html = payload.to_html()
 
     assert isinstance(html, str)
@@ -617,7 +617,7 @@ def test_waterfall_payload_to_html() -> None:
 
 def test_to_html_custom_size() -> None:
     returns, sweeps = _fixtures()
-    payload = ql.prepare_polar_payload(returns, sweeps, 0, "DBZH")
+    payload = viz.prepare_polar_payload(returns, sweeps, 0, "DBZH")
     html = payload.to_html(width=1024, height=512)
 
     assert "1024" in html
