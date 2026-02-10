@@ -48,6 +48,7 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "C
 [dependency-groups]
 dev = [
     "arm-pyart>=2.2.0",
+    "anywidget>=0.9.18",
     "fsspec>=2026.1.0",
     "marimo>=0.19.4",
     "maturin[patchelf]>=1.11.5",
@@ -57,5 +58,6 @@ dev = [
     "pytest-benchmark>=4.0.0",
     "ray>=2.53.0",
     "s3fs>=2026.1.0",
+    "traitlets>=5.14.3",
     "xradar>=0.11.0",
 ]
