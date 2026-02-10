@@ -1508,6 +1508,11 @@ export default {
       return meta && typeof meta === "object" ? meta : {};
     }
 
+    function readAngle(name, fallback) {
+      const value = Number(model.get(name));
+      return Number.isFinite(value) ? value : fallback;
+    }
+
     function hideTooltip() {
       tooltip.style.display = "none";
       if (lastHover !== -1) {
@@ -1557,8 +1562,8 @@ export default {
       if (viewState === null) {
         viewState = {
           target: [0, 0, 0],
-          rotationOrbit: Number(model.get("yaw_deg")) || 35,
-          rotationX: Number(model.get("pitch_deg")) || 30,
+          rotationOrbit: readAngle("yaw_deg", 35),
+          rotationX: readAngle("pitch_deg", 30),
           zoom: fitZoom,
           minZoom: fitZoom - 5.0,
           maxZoom: fitZoom + 8.0,
@@ -1722,8 +1727,8 @@ export default {
       }
       viewState = {
         ...viewState,
-        rotationOrbit: Number(model.get("yaw_deg")) || viewState.rotationOrbit,
-        rotationX: Number(model.get("pitch_deg")) || viewState.rotationX,
+        rotationOrbit: readAngle("yaw_deg", viewState.rotationOrbit),
+        rotationX: readAngle("pitch_deg", viewState.rotationX),
       };
       renderDeck();
     }

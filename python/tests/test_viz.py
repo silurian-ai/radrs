@@ -592,6 +592,17 @@ def test_volume_payload_to_html() -> None:
     assert "pitch_deg" in html
 
 
+def test_volume_payload_to_html_preserves_zero_angles() -> None:
+    returns, _ = _fixtures()
+    payload = viz.prepare_volume_payload(returns, moment="DBZH", max_points=None)
+    html = payload.to_html(yaw_deg=0.0, pitch_deg=0.0)
+
+    assert '"yaw_deg": 0' in html
+    assert '"pitch_deg": 0' in html
+    assert 'Number(model.get("yaw_deg")) ||' not in html
+    assert 'Number(model.get("pitch_deg")) ||' not in html
+
+
 def test_grid_payload_to_html() -> None:
     returns, sweeps = _fixtures()
     payload = viz.prepare_cappi_payload(
