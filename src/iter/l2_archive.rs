@@ -388,7 +388,7 @@ async fn list_volumes_in_site(
         };
 
         // Filter by time range (only include volumes within bounds)
-        if vcp_time < start_time || vcp_time > end_time {
+        if vcp_time < start_time || vcp_time >= end_time {
             continue;
         }
 
