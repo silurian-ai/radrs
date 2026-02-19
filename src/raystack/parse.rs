@@ -6,7 +6,7 @@
 use crate::error::{RadrsError, Result};
 use crate::fetch::{RUNTIME, fetch_s3_url};
 use crate::raystack::batch::{add_activity_to_dict, compute_batch_activity, parse_single_volume};
-use nexrad_model::data::Scan;
+use nexrad_model::data::{DataMoment, Scan};
 use pyo3::PyErr;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict, PyList};
@@ -306,6 +306,22 @@ fn qc_op_from_name(
     }
 }
 
+fn update_grid_from_moment<M: DataMoment>(
+    moment: Option<&M>,
+    max_gates: &mut usize,
+    range_first_km: &mut f64,
+    gate_interval_km: &mut f64,
+) {
+    if let Some(moment) = moment {
+        let gates = moment.gate_count() as usize;
+        if gates > *max_gates {
+            *max_gates = gates;
+            *range_first_km = moment.first_gate_range_km();
+            *gate_interval_km = moment.gate_interval_km();
+        }
+    }
+}
+
 /// First pass: collect metadata without allocating moment data.
 pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
     let mut vcp_min_time = i64::MAX;
@@ -328,25 +344,49 @@ pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
         let mut range_first_km = 0.0f64;
         let mut gate_interval_km = 0.0f64;
 
-        let mut update_grid = |moment: Option<&nexrad_model::data::MomentData>| {
-            if let Some(m) = moment {
-                let gates = m.gate_count() as usize;
-                if gates > max_gates {
-                    max_gates = gates;
-                    range_first_km = m.first_gate_range_km();
-                    gate_interval_km = m.gate_interval_km();
-                }
-            }
-        };
-
         for radial in radials {
-            update_grid(radial.reflectivity());
-            update_grid(radial.velocity());
-            update_grid(radial.spectrum_width());
-            update_grid(radial.differential_reflectivity());
-            update_grid(radial.differential_phase());
-            update_grid(radial.correlation_coefficient());
-            update_grid(radial.clutter_filter_power());
+            update_grid_from_moment(
+                radial.reflectivity(),
+                &mut max_gates,
+                &mut range_first_km,
+                &mut gate_interval_km,
+            );
+            update_grid_from_moment(
+                radial.velocity(),
+                &mut max_gates,
+                &mut range_first_km,
+                &mut gate_interval_km,
+            );
+            update_grid_from_moment(
+                radial.spectrum_width(),
+                &mut max_gates,
+                &mut range_first_km,
+                &mut gate_interval_km,
+            );
+            update_grid_from_moment(
+                radial.differential_reflectivity(),
+                &mut max_gates,
+                &mut range_first_km,
+                &mut gate_interval_km,
+            );
+            update_grid_from_moment(
+                radial.differential_phase(),
+                &mut max_gates,
+                &mut range_first_km,
+                &mut gate_interval_km,
+            );
+            update_grid_from_moment(
+                radial.correlation_coefficient(),
+                &mut max_gates,
+                &mut range_first_km,
+                &mut gate_interval_km,
+            );
+            update_grid_from_moment(
+                radial.clutter_filter_power(),
+                &mut max_gates,
+                &mut range_first_km,
+                &mut gate_interval_km,
+            );
 
             vcp_min_time = vcp_min_time.min(radial.collection_timestamp());
             vcp_max_time = vcp_max_time.max(radial.collection_timestamp());

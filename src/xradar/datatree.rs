@@ -6,7 +6,9 @@ use crate::fetch::{RUNTIME, fetch_s3_url};
 use crate::metadata::{ScanMeta, extract_scan_meta};
 use crate::metadata_build::{build_root_attrs, build_root_vars, set_sweep_mode_scalars};
 use nexrad_data::volume::File as VolumeFile;
-use nexrad_model::data::{MomentValue, Radial, Scan, Sweep};
+use nexrad_model::data::{
+    CFPMomentData, CFPMomentValue, DataMoment, MomentData, MomentValue, Radial, Scan, Sweep,
+};
 use numpy::IntoPyArray;
 use pyo3::PyErr;
 use pyo3::prelude::*;
@@ -15,7 +17,6 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
 use std::fs;
 use std::time::Instant;
-
 
 /// Open a NEXRAD Level 2 file and return an xarray DataTree
 ///
@@ -362,18 +363,13 @@ fn sweep_to_dataset<'py>(
             for (out_idx, &radial_idx) in sorted_indices.iter().enumerate() {
                 let radial = &radials[radial_idx];
                 if let Some(moment) = get_moment_data(radial, moment_getter) {
-                    let values = moment.values();
+                    let values = moment.values_f32();
                     for (gate_idx, value) in values.iter().enumerate() {
                         if gate_idx >= max_n_gates {
                             break;
                         }
                         let flat_idx = out_idx * max_n_gates + gate_idx;
-                        moment_data[flat_idx] = match value {
-                            MomentValue::Value(v) => *v,
-                            MomentValue::BelowThreshold => f32::NAN,
-                            MomentValue::RangeFolded => f32::NAN,
-                            MomentValue::CfpStatus(_) => f32::NAN,
-                        };
+                        moment_data[flat_idx] = *value;
                     }
                 }
             }
@@ -406,19 +402,75 @@ fn sweep_to_dataset<'py>(
     Ok(dataset)
 }
 
+enum MomentRef<'a> {
+    Standard(&'a MomentData),
+    Cfp(&'a CFPMomentData),
+}
+
+impl MomentRef<'_> {
+    fn gate_count(&self) -> u16 {
+        match self {
+            Self::Standard(moment) => moment.gate_count(),
+            Self::Cfp(moment) => moment.gate_count(),
+        }
+    }
+
+    fn first_gate_range_km(&self) -> f64 {
+        match self {
+            Self::Standard(moment) => moment.first_gate_range_km(),
+            Self::Cfp(moment) => moment.first_gate_range_km(),
+        }
+    }
+
+    fn gate_interval_km(&self) -> f64 {
+        match self {
+            Self::Standard(moment) => moment.gate_interval_km(),
+            Self::Cfp(moment) => moment.gate_interval_km(),
+        }
+    }
+
+    fn values_f32(&self) -> Vec<f32> {
+        match self {
+            Self::Standard(moment) => moment
+                .values()
+                .into_iter()
+                .map(|value| match value {
+                    MomentValue::Value(v) => v,
+                    MomentValue::BelowThreshold | MomentValue::RangeFolded => f32::NAN,
+                })
+                .collect(),
+            Self::Cfp(moment) => moment
+                .values()
+                .into_iter()
+                .map(|value| match value {
+                    CFPMomentValue::Value(v) => v,
+                    CFPMomentValue::Status(_) => f32::NAN,
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Helper to get moment data from a radial by name
-fn get_moment_data<'a>(
-    radial: &'a Radial,
-    moment_name: &str,
-) -> Option<&'a nexrad_model::data::MomentData> {
+fn get_moment_data<'a>(radial: &'a Radial, moment_name: &str) -> Option<MomentRef<'a>> {
     match moment_name {
-        name if name == XRADAR_MOMENT_NAMES[0].0 => radial.reflectivity(),
-        name if name == XRADAR_MOMENT_NAMES[1].0 => radial.velocity(),
-        name if name == XRADAR_MOMENT_NAMES[2].0 => radial.spectrum_width(),
-        name if name == XRADAR_MOMENT_NAMES[3].0 => radial.differential_reflectivity(),
-        name if name == XRADAR_MOMENT_NAMES[4].0 => radial.differential_phase(),
-        name if name == XRADAR_MOMENT_NAMES[5].0 => radial.correlation_coefficient(),
-        name if name == XRADAR_MOMENT_NAMES[6].0 => radial.clutter_filter_power(),
+        name if name == XRADAR_MOMENT_NAMES[0].0 => radial.reflectivity().map(MomentRef::Standard),
+        name if name == XRADAR_MOMENT_NAMES[1].0 => radial.velocity().map(MomentRef::Standard),
+        name if name == XRADAR_MOMENT_NAMES[2].0 => {
+            radial.spectrum_width().map(MomentRef::Standard)
+        }
+        name if name == XRADAR_MOMENT_NAMES[3].0 => {
+            radial.differential_reflectivity().map(MomentRef::Standard)
+        }
+        name if name == XRADAR_MOMENT_NAMES[4].0 => {
+            radial.differential_phase().map(MomentRef::Standard)
+        }
+        name if name == XRADAR_MOMENT_NAMES[5].0 => {
+            radial.correlation_coefficient().map(MomentRef::Standard)
+        }
+        name if name == XRADAR_MOMENT_NAMES[6].0 => {
+            radial.clutter_filter_power().map(MomentRef::Cfp)
+        }
         _ => None,
     }
 }
