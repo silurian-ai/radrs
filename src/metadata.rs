@@ -59,10 +59,10 @@ pub fn extract_scan_meta(volume: &VolumeFile) -> ScanMeta {
             if let MessageContents::DigitalRadarData(radar_data) = message.into_contents() {
                 if let Some(volume_block) = radar_data.volume_data_block() {
                     let site_height = volume_block.site_height_raw() as f32;
-                    let feedhorn_height = volume_block.feedhorn_height_raw() as f32;
+                    let tower_height = volume_block.tower_height_raw() as f32;
                     meta.latitude = Some(volume_block.latitude_raw());
                     meta.longitude = Some(volume_block.longitude_raw());
-                    meta.altitude = Some(site_height + feedhorn_height);
+                    meta.altitude = Some(site_height + tower_height);
                     return meta;
                 }
             }

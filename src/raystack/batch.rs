@@ -16,7 +16,9 @@ use crate::raystack::parse::VolumeMeta;
 use crate::raystack::parse::collect_metadata;
 use crate::raystack::parse::ungzip_if_needed;
 use nexrad_data::volume::File as VolumeFile;
-use nexrad_model::data::{MomentData, MomentDataKind, MomentValue, Radial, Scan};
+use nexrad_model::data::{
+    CFPMomentData, CFPMomentValue, DataMoment, MomentData, MomentValue, Radial, Scan,
+};
 use numpy::ndarray::Array2;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
@@ -41,22 +43,65 @@ macro_rules! ensure_eq {
     }};
 }
 
-fn get_moment_datas(r: &Radial) -> [(MomentDataKind, Option<&MomentData>); 7] {
-    return [
-        (MomentDataKind::Reflectivity, r.reflectivity()),
-        (MomentDataKind::Velocity, r.velocity()),
-        (MomentDataKind::SpectrumWidth, r.spectrum_width()),
-        (
-            MomentDataKind::DifferentialReflectivity,
-            r.differential_reflectivity(),
-        ),
-        (MomentDataKind::DifferentialPhase, r.differential_phase()),
-        (
-            MomentDataKind::CorrelationCoefficient,
-            r.correlation_coefficient(),
-        ),
-        (MomentDataKind::ClutterFilterPower, r.clutter_filter_power()),
-    ];
+enum MomentRef<'a> {
+    Standard(&'a MomentData),
+    Cfp(&'a CFPMomentData),
+}
+
+impl MomentRef<'_> {
+    fn gate_count(&self) -> u16 {
+        match self {
+            Self::Standard(moment) => moment.gate_count(),
+            Self::Cfp(moment) => moment.gate_count(),
+        }
+    }
+
+    fn first_gate_range_km(&self) -> f64 {
+        match self {
+            Self::Standard(moment) => moment.first_gate_range_km(),
+            Self::Cfp(moment) => moment.first_gate_range_km(),
+        }
+    }
+
+    fn gate_interval_km(&self) -> f64 {
+        match self {
+            Self::Standard(moment) => moment.gate_interval_km(),
+            Self::Cfp(moment) => moment.gate_interval_km(),
+        }
+    }
+
+    fn values(&self) -> Vec<f32> {
+        match self {
+            Self::Standard(moment) => moment
+                .values()
+                .into_iter()
+                .map(|value| match value {
+                    MomentValue::Value(v) => v,
+                    MomentValue::BelowThreshold | MomentValue::RangeFolded => f32::NAN,
+                })
+                .collect(),
+            Self::Cfp(moment) => moment
+                .values()
+                .into_iter()
+                .map(|value| match value {
+                    CFPMomentValue::Value(v) => v,
+                    CFPMomentValue::Status(_) => f32::NAN,
+                })
+                .collect(),
+        }
+    }
+}
+
+fn get_moment_datas(r: &Radial) -> [Option<MomentRef<'_>>; 7] {
+    [
+        r.reflectivity().map(MomentRef::Standard),
+        r.velocity().map(MomentRef::Standard),
+        r.spectrum_width().map(MomentRef::Standard),
+        r.differential_reflectivity().map(MomentRef::Standard),
+        r.differential_phase().map(MomentRef::Standard),
+        r.correlation_coefficient().map(MomentRef::Standard),
+        r.clutter_filter_power().map(MomentRef::Cfp),
+    ]
 }
 
 pub(crate) struct ActivityData {
@@ -1016,15 +1061,16 @@ impl RaystackBatchData {
             //
 
             // Values are computed so stored once for multiple folds
-            let mut moment_values: [Option<Vec<MomentValue>>; 7] = [const { None }; 7];
+            let mut moment_values: [Option<Vec<f32>>; 7] = [const { None }; 7];
 
             for radial in sweep.radials() {
                 let mut rad_max_gates = 0u16;
                 let mut rad_first_gate_km = 0.0f32;
                 let mut rad_gate_step_km = 0.0f32;
+                let moment_datas = get_moment_datas(radial);
 
                 // First pass: compute radial metadata and cache moment values
-                for (m_idx, (_, maybe_m)) in get_moment_datas(radial).iter().enumerate() {
+                for (m_idx, maybe_m) in moment_datas.iter().enumerate() {
                     if let Some(m) = maybe_m {
                         rad_max_gates = rad_max_gates.max(m.gate_count());
                         rad_first_gate_km = if rad_first_gate_km == 0.0 {
@@ -1055,19 +1101,19 @@ impl RaystackBatchData {
                     let mut n_finite_values = 0usize;
 
                     // Second pass: fill moment data into output vectors
-                    for (m_idx, (kind, maybe_m)) in get_moment_datas(radial).iter().enumerate() {
-                        let m_out = self.get_moment_vectors(*kind);
+                    for (m_idx, maybe_m) in moment_datas.iter().enumerate() {
+                        let m_out = self.get_moment_vectors(m_idx);
                         assert_eq!(
                             start_m_out_idx,
                             m_out.len(),
-                            "Bad data length for type={} at nreturns={}",
-                            *kind as u8,
+                            "Bad data length for moment index={} at nreturns={}",
+                            m_idx,
                             self.n_returns
                         );
                         m_out.resize(end_m_out_idx, f32::NAN);
 
-                        if let Some(_) = maybe_m {
-                            let m_vals: &Vec<MomentValue> = moment_values[m_idx].as_ref().unwrap();
+                        if maybe_m.is_some() {
+                            let m_vals = moment_values[m_idx].as_ref().unwrap();
 
                             let trunc_m_val_idx = end_m_val_idx.min(m_vals.len());
                             if trunc_m_val_idx <= start_m_val_idx {
@@ -1075,10 +1121,7 @@ impl RaystackBatchData {
                             };
 
                             for i in 0..(trunc_m_val_idx - start_m_val_idx) {
-                                m_out[start_m_out_idx + i] = match m_vals[start_m_val_idx + i] {
-                                    MomentValue::Value(x) => x,
-                                    _ => f32::NAN,
-                                };
+                                m_out[start_m_out_idx + i] = m_vals[start_m_val_idx + i];
 
                                 if m_out[start_m_out_idx + i].is_finite() {
                                     n_finite_values += 1;
@@ -1089,8 +1132,8 @@ impl RaystackBatchData {
 
                     if self.drop_empty_returns && n_finite_values == 0 {
                         // Roll back all moment vectors if this return has no finite values
-                        for (kind, _) in get_moment_datas(radial) {
-                            let m_out = self.get_moment_vectors(kind);
+                        for m_idx in 0..MOMENT_NAMES.len() {
+                            let m_out = self.get_moment_vectors(m_idx);
                             m_out.resize(start_m_out_idx, f32::NAN);
                         }
                         // Don't write anything for empty data
@@ -1122,16 +1165,16 @@ impl RaystackBatchData {
         Ok(())
     }
 
-    fn get_moment_vectors(&mut self, kind: MomentDataKind) -> &mut Vec<f32> {
-        match kind {
-            MomentDataKind::Reflectivity => &mut self.dbzh,
-            MomentDataKind::Velocity => &mut self.vradh,
-            MomentDataKind::SpectrumWidth => &mut self.wradh,
-            MomentDataKind::DifferentialReflectivity => &mut self.zdr,
-            MomentDataKind::DifferentialPhase => &mut self.phidp,
-            MomentDataKind::CorrelationCoefficient => &mut self.rhohv,
-            MomentDataKind::ClutterFilterPower => &mut self.ccorh,
-            _ => unreachable!("Unexpected moment data kind: {}", kind as u8),
+    fn get_moment_vectors(&mut self, index: usize) -> &mut Vec<f32> {
+        match index {
+            0 => &mut self.dbzh,
+            1 => &mut self.vradh,
+            2 => &mut self.wradh,
+            3 => &mut self.zdr,
+            4 => &mut self.phidp,
+            5 => &mut self.rhohv,
+            6 => &mut self.ccorh,
+            _ => unreachable!("Unexpected moment index: {}", index),
         }
     }
 
