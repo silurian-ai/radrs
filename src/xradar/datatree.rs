@@ -104,7 +104,7 @@ fn parse_nexrad_data(data: Vec<u8>) -> Result<(Scan, ScanMeta)> {
         target: "radrs::parse",
         format = "xradar",
         bytes = bytes_len,
-        vcp = scan.coverage_pattern_number(),
+        vcp = u16::from(scan.coverage_pattern_number()),
         n_sweeps = scan.sweeps().len(),
         elapsed_ms = elapsed.as_millis() as u64
     );
@@ -163,7 +163,7 @@ pub(crate) fn scan_to_datatree(
     // Build root attributes
     let root_attrs = build_root_attrs(
         py,
-        scan.coverage_pattern_number(),
+        scan.coverage_pattern_number().into(),
         meta.instrument_name.as_deref(),
     )?;
 
