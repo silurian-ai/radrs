@@ -30,7 +30,7 @@ pub const PEEK_SCAN_MAX: usize = 2 * 1024 * 1024;
 pub const PEEK_MAX_RECORDS: usize = 8;
 
 /// Metadata extracted from a NEXRAD volume without full parsing
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct VolumeMeta {
     /// Radar site ICAO code (e.g., "KTLX")

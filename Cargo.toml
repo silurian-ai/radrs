@@ -9,8 +9,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Python bindings
-pyo3 = { version = "0.27", features = ["extension-module"] }
-numpy = "0.27"
+pyo3 = { version = "0.28", features = ["extension-module"] }
+numpy = "0.28"
 
 # NEXRAD parsing (upstream implementation path with CFP fixes)
 nexrad-data = { git = "https://github.com/danielway/nexrad", branch = "main", default-features = false, features = ["nexrad-model", "parallel"] }
@@ -23,7 +23,7 @@ bytes = "1"
 
 # Async
 tokio = { version = "1", features = ["full"] }
-pyo3-async-runtimes = { version = "0.27", features = ["tokio-runtime"] }
+pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 
 # Error handling
 thiserror = "2.0"

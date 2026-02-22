@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Metadata extracted from a NEXRAD L2 filename
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct NexradL2ArchiveInfo {
     /// Full URI to the volume file
@@ -406,7 +406,7 @@ async fn list_volumes_in_site(
 }
 
 /// Python wrapper for NexradL2ArchiveIterator
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct NexradL2ArchiveIter {
     pub(crate) inner: NexradL2ArchiveIterator,

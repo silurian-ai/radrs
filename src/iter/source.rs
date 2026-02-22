@@ -10,7 +10,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDateTime;
 
 /// Information about a volume from S3 listing
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone, Debug)]
 pub struct VolumeInfo {
     /// Volume filename (e.g., "KTLX20240702_000556_V06")
@@ -119,7 +119,7 @@ impl VolumeSourceConfig {
     }
 }
 
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 #[derive(Clone)]
 pub struct VolumeSource {
     config: VolumeSourceConfig,

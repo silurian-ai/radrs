@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 pub(crate) use texture::velocity_texture;
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub struct AzimuthPlan {
     indices: Vec<i32>,
     src_len: usize,
@@ -103,7 +103,7 @@ impl AzimuthPlan {
 }
 
 #[derive(Clone)]
-#[pyclass]
+#[pyclass(skip_from_py_object)]
 pub struct RangePlan {
     indices: Vec<i32>,
     src_len: usize,
