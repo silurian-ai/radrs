@@ -984,7 +984,7 @@ impl RaystackBatchData {
         // Record VCP metadata
         self.vcp_name
             .push(format!("VCP-{}", scan.coverage_pattern_number()));
-        self.vcp_number.push(scan.coverage_pattern_number());
+        self.vcp_number.push(scan.coverage_pattern_number().into());
 
         let vcp_time = vol_meta.min_time;
         self.vcp_time.push(vcp_time);
