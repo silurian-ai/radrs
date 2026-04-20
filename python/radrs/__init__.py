@@ -29,7 +29,7 @@ Example
 import os
 
 from radrs import _radrs
-from radrs import archive, ops, qc, viz, raystack, xradar
+from radrs import ops, qc, viz, raystack, xradar
 
 list_volumes = _radrs.list_volumes
 peek_volume = _radrs.peek_volume
@@ -80,6 +80,5 @@ __all__ = [
     "raystack",
     "qc",
     "ops",
-    "archive",
     "viz",
 ]
