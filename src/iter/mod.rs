@@ -7,18 +7,16 @@ mod meta;
 mod peek;
 mod realtime;
 mod source;
-mod volumes;
 
 pub use l2_archive::{NexradL2ArchiveInfo, NexradL2ArchiveIter, NexradL2ArchiveIterator, list_nexrad_l2_archive_volumes_py};
 pub use peek::{VolumeMeta, peek_volume_bytes, VOLUME_HEADER_SIZE, PEEK_FAST_INITIAL, PEEK_SCAN_MAX, PEEK_MAX_RECORDS};
 pub use realtime::{stream_archive, stream_archive_py, stream_realtime_py};
-pub use source::{VolumeInfo, VolumeSource, list_volumes};
+pub use source::VolumeInfo;
 
 use pyo3::prelude::*;
 
 /// Register iterator functions in the parent module
 pub fn register_functions(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
-    parent_module.add_class::<source::VolumeSource>()?;
     parent_module.add_class::<source::VolumeInfo>()?;
     parent_module.add_class::<peek::VolumeMeta>()?;
     parent_module.add_class::<l2_archive::NexradL2ArchiveInfo>()?;
@@ -34,11 +32,6 @@ pub fn register_functions(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     parent_module.add_function(wrap_pyfunction!(
         meta::iter_meta_candidates_async_py,
-        parent_module
-    )?)?;
-    parent_module.add_function(wrap_pyfunction!(volumes::iter_volumes_py, parent_module)?)?;
-    parent_module.add_function(wrap_pyfunction!(
-        volumes::iter_volumes_async_py,
         parent_module
     )?)?;
     parent_module.add_function(wrap_pyfunction!(

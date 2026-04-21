@@ -12,6 +12,7 @@ Example
 >>> import radrs
 >>> import radrs.xradar as rxr
 >>> import radrs.raystack as rrs
+>>> from datetime import datetime
 >>>
 >>> # Load a NEXRAD file as xarray DataTree
 >>> dt = rxr.open_datatree("path/to/file.ar2v")
@@ -20,9 +21,15 @@ Example
 >>> rs = rrs.parse(file_bytes, fold_size=128)
 >>>
 >>> # Iterate over S3 archive
->>> source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15")
->>> for dt in radrs.iter_volumes(source):
-...     process(dt)
+>>> archive = radrs.NexradL2ArchiveIter(
+...     base_uri="s3://unidata-nexrad-level2",
+...     start_time=datetime(2024, 3, 15),
+...     end_time=datetime(2024, 3, 16),
+...     storage_options={"anon": "true"},
+...     site_filter=["KTLX"],
+... )
+>>> for info in archive:
+...     process(info.uri)
 """
 
 
@@ -33,11 +40,8 @@ from radrs import ops, qc, viz, raystack, xradar
 
 list_volumes = _radrs.list_volumes
 peek_volume = _radrs.peek_volume
-VolumeSource = _radrs.VolumeSource
 VolumeInfo = _radrs.VolumeInfo
 VolumeMeta = _radrs.VolumeMeta
-iter_volumes = _radrs.iter_volumes
-iter_volumes_async = _radrs.iter_volumes_async
 iter_meta_urls = _radrs.iter_meta_urls
 iter_meta_urls_async = _radrs.iter_meta_urls_async
 iter_meta_candidates = _radrs.iter_meta_candidates
@@ -61,11 +65,8 @@ if "RADRS_LOG" in os.environ:
 __all__ = [
     "list_volumes",
     "peek_volume",
-    "VolumeSource",
     "VolumeInfo",
     "VolumeMeta",
-    "iter_volumes",
-    "iter_volumes_async",
     "iter_meta_urls",
     "iter_meta_urls_async",
     "iter_meta_candidates",

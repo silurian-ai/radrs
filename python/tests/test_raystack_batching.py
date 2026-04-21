@@ -40,9 +40,6 @@ class TestBatching:
             truncate=truncate,
         )
 
-        # Create source and use add_volumes helper
-        # source = radrs.VolumeSource.nexrad(site, start=date, end=date)
-
         root_url = "s3://unidata-nexrad-level2"
         storage_options = dict(
             anon="true",
@@ -178,9 +175,6 @@ class TestBatching:
             drop_empty_returns=True,
         )
 
-        # Create source and use add_volumes helper
-        # source = radrs.VolumeSource.nexrad(site, start=date, end=date)
-
         root_url = "s3://unidata-nexrad-level2"
         storage_options = dict(
             anon="true",
@@ -278,9 +272,6 @@ class TestBatching:
             truncate=False,
             include_sweeps=False,
         )
-
-        # Create source and use add_volumes helper
-        # source = radrs.VolumeSource.nexrad(site, start=date, end=date)
 
         root_url = "s3://unidata-nexrad-level2"
         storage_options = dict(
@@ -380,9 +371,6 @@ class TestBatching:
             truncate=True,
             include_returns=False,
         )
-
-        # Create source and use add_volumes helper
-        # source = radrs.VolumeSource.nexrad(site, start=date, end=date)
 
         root_url = "s3://unidata-nexrad-level2"
         storage_options = dict(
