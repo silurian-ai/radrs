@@ -38,14 +38,8 @@ import os
 from radrs import _radrs
 from radrs import ops, qc, viz, raystack, xradar
 
-list_volumes = _radrs.list_volumes
 peek_volume = _radrs.peek_volume
-VolumeInfo = _radrs.VolumeInfo
 VolumeMeta = _radrs.VolumeMeta
-iter_meta_urls = _radrs.iter_meta_urls
-iter_meta_urls_async = _radrs.iter_meta_urls_async
-iter_meta_candidates = _radrs.iter_meta_candidates
-iter_meta_candidates_async = _radrs.iter_meta_candidates_async
 stream_realtime = _radrs.stream_realtime
 stream_archive = _radrs.stream_archive
 
@@ -63,14 +57,8 @@ if "RADRS_LOG" in os.environ:
 
 
 __all__ = [
-    "list_volumes",
     "peek_volume",
-    "VolumeInfo",
     "VolumeMeta",
-    "iter_meta_urls",
-    "iter_meta_urls_async",
-    "iter_meta_candidates",
-    "iter_meta_candidates_async",
     "stream_realtime",
     "stream_archive",
     "NexradL2ArchiveIter",

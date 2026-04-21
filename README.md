@@ -70,9 +70,9 @@ The app includes sweep selection, moment selection, and gate hover metadata on t
 
 | Function | Description |
 |----------|-------------|
-| `list_volumes(site, date)` | List available volumes for a site and date (Unidata S3) |
 | `NexradL2ArchiveIter(base_uri, start_time, end_time, storage_options, site_filter, ...)` | Iterate L2 archive URIs across S3/GCS/Azure/local, filtered by time range |
 | `list_nexrad_l2_archive_volumes(...)` | Eager listing variant of `NexradL2ArchiveIter` |
+| `peek_volume(url)` | Fetch only the header to inspect a volume's VCP, site, and moments |
 | `stream_archive(site, poll_interval)` | Poll archive for new volumes (~5 min delay) |
 
 ### radrs.xradar

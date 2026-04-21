@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import tempfile
 import time
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
 import radrs
@@ -25,11 +26,20 @@ DEFAULT_N_FULL = 10
 
 
 def get_test_urls(site: str, date: str, n: int) -> list[str]:
-    volumes = radrs.list_volumes(site, date)[:n]
-    return [
-        f"s3://unidata-nexrad-level2/{date.replace('-', '/')}/{site}/{v}"
-        for v in volumes
-    ]
+    day = datetime.strptime(date, "%Y-%m-%d")
+    archive = radrs.NexradL2ArchiveIter(
+        base_uri="s3://unidata-nexrad-level2",
+        start_time=day,
+        end_time=day + timedelta(days=1),
+        storage_options={"anon": "true", "region": "us-east-1"},
+        site_filter=[site],
+    )
+    urls = []
+    for info in archive:
+        urls.append(info.uri)
+        if len(urls) >= n:
+            break
+    return urls
 
 
 def timed(fn: Callable[[], Any], warmup: int = 0) -> tuple[float, Any]:

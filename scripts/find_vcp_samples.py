@@ -15,8 +15,25 @@ Known VCPs:
 import argparse
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
 
 import radrs
+
+
+def list_volumes_for_day(site: str, date: str) -> list[str]:
+    """Return volume URIs for a single site/date via NexradL2ArchiveIter.
+
+    `date` is an ISO date string "YYYY-MM-DD".
+    """
+    day = datetime.strptime(date, "%Y-%m-%d")
+    archive = radrs.NexradL2ArchiveIter(
+        base_uri="s3://unidata-nexrad-level2",
+        start_time=day,
+        end_time=day + timedelta(days=1),
+        storage_options={"anon": "true", "region": "us-east-1"},
+        site_filter=[site],
+    )
+    return [info.uri for info in archive]
 
 # Target sites and dates for different VCP types
 SEARCH_TARGETS = [
@@ -45,9 +62,8 @@ SEARCH_TARGETS = [
 TARGET_VCPS = {12, 31, 32, 34, 35, 112, 121, 212, 215, 221}
 
 
-def peek_with_url(site: str, date: str, volume_name: str) -> tuple[str, dict]:
-    """Peek a volume and return (url, metadata)."""
-    url = f"s3://unidata-nexrad-level2/{date.replace('-', '/')[:4]}/{date[5:7]}/{date[8:10]}/{site}/{volume_name}"
+def peek_url(url: str) -> tuple[str, dict]:
+    """Peek a volume URL and return (url, metadata)."""
     try:
         meta = radrs.peek_volume(url)
         return url, {
@@ -67,23 +83,20 @@ def peek_with_url(site: str, date: str, volume_name: str) -> tuple[str, dict]:
 def search_site_date(site: str, date: str, found_vcps: set, max_per_site: int = 50):
     """Search a site/date for VCPs, return list of (vcp, url, meta) for new VCPs found."""
     results = []
-    volumes = radrs.list_volumes(site, date)
+    urls = list_volumes_for_day(site, date)
 
-    if not volumes:
+    if not urls:
         print(f"  No volumes found for {site}/{date}")
         return results
 
     # Sample volumes evenly across the day
-    step = max(1, len(volumes) // max_per_site)
-    sample_volumes = volumes[::step][:max_per_site]
+    step = max(1, len(urls) // max_per_site)
+    sample_urls = urls[::step][:max_per_site]
 
-    print(f"  {site}/{date}: checking {len(sample_volumes)}/{len(volumes)} volumes...")
+    print(f"  {site}/{date}: checking {len(sample_urls)}/{len(urls)} volumes...")
 
     with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {
-            executor.submit(peek_with_url, site, date, v.name): v.name
-            for v in sample_volumes
-        }
+        futures = {executor.submit(peek_url, url): url for url in sample_urls}
 
         for future in as_completed(futures):
             url, meta = future.result()

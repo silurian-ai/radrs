@@ -4,44 +4,6 @@ import pytest
 import radrs
 
 
-class TestListVolumes:
-    """Tests for list_volumes function."""
-
-    @pytest.mark.slow
-    @pytest.mark.network
-    def test_list_volumes_fetches_real_data(self):
-        """Test that list_volumes actually fetches volume names from S3.
-
-        This test requires network access and verifies actual data is returned.
-        Skip in CI with: pytest -m 'not network'
-        """
-
-        # Use a known date with data (March 15, 2024 - a date with known KTLX data)
-        volumes = radrs.list_volumes("KTLX", "2024-03-15")
-
-        # Must return a non-empty list (this date definitely has data)
-        assert isinstance(volumes, list), "list_volumes should return a list"
-        assert len(volumes) > 0, (
-            "list_volumes returned empty list for date with known data"
-        )
-
-        # All entries should be VolumeInfo objects with name starting with site ID
-        assert all(hasattr(v, "name") for v in volumes), (
-            "All volumes should have a name attribute"
-        )
-        assert all(isinstance(v.name, str) for v in volumes), (
-            "All volume names should be strings"
-        )
-        assert all(v.name.startswith("KTLX") for v in volumes), (
-            "All volume names should start with site ID"
-        )
-
-        # Should have reasonable number of volumes (a day has ~288 volumes at 5-min intervals)
-        assert len(volumes) > 100, (
-            f"Expected >100 volumes for a full day, got {len(volumes)}"
-        )
-
-
 class TestStreamArchive:
     """Tests for stream_archive function."""
 
