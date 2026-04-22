@@ -34,14 +34,18 @@ import radrs.raystack as rrs
 dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_120000_V06")
 dt = rxr.open_datatree("/path/to/local/file.ar2v")
 
-# Iterate over a date range with prefetch
-source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15", end="2024-03-16")
-for dt in radrs.iter_volumes(source, prefetch=5):
+# Iterate over a time range
+from datetime import datetime
+archive = radrs.NexradL2ArchiveIter(
+    base_uri="s3://unidata-nexrad-level2",
+    start_time=datetime(2024, 3, 15),
+    end_time=datetime(2024, 3, 16),
+    storage_options={"anon": "true"},
+    site_filter=["KTLX"],
+)
+for info in archive:
+    dt = rxr.open_datatree(info.uri)
     process(dt)
-
-# Async iteration
-async for dt in radrs.iter_volumes_async(source, prefetch=5):
-    await process(dt)
 
 # Parse directly to raystack format (faster for ML)
 rs = rrs.parse(file_bytes, fold_size=128)
@@ -66,10 +70,9 @@ The app includes sweep selection, moment selection, and gate hover metadata on t
 
 | Function | Description |
 |----------|-------------|
-| `list_volumes(site, date)` | List available volumes for a site and date |
-| `VolumeSource.nexrad(site, start, end)` | Create a NEXRAD archive volume source |
-| `iter_volumes(source, output, qc, fold_size, prefetch, sort_by_azimuth)` | Iterate over volumes from a source |
-| `iter_volumes_async(source, output, qc, fold_size, prefetch, sort_by_azimuth)` | Async iterator with prefetch |
+| `NexradL2ArchiveIter(base_uri, start_time, end_time, storage_options, site_filter, ...)` | Iterate L2 archive URIs across S3/GCS/Azure/local, filtered by time range |
+| `list_nexrad_l2_archive_volumes(...)` | Eager listing variant of `NexradL2ArchiveIter` |
+| `peek_volume(url)` | Fetch only the header to inspect a volume's VCP, site, and moments |
 | `stream_archive(site, poll_interval)` | Poll archive for new volumes (~5 min delay) |
 
 ### radrs.xradar

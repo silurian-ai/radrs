@@ -1,26 +1,11 @@
 //! Archive data access from S3
 
 use crate::error::{RadrsError, Result};
-use crate::fetch::{ARCHIVE_STORE, FETCH_SEMAPHORE, store_for_bucket};
+use crate::fetch::{FETCH_SEMAPHORE, store_for_bucket};
 use object_store::{ObjectStore, ObjectStoreExt};
 use object_store::path::Path as ObjectPath;
 use std::sync::Arc;
 use std::time::Instant;
-
-/// Fetch a file from the NEXRAD archive
-pub async fn fetch_archive_file(
-    site: &str,
-    year: i32,
-    month: u32,
-    day: u32,
-    filename: &str,
-) -> Result<Vec<u8>> {
-    let path = format!("{}/{:02}/{:02}/{}/{}", year, month, day, site, filename);
-    let object_path = ObjectPath::from(path.as_str());
-    let source = format!("archive://{}", path);
-
-    fetch_object_bytes(&ARCHIVE_STORE, &object_path, &source).await
-}
 
 /// Parse an S3 URL and fetch the file
 pub async fn fetch_s3_url(url: &str) -> Result<Vec<u8>> {

@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import tempfile
 import time
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
 import radrs
@@ -25,11 +26,20 @@ DEFAULT_N_FULL = 10
 
 
 def get_test_urls(site: str, date: str, n: int) -> list[str]:
-    volumes = radrs.list_volumes(site, date)[:n]
-    return [
-        f"s3://unidata-nexrad-level2/{date.replace('-', '/')}/{site}/{v}"
-        for v in volumes
-    ]
+    day = datetime.strptime(date, "%Y-%m-%d")
+    archive = radrs.NexradL2ArchiveIter(
+        base_uri="s3://unidata-nexrad-level2",
+        start_time=day,
+        end_time=day + timedelta(days=1),
+        storage_options={"anon": "true", "region": "us-east-1"},
+        site_filter=[site],
+    )
+    urls = []
+    for info in archive:
+        urls.append(info.uri)
+        if len(urls) >= n:
+            break
+    return urls
 
 
 def timed(fn: Callable[[], Any], warmup: int = 0) -> tuple[float, Any]:
@@ -104,34 +114,6 @@ def benchmark_sequential(urls: list[str], use_xradar: bool) -> None:
             print(f"Speedup: {xradar_seq / radrs_seq:.1f}x")
 
 
-def benchmark_iter_sync(source: radrs.VolumeSource, n: int) -> None:
-    print(f"\n--- Iterator (sync, {n} files) ---")
-    start = time.perf_counter()
-    results = []
-    for i, dt in enumerate(radrs.iter_volumes(source)):
-        results.append(dt)
-        if i >= n - 1:
-            break
-    elapsed = time.perf_counter() - start
-    print(f"radrs iter_volumes: {elapsed:.2f}s ({len(results) / elapsed:.2f} vol/s)")
-
-
-def benchmark_iter_async(source: radrs.VolumeSource, n: int) -> None:
-    print(f"\n--- Iterator (async, prefetch=3, {n} files) ---")
-
-    async def _run():
-        start = time.perf_counter()
-        results = []
-        async for dt in radrs.iter_volumes_async(source, prefetch=3):
-            results.append(dt)
-            if len(results) >= n:
-                break
-        elapsed = time.perf_counter() - start
-        print(f"radrs iter_volumes_async: {elapsed:.2f}s ({len(results) / elapsed:.2f} vol/s)")
-
-    asyncio.run(_run())
-
-
 def benchmark_async_concurrent(urls: list[str]) -> None:
     print(f"\n--- Async Concurrent ({len(urls)} files) ---")
 
@@ -166,13 +148,10 @@ def run(mode: str, site: str, date: str, n: int, n_full: int, use_xradar: bool) 
 
     urls = get_test_urls(site, date, max(n, 3))
     print(f"Testing with {len(urls)} volume(s)")
-    source = radrs.VolumeSource.nexrad(site, start=date, end=date)
 
     if mode in {"quick", "all"}:
         benchmark_single_file(urls[: max(3, n)], use_xradar=use_xradar)
         benchmark_sequential(urls[:n], use_xradar=use_xradar)
-        benchmark_iter_sync(source, n)
-        benchmark_iter_async(source, n)
         benchmark_async_concurrent(urls[:n])
         benchmark_connection_reuse(urls[: max(3, n)])
 

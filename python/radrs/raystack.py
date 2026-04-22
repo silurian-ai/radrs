@@ -124,7 +124,7 @@ else:
 
         Parameters
         ----------
-        max_patterns : int
+        max_vcps : int
             Maximum number of VCP patterns
         max_sweeps : int
             Maximum total number of sweeps across all patterns
@@ -147,44 +147,46 @@ else:
 
         Examples
         --------
-        Accumulate 10 VCPs into a batch:
+        Accumulate volumes from an L2 archive iterator into a batch:
 
         >>> import radrs
-        >>> # Allocate for 10 patterns, ~140 sweeps (14 per VCP), ~50k returns
+        >>> from datetime import datetime
+        >>> # Allocate for 10 VCPs, ~140 sweeps (14 per VCP), ~50k returns
         >>> batch = radrs.raystack.BatchedRaystack(
-        ...     max_patterns=10,
+        ...     max_vcps=10,
         ...     max_sweeps=140,
         ...     max_returns=50000,
-        ...     fold_size=128
+        ...     fold_size=128,
         ... )
-        >>> source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15", end="2024-03-16")
-        >>> for vol_ref in source:
-        ...     volume_bytes = vol_ref.fetch()  # Get raw bytes
-        ...     batch.add_volume(volume_bytes)
-        ...     if not batch.has_capacity():
-        ...         break
-        >>> raystack = batch.to_raystack()
+        >>> archive = radrs.NexradL2ArchiveIter(
+        ...     base_uri="s3://unidata-nexrad-level2",
+        ...     start_time=datetime(2024, 3, 15),
+        ...     end_time=datetime(2024, 3, 16),
+        ...     storage_options={"anon": "true"},
+        ...     site_filter=["KTLX"],
+        ... )
+        >>> n_added = batch.add_volumes_from_l2(archive, prefetch=8)
         >>> prog = batch.progress()
         >>> print(f"Collected {prog['patterns_filled']} patterns, "
         ...       f"{prog['sweeps_filled']} sweeps, {prog['returns_filled']} returns")
 
         Convert to DataTree for xarray:
 
-        >>> datatree = batch.to_datatree()
+        >>> datatree = batch.finalize_to_rs_dt()
         >>> datatree.to_zarr("batch_10vcps.zarr")
 
         Pre-allocate fixed-size arrays (no truncation):
 
         >>> # Request 75000 returns, get exactly 75000-element arrays
         >>> batch = radrs.raystack.BatchedRaystack(
-        ...     max_patterns=10,
+        ...     max_vcps=10,
         ...     max_sweeps=140,
         ...     max_returns=75000,
         ...     fold_size=128,
-        ...     truncate=False  # Keep full size with NaN fill
+        ...     truncate=False,  # Keep full size with NaN fill
         ... )
-        >>> batch.add_volumes(source, prefetch=8)
-        >>> raystack = batch.to_raystack()
+        >>> n_added = batch.add_volumes_from_l2(archive, prefetch=8)
+        >>> raystack = batch.finalize_to_dict()
         >>> print(raystack['returns']['azimuth'].shape)  # (75000,) regardless of actual fills
         """
 
@@ -254,12 +256,8 @@ else:
             Examples
             --------
             >>> stream = radrs.raystack.BatchedRaystack(10, 140, 50000)
-            >>> source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15")
-            >>> for vol_ref in source:
-            ...     volume_bytes = vol_ref.fetch()  # Get raw bytes
-            ...     stream.add_volume(volume_bytes)
-            ...     if not stream.has_capacity():
-            ...         break
+            >>> with open("/path/to/KTLX20240315_120000_V06", "rb") as f:
+            ...     stream.add_volume(f.read())
             """
             return self._inner.add_volume(data)
 

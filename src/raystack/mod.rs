@@ -9,7 +9,6 @@ mod parse;
 
 pub use batch::{BatchedRaystackPy, parse_single_volume};
 pub use convert::{from_xradar_datatree_py, to_xradar_datatree_py};
-pub(crate) use parse::parse_qc_ops;
 pub use parse::{QcOp, parse_py};
 
 use pyo3::prelude::*;

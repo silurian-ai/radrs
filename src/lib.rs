@@ -21,8 +21,16 @@
 //! rs = rrs.parse(file_bytes, fold_size=128)
 //!
 //! # Iterate over S3 archive
-//! source = radrs.VolumeSource.nexrad("KTLX", start="2024-03-15")
-//! for dt in radrs.iter_volumes(source):
+//! from datetime import datetime
+//! archive = radrs.NexradL2ArchiveIter(
+//!     base_uri="s3://unidata-nexrad-level2",
+//!     start_time=datetime(2024, 3, 15),
+//!     end_time=datetime(2024, 3, 16),
+//!     storage_options={"anon": "true"},
+//!     site_filter=["KTLX"],
+//! )
+//! for info in archive:
+//!     dt = rxr.open_datatree(info.uri)
 //!     process(dt)
 //! ```
 

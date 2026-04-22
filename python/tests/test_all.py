@@ -6,9 +6,8 @@ import pytest
 def test_import_radrs():
     """Test that radrs can be imported."""
     import radrs
-    assert hasattr(radrs, "list_volumes")
-    assert hasattr(radrs, "VolumeSource")
-    assert hasattr(radrs, "iter_volumes")
+    assert hasattr(radrs, "NexradL2ArchiveIter")
+    assert hasattr(radrs, "peek_volume")
     assert hasattr(radrs, "stream_realtime")
 
 
