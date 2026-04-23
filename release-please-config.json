@@ -1,0 +1,10 @@
+{
+  "release-type": "python",
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "version-file": "pyproject.toml",
+      "extra-files": ["Cargo.toml"]
+    }
+  }
+}
