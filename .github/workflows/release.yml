@@ -1,9 +1,11 @@
+# Generated with `maturin generate-ci github` then hardened with zizmor security suggestions
 name: Release
 
 on:
   push:
     tags:
       - '*'
+  pull_request: # TODO remove
   workflow_dispatch:
 
 env:
