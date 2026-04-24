@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/silurian-ai/radrs/compare/v0.3.4...v0.3.5) (2026-04-24)
+
+
+### Bug Fixes
+
+* use generic updater for Cargo.toml in release-please ([#25](https://github.com/silurian-ai/radrs/issues/25)) ([d963fd9](https://github.com/silurian-ai/radrs/commit/d963fd94212ca26346fc5ddd20e08ca8c72c97d1))
+
 ## [0.3.4](https://github.com/silurian-ai/radrs/compare/v0.3.3...v0.3.4) (2026-04-24)
 
 
