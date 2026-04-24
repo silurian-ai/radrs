@@ -859,8 +859,9 @@ dependencies = [
 
 [[package]]
 name = "nexrad-data"
-version = "1.0.0-rc.4"
-source = "git+https://github.com/danielway/nexrad?branch=main#328d04d503243704af4557ae3fadedee792c03e9"
+version = "1.0.0-rc.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ce26289c04c4736b662997d719b41f2343e700c4ed568f6cb4ba93d3bd923da"
 dependencies = [
  "bzip2",
  "chrono",
@@ -875,8 +876,9 @@ dependencies = [
 
 [[package]]
 name = "nexrad-decode"
-version = "1.0.0-rc.2"
-source = "git+https://github.com/danielway/nexrad?branch=main#328d04d503243704af4557ae3fadedee792c03e9"
+version = "1.0.0-rc.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19a6928b9f7bb9a2ac7c7f4bcb04ad9104ef307d6c4dee251c36cd4b69a47bc1"
 dependencies = [
  "chrono",
  "hex",
@@ -890,8 +892,9 @@ dependencies = [
 
 [[package]]
 name = "nexrad-model"
-version = "1.0.0-rc.1"
-source = "git+https://github.com/danielway/nexrad?branch=main#328d04d503243704af4557ae3fadedee792c03e9"
+version = "1.0.0-rc.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e2e15c56d3f5869b78eef326ca33debd6d144a4a3348ff4829e8579c6d2a9ea"
 dependencies = [
  "hex",
  "sha2",
