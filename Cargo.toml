@@ -12,10 +12,10 @@ crate-type = ["cdylib", "rlib"]
 pyo3 = { version = "0.28", features = ["extension-module"] }
 numpy = "0.28"
 
-# NEXRAD parsing (upstream implementation path with CFP fixes)
-nexrad-data = { git = "https://github.com/danielway/nexrad", branch = "main", default-features = false, features = ["nexrad-model", "parallel"] }
-nexrad-decode = { git = "https://github.com/danielway/nexrad", branch = "main" }
-nexrad-model = { git = "https://github.com/danielway/nexrad", branch = "main" }
+# NEXRAD parsing
+nexrad-data = { version = "=1.0.0-rc.7", default-features = false, features = ["nexrad-model", "parallel"] }
+nexrad-decode = "=1.0.0-rc.3"
+nexrad-model = "=1.0.0-rc.2"
 
 # Cloud storage access (S3, GCS, Azure, local)
 object_store = { version = "0.13", features = ["aws", "gcp", "azure"] }
