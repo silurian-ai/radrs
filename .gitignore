@@ -62,6 +62,10 @@ coverage.xml
 # Sphinx documentation
 docs/_build/
 
+# Zensical / MkDocs build output
+/site/
+/.cache/
+
 # PyCharm
 .idea/
 

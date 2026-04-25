@@ -1,20 +1,19 @@
-"""
-radrs.xradar - xradar-compatible interface
+"""xradar-compatible interface.
 
-This module provides an interface that matches xradar's API for easy comparison
-and drop-in replacement.
+Drop-in replacement for ``xradar.io.open_nexradlevel2_datatree`` —
+returns an ``xarray.DataTree`` with the same structure as xradar.
 
-Example
--------
->>> import radrs.xradar as rxr
->>>
->>> # Exactly like xradar.io.open_nexradlevel2_datatree
->>> dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000000_V06")
->>> dt = rxr.open_datatree("/path/to/local/file.ar2v")
->>> dt = rxr.open_datatree(file_bytes)  # From bytes
->>>
->>> # Returns xarray.DataTree with same structure as xradar
->>> print(dt)
+Examples
+--------
+Open a NEXRAD volume from S3, a local path, or in-memory bytes:
+
+```python
+import radrs.xradar as rxr
+
+dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000000_V06")
+dt = rxr.open_datatree("/path/to/local/file.ar2v")
+dt = rxr.open_datatree(file_bytes)
+```
 """
 
 # Import from the Rust extension
