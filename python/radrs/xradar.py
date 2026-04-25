@@ -36,7 +36,7 @@ credentials for private buckets. ``gs://`` and ``az://`` URIs use
 ``storage_options={"anon": "true"}`` for public buckets.
 """
 
-from radrs._source_format import DEFAULT_SOURCE_FORMAT, validate_source_format
+from radrs._source_format import DEFAULT_SOURCE_FORMAT, require_supported_format
 
 # Import from the Rust extension
 try:
@@ -53,7 +53,7 @@ if _xradar is None:
         format: str = DEFAULT_SOURCE_FORMAT,
     ):
         """Open a NEXRAD Level 2 file as xarray DataTree."""
-        validate_source_format(format)
+        require_supported_format(format)
         raise NotImplementedError("radrs.xradar module not available")
 
     async def open_datatree_async(
@@ -64,7 +64,7 @@ if _xradar is None:
         format: str = DEFAULT_SOURCE_FORMAT,
     ):
         """Open a NEXRAD Level 2 file as xarray DataTree (async)."""
-        validate_source_format(format)
+        require_supported_format(format)
         raise NotImplementedError("radrs.xradar module not available")
 else:
 
@@ -93,7 +93,7 @@ else:
             - GCS service account: {"service_account_path": "/path/to/key.json"}
             - Azure: {"account_name": "...", "access_key": "..."}
         """
-        validate_source_format(format)
+        require_supported_format(format)
         return _xradar.open_datatree(
             source,
             sort_by_azimuth=sort_by_azimuth,
@@ -112,7 +112,7 @@ else:
         See ``open_datatree`` for parameter descriptions, including the
         single-volume-only caveat for non-S3 cloud sources.
         """
-        validate_source_format(format)
+        require_supported_format(format)
         return await _xradar.open_datatree_async(
             source,
             sort_by_azimuth=sort_by_azimuth,

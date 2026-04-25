@@ -8,7 +8,7 @@ from collections.abc import Iterable
 import xarray as xr
 from xarray.backends import BackendEntrypoint
 
-from radrs._source_format import DEFAULT_SOURCE_FORMAT, validate_source_format
+from radrs._source_format import DEFAULT_SOURCE_FORMAT, require_supported_format
 from radrs import raystack as radrs_raystack
 from radrs import xradar as radrs_xradar
 
@@ -149,7 +149,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
         tree = radrs_xradar.open_datatree(
             _normalize_source(filename_or_obj),
             sort_by_azimuth=sort_by_azimuth,
-            format=validate_source_format(format),
+            format=require_supported_format(format),
         )
         return _drop_variables(tree, drop_variables)
 
@@ -223,7 +223,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
             fold_size=fold_size,
             qc=qc,
             include_activity=include_activity,
-            format=validate_source_format(format),
+            format=require_supported_format(format),
         )
         return _drop_variables(tree, drop_variables)
 

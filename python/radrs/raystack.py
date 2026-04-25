@@ -41,10 +41,11 @@ rdt = rrs.open_datatree(src, fold_size=128, qc=[qc.RhohvThreshold(threshold=0.8)
 For lower-level use over already-loaded bytes, see ``parse``.
 """
 
-from radrs.qc import compile_qc_steps
-from radrs._source_format import DEFAULT_SOURCE_FORMAT, validate_source_format
 import xarray as xr
 import numpy as np
+
+from radrs._source_format import DEFAULT_SOURCE_FORMAT, require_supported_format
+from radrs.qc import compile_qc_steps
 
 # Import from the Rust extension
 try:
@@ -59,10 +60,11 @@ if _raystack is None:
         fold_size=None,
         qc=None,
         include_activity=True,
+        *,
         format: str = DEFAULT_SOURCE_FORMAT,
     ):
         """Parse NEXRAD data to raystack format."""
-        validate_source_format(format)
+        require_supported_format(format)
         raise NotImplementedError("radrs.raystack module not available")
 
     def from_xradar_datatree(datatree, fold_size=None, include_activity=True):
@@ -87,7 +89,7 @@ if _raystack is None:
         format: str = DEFAULT_SOURCE_FORMAT,
     ):
         """Open NEXRAD data and return raystack DataTree."""
-        validate_source_format(format)
+        require_supported_format(format)
         raise NotImplementedError("radrs.raystack module not available")
 
     async def open_datatree_async(
@@ -100,7 +102,7 @@ if _raystack is None:
         format: str = DEFAULT_SOURCE_FORMAT,
     ):
         """Open NEXRAD data and return raystack DataTree (async)."""
-        validate_source_format(format)
+        require_supported_format(format)
         raise NotImplementedError("radrs.raystack module not available")
 
     class BatchedRaystack:
@@ -116,9 +118,10 @@ else:
         fold_size=None,
         qc=None,
         include_activity=True,
+        *,
         format: str = DEFAULT_SOURCE_FORMAT,
     ):
-        validate_source_format(format)
+        require_supported_format(format)
         qc_spec = compile_qc_steps(qc)
         return _raystack.parse(
             data, fold_size=fold_size, qc=qc_spec, include_activity=include_activity
@@ -163,7 +166,7 @@ else:
             - GCS service account: {"service_account_path": "/path/to/key.json"}
             - Azure: {"account_name": "...", "access_key": "..."}
         """
-        validate_source_format(format)
+        require_supported_format(format)
         qc_spec = compile_qc_steps(qc)
         return _raystack.open_datatree(
             source,
@@ -187,7 +190,7 @@ else:
         See ``open_datatree`` for parameter descriptions, including the
         single-volume-only caveat for non-S3 cloud sources.
         """
-        validate_source_format(format)
+        require_supported_format(format)
         qc_spec = compile_qc_steps(qc)
         return await _raystack.open_datatree_async(
             source,

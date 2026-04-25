@@ -1,15 +1,14 @@
-"""Shared source-format validation for Python-facing APIs."""
+"""Supported radar source formats."""
 
 from __future__ import annotations
 
 DEFAULT_SOURCE_FORMAT = "nexrad-level2"
-SUPPORTED_SOURCE_FORMATS = (DEFAULT_SOURCE_FORMAT,)
 
 
-def validate_source_format(format: str = DEFAULT_SOURCE_FORMAT) -> str:
-    if format not in SUPPORTED_SOURCE_FORMATS:
-        supported = ", ".join(SUPPORTED_SOURCE_FORMATS)
+def require_supported_format(source_format: str = DEFAULT_SOURCE_FORMAT) -> str:
+    if source_format != DEFAULT_SOURCE_FORMAT:
         raise ValueError(
-            f"Unsupported format {format!r}. Supported formats: {supported}"
+            f"Unsupported format {source_format!r}. "
+            f"Supported formats: {DEFAULT_SOURCE_FORMAT}"
         )
-    return format
+    return source_format
