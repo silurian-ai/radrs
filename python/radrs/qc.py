@@ -1,27 +1,29 @@
-"""
-radrs.qc - Quality control tools for radar data
+"""Quality control tools for radar data.
 
-This module provides two layers of QC:
-1) Low-level array ops (fast, implemented in Rust):
-   - rhohv_threshold(...)
-   - sun_spike(...)
-   - vradh_winding_number(...)
-2) High-level QC steps for raystack parsing:
-   - RhohvThreshold(...)
-   - SunSpike(...)
-   - VradhWindingNumber(...)
+The module exposes two layers:
 
-Mask values:
-- 1 = valid data
-- 0 = invalid data (e.g., below threshold or sun spike)
-- -1 = missing data (NaN in input)
+- **Low-level array ops** (fast, implemented in Rust):
+  ``rhohv_threshold``, ``sun_spike``, ``vradh_winding_number``.
+- **High-level QC steps** for raystack parsing:
+  ``RhohvThreshold``, ``SunSpike``, ``VradhWindingNumber``.
 
-Example
--------
->>> import radrs.raystack as rrs
->>> import radrs.qc as qc
->>> rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(threshold=0.8)])
->>> rs["qc"]["rhohv_threshold_mask"].shape
+Mask values are:
+
+- ``1`` — valid data
+- ``0`` — invalid data (e.g., below threshold or sun spike)
+- ``-1`` — missing data (NaN in input)
+
+Examples
+--------
+Apply an RHOHV threshold during raystack parsing:
+
+```python
+import radrs.raystack as rrs
+import radrs.qc as qc
+
+rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(threshold=0.8)])
+rs["returns"]["qc.rhohv_threshold_mask"].shape
+```
 """
 
 from __future__ import annotations

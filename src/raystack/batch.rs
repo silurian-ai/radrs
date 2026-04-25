@@ -1449,7 +1449,7 @@ impl RaystackBatchData {
 }
 
 /// Python wrapper for RaystackBatchData
-#[pyclass(name = "BatchedRaystack")]
+#[pyclass(name = "BatchedRaystack", module = "radrs._radrs.raystack")]
 pub struct BatchedRaystackPy {
     inner: Option<RaystackBatchData>,
 }

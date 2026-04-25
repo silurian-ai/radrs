@@ -1,0 +1,276 @@
+/* ==========================================================================
+   radrs docs — minimal Silurian-aligned overrides on top of the default
+   Zensical/Material theme. Only fonts + a navy accent — let the logo carry
+   the brand and the default chrome carry the rest.
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Poppins:wght@400;500;600&display=swap');
+
+:root {
+  --night-sky: #000A3E;   /* Silurian logo navy */
+  --canopy-700: #315452;  /* darker teal — used for hover states only */
+  --desert-500: #ED6622;  /* warm amber — code highlight accent */
+
+  --silurian-sans:    'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --silurian-display: 'Poppins', 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  --silurian-mono:    'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* ==========================================================================
+   PALETTE — light: white chrome, navy accents.
+   ========================================================================== */
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color:        #ffffff;
+  --md-primary-fg-color--light: #ffffff;
+  --md-primary-fg-color--dark:  #f5f5f4;
+  --md-primary-bg-color:        var(--night-sky);
+  --md-primary-bg-color--light: rgba(0, 10, 62, 0.7);
+
+  --md-accent-fg-color:         var(--night-sky);
+  --md-accent-fg-color--transparent: rgba(0, 10, 62, 0.08);
+
+  --md-typeset-a-color:         var(--night-sky);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color:        #0c0b09;
+  --md-primary-fg-color--light: #1c1b17;
+  --md-primary-fg-color--dark:  #000000;
+  --md-primary-bg-color:        #f5f5f4;
+
+  --md-accent-fg-color:         #8BBDB5;
+  --md-accent-fg-color--transparent: rgba(139, 189, 181, 0.1);
+
+  --md-typeset-a-color:         #8BBDB5;
+}
+
+/* Light header gets a hairline border to separate it from content */
+[data-md-color-scheme="default"] .md-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: none;
+}
+
+/* ==========================================================================
+   TYPOGRAPHY
+   ========================================================================== */
+body, .md-typeset {
+  font-family: var(--silurian-sans);
+  font-feature-settings: "kern", "liga", "calt";
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+  font-family: var(--silurian-display);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+
+.md-typeset h1 {
+  letter-spacing: -0.015em;
+}
+
+.md-header__title,
+.md-nav__title {
+  font-family: var(--silurian-display);
+  font-weight: 500;
+}
+
+code, pre, kbd, .md-typeset code, .md-typeset pre {
+  font-family: var(--silurian-mono);
+}
+
+/* ==========================================================================
+   HERO — full-bleed navy block (icechunk-inspired)
+   ========================================================================== */
+.md-typeset .radrs-hero {
+  margin: 1.5rem 0 0;
+  padding: 3rem 1.5rem 2.5rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.md-typeset .radrs-hero__glyph {
+  width: 128px;
+  height: auto;
+  max-width: 128px;
+  margin: 0 0 1.25rem;
+}
+
+.md-typeset .radrs-hero__title {
+  font-family: var(--silurian-display);
+  font-weight: 600;
+  font-size: 3.5rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--md-default-fg-color);
+  margin: 0 0 0.75rem;
+}
+
+.md-typeset .radrs-hero__tagline {
+  font-family: var(--silurian-sans);
+  font-size: 1.125rem;
+  line-height: 1.5;
+  color: var(--md-default-fg-color--light);
+  max-width: 36rem;
+  margin: 0 0 2rem;
+}
+
+.md-typeset a.radrs-hero__cta {
+  display: inline-block;
+  padding: 0.65rem 1.75rem;
+  background: var(--md-default-fg-color);
+  color: var(--md-default-bg-color);
+  border-radius: 6px;
+  font-family: var(--silurian-sans);
+  font-weight: 500;
+  font-size: 0.95rem;
+  text-decoration: none;
+  transition: opacity 150ms ease-out, transform 100ms ease-out;
+}
+.md-typeset a.radrs-hero__cta:hover {
+  opacity: 0.85;
+  text-decoration: none;
+  color: var(--md-default-bg-color);
+}
+.md-typeset a.radrs-hero__cta:active {
+  transform: translateY(1px);
+}
+
+.md-typeset .radrs-hero__badges {
+  margin-top: 2rem;
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.md-typeset .radrs-hero__badges img {
+  height: 24px;
+  display: block;
+  max-width: none;
+}
+.md-typeset .radrs-hero__badges a {
+  display: inline-block;
+}
+
+.md-typeset .radrs-hero__attribution {
+  margin: 1.75rem 0 0;
+  font-family: var(--silurian-sans);
+  font-size: 0.875rem;
+  color: var(--md-default-fg-color--lighter);
+}
+.md-typeset .radrs-hero__attribution a {
+  color: var(--md-default-fg-color--light);
+  text-decoration: none;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  transition: color 150ms ease-out, border-color 150ms ease-out;
+}
+.md-typeset .radrs-hero__attribution a:hover {
+  color: var(--md-default-fg-color);
+  border-color: var(--md-default-fg-color--light);
+  text-decoration: none;
+}
+
+/* Belt content below the hero */
+.radrs-belt {
+  margin-top: 3rem;
+}
+.md-typeset .radrs-belt > h2:first-child {
+  margin-top: 0;
+}
+
+/* ==========================================================================
+   TERMINAL — window-chrome wrapper around the home-page code sample
+   ========================================================================== */
+.radrs-terminal {
+  max-width: 760px;
+  margin: 1.5rem auto 4rem;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #1C1B17; /* stone-900 */
+  border: 1px solid #292824;
+  box-shadow:
+    0 12px 28px -8px rgba(0, 0, 0, 0.18),
+    0 4px 12px -2px rgba(0, 0, 0, 0.12);
+
+  /* Override Material's pygments palette inside the terminal so it matches the
+     Silurian/canopy theme regardless of the user's color scheme.  */
+  --md-code-fg-color:                #E7E6E4; /* stone-200 — base text  */
+  --md-code-bg-color:                transparent;
+  --md-code-hl-color:                rgba(237, 102, 34, 0.18);
+  --md-code-hl-comment-color:        #78766E; /* stone-500           */
+  --md-code-hl-keyword-color:        #8BBDB5; /* canopy-300          */
+  --md-code-hl-string-color:         #F18546; /* desert-400          */
+  --md-code-hl-number-color:         #D6B739; /* sand-400            */
+  --md-code-hl-name-color:           #E7E6E4; /* stone-200           */
+  --md-code-hl-operator-color:       #A8A69E; /* stone-400           */
+  --md-code-hl-punctuation-color:    #E7E6E4; /* stone-200           */
+  --md-code-hl-function-color:       #60A199; /* canopy-400          */
+  --md-code-hl-constant-color:       #AFA9D0; /* galaxy-300          */
+  --md-code-hl-special-color:        #ED6622; /* desert-500          */
+  --md-code-hl-variable-color:       #E7E6E4; /* stone-200           */
+  --md-code-hl-generic-color:        #E7E6E4; /* stone-200           */
+}
+
+/* Hide the empty per-line anchors that pymdownx.highlight injects — they overlap text */
+.md-typeset .radrs-terminal__body a[id^="__codelineno"] {
+  display: none;
+}
+
+.radrs-terminal__chrome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #292824; /* stone-800 */
+  border-bottom: 1px solid #44423C;
+  position: relative;
+}
+
+.radrs-terminal__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.radrs-terminal__dot--r { background: #FF5F57; }
+.radrs-terminal__dot--y { background: #FEBC2E; }
+.radrs-terminal__dot--g { background: #28C840; }
+
+.radrs-terminal__title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--silurian-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: #A8A69E; /* stone-400 */
+}
+
+.radrs-terminal__body {
+  padding: 0;
+}
+
+/* Make the inner highlighted code block transparent — let the terminal bg show */
+.md-typeset .radrs-terminal__body .highlight,
+.md-typeset .radrs-terminal__body pre,
+.md-typeset .radrs-terminal__body pre > code {
+  background: transparent;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.md-typeset .radrs-terminal__body pre > code {
+  display: block;
+  padding: 1.1rem 1.25rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+.md-typeset .radrs-terminal__body .highlight .c,
+.md-typeset .radrs-terminal__body .highlight .c1,
+.md-typeset .radrs-terminal__body .highlight .cm {
+  font-style: italic;
+}

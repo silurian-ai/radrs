@@ -1,265 +1,52 @@
 # radrs
 
-A high-performance Rust-native NEXRAD Level 2 processing library with Python bindings.
+[![PyPI](https://img.shields.io/pypi/v/radrs.svg)](https://pypi.org/project/radrs/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-silurian--ai.github.io-blue)](https://silurian-ai.github.io/radrs)
 
-radrs provides fast parsing of NEXRAD weather radar data with direct S3 access, connection pooling, and async support. It offers both xradar-compatible output (xarray DataTree) and a flat "raystack" format optimized for ML pipelines.
+Fast NEXRAD Level 2 processing for Python.
 
-## Features
+radrs parses NEXRAD weather radar data ~10–15× faster than xradar, with direct
+multi-cloud streaming, async I/O, and two output formats: xarray DataTree
+(xradar-compatible) or a flat "raystack" layout optimized for ML pipelines.
 
-- **Fast parsing**: 10-15x faster than xradar for NEXRAD Level 2 files
-- **Direct S3 access**: Stream data from `unidata-nexrad-level2` with connection pooling
-- **Async support**: Native async/await API with prefetch pipelines
-- **Multiple output formats**: xarray DataTree (xradar-compatible) or raystack (ML-optimized)
-- **Quality control**: Built-in RHOHV threshold and sun spike detection
-- **Parallel decompression**: Multi-threaded bzip2 decompression
+- Multi-cloud streaming (`s3://`, `gs://`, `az://`, local) with connection pooling
+- Async/await API with prefetch
+- Time-bounded archive iteration via `NexradL2ArchiveIter`
+- Built-in QC: RHOHV thresholding, sun spike detection, VRADH dealiasing
+- Multi-threaded bzip2 decompression
 
-## Installation
+## Install
 
 ```bash
-# From source (requires Rust toolchain and uv)
-git clone <repo>
-cd radrs
-uv sync
-maturin develop --release
+uv add radrs
 ```
 
-## Quick Start
+Or with pip: `pip install radrs`. Requires Python 3.11+.
+
+## Quick start
 
 ```python
-import radrs
 import radrs.xradar as rxr
 import radrs.raystack as rrs
 
-# Open a single file (local or S3)
-dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_120000_V06")
-dt = rxr.open_datatree("/path/to/local/file.ar2v")
+src = "s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_120000_V06"
 
-# Iterate over a time range
-from datetime import datetime
-archive = radrs.NexradL2ArchiveIter(
-    base_uri="s3://unidata-nexrad-level2",
-    start_time=datetime(2024, 3, 15),
-    end_time=datetime(2024, 3, 16),
-    storage_options={"anon": "true"},
-    site_filter=["KTLX"],
-)
-for info in archive:
-    dt = rxr.open_datatree(info.uri)
-    process(dt)
+# xradar-compatible DataTree
+dt = rxr.open_datatree(src)
 
-# Parse directly to raystack format (faster for ML)
-rs = rrs.parse(file_bytes, fold_size=128)
-print(rs["returns"]["DBZH"].shape)  # (n_returns * 128,) flat
-print(rs["returns"]["DBZH"].reshape(-1, 128).shape)  # (n_returns, 128)
+# Raystack DataTree — flat layout, ML-friendly
+rdt = rrs.open_datatree(src, fold_size=128)
 ```
 
-## Viz app
+For S3 archive iteration, async I/O, QC, and the raystack format reference, see
+the [full documentation](https://silurian-ai.github.io/radrs).
 
-Run the interactive volume visualization in marimo:
+## Documentation
 
-```bash
-uv sync --group dev
-uv run marimo run notebooks/raystack_viz.py
-```
-
-The app includes sweep selection, moment selection, and gate hover metadata on the polar view.
-
-## API Reference
-
-### radrs (top-level)
-
-| Function | Description |
-|----------|-------------|
-| `NexradL2ArchiveIter(base_uri, start_time, end_time, storage_options, site_filter, ...)` | Iterate L2 archive URIs across S3/GCS/Azure/local, filtered by time range |
-| `list_nexrad_l2_archive_volumes(...)` | Eager listing variant of `NexradL2ArchiveIter` |
-| `peek_volume(url)` | Fetch only the header to inspect a volume's VCP, site, and moments |
-| `stream_archive(site, poll_interval)` | Poll archive for new volumes (~5 min delay) |
-
-### radrs.xradar
-
-| Function | Description |
-|----------|-------------|
-| `open_datatree(source, sort_by_azimuth=False)` | Open file/URL/bytes as xarray DataTree |
-| `open_datatree_async(source, sort_by_azimuth=False)` | Async version of open_datatree |
-
-Set `sort_by_azimuth=True` to sort radials by azimuth angle (0°→360°), matching xradar's output order. By default, radrs preserves the original file order.
-
-### radrs.raystack
-
-| Function | Description |
-|----------|-------------|
-| `parse(data, fold_size, qc=None, include_activity=True)` | Parse bytes directly to raystack dict (fastest) |
-| `from_xradar_datatree(dt, fold_size, include_activity=True)` | Convert xradar-style DataTree to raystack dict |
-| `to_xradar_datatree(rs)` | Convert raystack dict to xradar-style DataTree |
-| `to_raystack_datatree(rs)` | Convert raystack dict to raystack-style DataTree |
-| `open_datatree(source, fold_size, qc=None, include_activity=True)` | Open file/URL/bytes as raystack-style DataTree (flat layout) |
-| `open_datatree_async(source, fold_size, qc=None, include_activity=True)` | Async version of open_datatree |
-
-### radrs.qc
-
-| Function | Description |
-|----------|-------------|
-| `rhohv_threshold(rhohv, threshold=0.8)` | Mask by correlation coefficient |
-| `sun_spike(dbzh, dbzh_threshold=0.0, fill_threshold=0.9, corr_threshold=0.8)` | Detect sun spike contamination |
-| `vradh_winding_number(vradh, dbzh=None, nyquist=None, wind_size=3, velocity_texture_threshold=4.0, reflectivity_threshold=0.0, ...)` | VRADH winding number (dealias) |
-| `RhohvThreshold(threshold=0.8, vname="rhohv_threshold_mask")` | QC step for raystack parsing |
-| `SunSpike(dbzh_threshold=0.0, fill_threshold=0.9, corr_threshold=0.8, vname="sun_spike_mask")` | QC step for raystack parsing |
-| `VradhWindingNumber(..., vname="vradh_winding_number")` | QC step for raystack parsing |
-
-## Output Formats
-
-### xarray DataTree (xradar-compatible)
-
-```
-DataTree('root')
-├── DataTree('sweep_0')
-│   └── Dataset: DBZH, VRADH, RHOHV, ZDR, ... (time, range)
-├── DataTree('sweep_1')
-│   └── ...
-```
-
-### Raystack DataTree (flat layout)
-
-```
-DataTree('root')
-├── DataTree('vcps')
-│   └── Dataset: vcp_number, vcp_name, vcp_time, num_sweeps, ...
-├── DataTree('sweeps')
-│   └── Dataset: sweep_number, elevation_number, elevation_angle, num_returns, ...
-├── DataTree('activity')
-│   └── Dataset: ray_valid_count, ray_valid_fraction, sweep_valid_count, sweep_valid_fraction, volume_valid_count, volume_valid_fraction
-└── DataTree('returns')
-    └── Dataset: return_time, sweep_time, sweep_number, azimuth, elevation, DBZH, VRADH, ... (return_time, range)
-```
-
-### Raystack dict (ML-optimized)
-
-```python
-{
-    "vcps": {
-        "vcp_number": ndarray(n_vcps,),
-        "vcp_time": ndarray(n_vcps,),
-        "num_sweeps": ndarray(n_vcps,),
-        ...
-    },
-    "sweeps": {
-        "sweep_number": ndarray(n_sweeps,),
-        "sweep_time": ndarray(n_sweeps,),
-        "elevation_number": ndarray(n_sweeps,),
-        "elevation_angle": ndarray(n_sweeps,),
-        "num_returns": ndarray(n_sweeps,),
-        ...
-    },
-    "returns": {
-        "azimuth": ndarray(n_returns,),
-        "elevation": ndarray(n_returns,),
-        "return_time": ndarray(n_returns,),
-        "sweep_number": ndarray(n_returns,),
-        "base_range": ndarray(n_returns,),
-        "range_step": ndarray(n_returns,),
-        "DBZH": ndarray(n_returns * fold_size,),  # reshape to (n_returns, fold_size)
-        "VRADH": ndarray(n_returns * fold_size,),
-        ...
-    },
-    "activity": {
-        "moment": ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"],
-        "ray_valid_count": ndarray(n_moments, n_returns),      # per return chunk
-        "ray_valid_fraction": ndarray(n_moments, n_returns),
-        "sweep_valid_count": ndarray(n_moments, n_sweeps),
-        "sweep_valid_fraction": ndarray(n_moments, n_sweeps),
-        "volume_valid_count": ndarray(n_moments, n_vcps),
-        "volume_valid_fraction": ndarray(n_moments, n_vcps),
-    },
-}
-```
-
-### Activity Metrics
-
-Activity metrics summarize data availability for each radar moment (DBZH, VRADH, WRADH, ZDR, PHIDP, RHOHV, CCORH) at three levels:
-
-| Metric | Shape | Description |
-|--------|-------|-------------|
-| `ray_valid_count` | (n_moments, n_returns) | Count of finite values per return chunk |
-| `ray_valid_fraction` | (n_moments, n_returns) | Fraction of valid gates per return chunk (count / fold_size) |
-| `sweep_valid_count` | (n_moments, n_sweeps) | Total valid values per sweep |
-| `sweep_valid_fraction` | (n_moments, n_sweeps) | Fraction valid per sweep (count / (num_returns * fold_size)) |
-| `volume_valid_count` | (n_moments, n_vcps) | Total valid values per VCP |
-| `volume_valid_fraction` | (n_moments, n_vcps) | Fraction valid per VCP |
-
-Activity is computed during parsing and included by default. To disable:
-
-```python
-rs = rrs.parse(file_bytes, include_activity=False)
-dt = rrs.open_datatree(source, include_activity=False)
-```
-
-Fractions are normalized by return chunks actually present in the raystack. If processing a partial volume (e.g., time-sliced), sweep/volume fractions reflect only the observed data, not full-sweep geometry.
-
-### QC masks
-
-Raystack parsing can emit QC outputs in `returns` with a `qc.` prefix:
-
-## Compatibility notes (xradar / Py-ART)
-
-- **Sweep ordering:** radrs preserves native sweep order from the file. Some VCPs reuse elevation angles, so pairing by elevation alone can misalign sweeps. When comparing against Py-ART/xradar, align by sweep index when sweep counts match.
-- **Raystack folding semantics:** raystack folding uses physical range alignment (first gate + gate spacing) against the sweep grid, which can differ from simple gate-index folding if moments have different gate geometries.
-- **Dual-pol decoding:** ZDR/PHIDP decoding depends on the upstream `nexrad` crate. If you see NaNs or mismatches for these moments, check the `nexrad` decode status; DBZH/VRADH/WRADH/RHOHV are expected to match.
-- **Azimuth alignment in tests:** floating-point rounding can make exact azimuth equality brittle; radrs tests align by rounded azimuth or nearest-neighbor to avoid false mismatches.
-
-```python
-import radrs.raystack as rrs
-import radrs.qc as qc
-
-rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(), qc.SunSpike()])
-mask = rs["returns"]["qc.rhohv_threshold_mask"]  # int8, flat (n_returns * fold_size)
-
-# Winding number from VRADH dealiasing
-rs = rrs.parse(file_bytes, qc=[qc.VradhWindingNumber()])
-winding = rs["returns"]["qc.vradh_winding_number"]  # float32, flat (n_returns * fold_size)
-```
-
-## Development
-
-```bash
-# Setup
-uv sync
-
-# Build if you want to run in release mode
-# If you want to run in dev mode, just skip this step, uv sync or uv run automatically builds in dev mode
-maturin develop --release
-
-# Test
-uv run pytest python/tests/ -v
-
-# Benchmark S3 performance
-uv run python benchmarks/s3_benchmark.py
-```
-
-## Architecture
-
-```
-radrs/
-├── src/
-│   ├── xradar/        # xarray DataTree output
-│   ├── raystack/      # ML-optimized flat format
-│   ├── qc/            # Quality control functions
-│   ├── iter/          # Volume iterators with prefetch
-│   └── fetch/         # S3 access with connection pooling
-└── python/
-    ├── radrs/         # Python package
-    └── tests/         # Test suite
-```
-
-## Known Differences from xradar
-
-| Behavior | radrs | xradar |
-|----------|-------|--------|
-| Radial ordering | File order (use `sort_by_azimuth=True` to match xradar) | Sorted by azimuth |
-| Below-threshold | NaN | Raw value |
-| Range-folded | NaN | Raw value |
-
-Both approaches are valid; radrs uses NaN for cleaner downstream analysis.
+- [User guide & API reference](https://silurian-ai.github.io/radrs)
+- [Changelog](CHANGELOG.md)
 
 ## License
 
-[Add license information]
+Apache-2.0 — see [LICENSE](LICENSE).
