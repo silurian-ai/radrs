@@ -63,12 +63,14 @@ if _raystack is None:
         """Convert raystack dict to raystack DataTree."""
         raise NotImplementedError("radrs.raystack module not available")
 
-    def open_datatree(source, fold_size=None, qc=None, include_activity=True):
+    def open_datatree(
+        source, fold_size=None, qc=None, include_activity=True, storage_options=None
+    ):
         """Open NEXRAD data and return raystack DataTree."""
         raise NotImplementedError("radrs.raystack module not available")
 
     async def open_datatree_async(
-        source, fold_size=None, qc=None, include_activity=True
+        source, fold_size=None, qc=None, include_activity=True, storage_options=None
     ):
         """Open NEXRAD data and return raystack DataTree (async)."""
         raise NotImplementedError("radrs.raystack module not available")
@@ -95,24 +97,55 @@ else:
     to_xradar_datatree = _raystack.to_xradar_datatree
     to_raystack_datatree = _raystack.to_raystack_datatree
 
-    def open_datatree(source, fold_size=None, qc=None, include_activity=True):
+    def open_datatree(
+        source, fold_size=None, qc=None, include_activity=True, storage_options=None
+    ):
+        """Open a NEXRAD volume and return a raystack DataTree.
+
+        Parameters
+        ----------
+        source : str or bytes
+            Path to file, URI (``s3://``, ``gs://``, ``az://``, ``file://``,
+            or absolute local path), or raw bytes. The URI must point at a
+            single NEXRAD Level 2 volume — tar archives (e.g. the public
+            GCS NEXRAD mirror's 6-minute bundles) are not unpacked here and
+            will fail at parse.
+        fold_size : int, optional
+            Range fold size (chunks each radial into segments).
+        qc : list of QCStep or QCStep, optional
+            Quality control steps to apply during parse.
+        include_activity : bool, default=True
+            Include activity metrics in the output.
+        storage_options : dict, optional
+            Storage backend configuration forwarded to object_store. Examples:
+            - S3 anonymous: {"anon": "true"}
+            - GCS service account: {"service_account_path": "/path/to/key.json"}
+            - Azure: {"account_name": "...", "access_key": "..."}
+        """
         qc_spec = compile_qc_steps(qc)
         return _raystack.open_datatree(
             source,
             fold_size=fold_size,
             qc=qc_spec,
             include_activity=include_activity,
+            storage_options=storage_options,
         )
 
     async def open_datatree_async(
-        source, fold_size=None, qc=None, include_activity=True
+        source, fold_size=None, qc=None, include_activity=True, storage_options=None
     ):
+        """Async variant of ``open_datatree``.
+
+        See ``open_datatree`` for parameter descriptions, including the
+        single-volume-only caveat for non-S3 cloud sources.
+        """
         qc_spec = compile_qc_steps(qc)
         return await _raystack.open_datatree_async(
             source,
             fold_size=fold_size,
             qc=qc_spec,
             include_activity=include_activity,
+            storage_options=storage_options,
         )
 
     class BatchedRaystack:

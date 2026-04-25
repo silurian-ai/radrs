@@ -4,7 +4,7 @@
 //! raystack outputs share one chunked return representation.
 
 use crate::error::{RadrsError, Result};
-use crate::fetch::{RUNTIME, fetch_s3_url};
+use crate::fetch::{RUNTIME, fetch_bytes_from_url};
 use crate::raystack::batch::{add_activity_to_dict, compute_batch_activity, parse_single_volume};
 use nexrad_model::data::{DataMoment, Scan};
 use pyo3::PyErr;
@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict, PyList};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::borrow::Cow;
-use std::fs;
+use std::collections::HashMap;
 use std::io::Read;
 use std::time::Instant;
 
@@ -482,13 +482,14 @@ pub fn parse_py<'py>(
 
 /// Open a NEXRAD Level 2 file and return raystack DataTree.
 #[pyfunction]
-#[pyo3(name = "open_datatree", signature = (source, fold_size = None, qc = None, include_activity = true))]
+#[pyo3(name = "open_datatree", signature = (source, fold_size = None, qc = None, include_activity = true, storage_options = None))]
 pub fn open_raystack_datatree_py<'py>(
     py: Python<'py>,
     source: &Bound<'py, PyAny>,
     fold_size: Option<usize>,
     qc: Option<&Bound<'py, PyAny>>,
     include_activity: bool,
+    storage_options: Option<HashMap<String, String>>,
 ) -> PyResult<Py<PyAny>> {
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
     let qc_ops = parse_qc_ops(py, qc)?;
@@ -497,11 +498,9 @@ pub fn open_raystack_datatree_py<'py>(
         source.extract::<Vec<u8>>()?
     } else {
         let path_str: String = source.extract()?;
-        if path_str.starts_with("s3://") {
-            RUNTIME.block_on(fetch_s3_url(&path_str))?
-        } else {
-            fs::read(&path_str).map_err(RadrsError::Io)?
-        }
+        RUNTIME
+            .block_on(fetch_bytes_from_url(&path_str, storage_options))?
+            .to_vec()
     };
 
     let bytes_len = data.len();
@@ -537,20 +536,21 @@ pub fn open_raystack_datatree_py<'py>(
 
 /// Open a NEXRAD Level 2 file asynchronously and return raystack DataTree.
 #[pyfunction]
-#[pyo3(name = "open_datatree_async", signature = (source, fold_size = None, qc = None, include_activity = true))]
+#[pyo3(name = "open_datatree_async", signature = (source, fold_size = None, qc = None, include_activity = true, storage_options = None))]
 pub fn open_raystack_datatree_async_py<'py>(
     py: Python<'py>,
     source: &Bound<'py, PyAny>,
     fold_size: Option<usize>,
     qc: Option<&Bound<'py, PyAny>>,
     include_activity: bool,
+    storage_options: Option<HashMap<String, String>>,
 ) -> PyResult<Py<PyAny>> {
     let source = source.as_borrowed().to_owned().unbind();
     let fold_size = fold_size.unwrap_or(DEFAULT_FOLD_SIZE);
     let qc_ops = parse_qc_ops(py, qc)?;
 
     let awaitable = future_into_py(py, async move {
-        let data = fetch_source_bytes_async(source).await?;
+        let data = fetch_source_bytes_async(source, storage_options).await?;
 
         let bytes_len = data.len();
         let start = Instant::now();
@@ -579,7 +579,10 @@ pub fn open_raystack_datatree_async_py<'py>(
     Ok(awaitable.into())
 }
 
-async fn fetch_source_bytes_async(source: Py<PyAny>) -> Result<Vec<u8>> {
+async fn fetch_source_bytes_async(
+    source: Py<PyAny>,
+    storage_options: Option<HashMap<String, String>>,
+) -> Result<Vec<u8>> {
     enum Source {
         Bytes(Vec<u8>),
         Path(String),
@@ -602,15 +605,8 @@ async fn fetch_source_bytes_async(source: Py<PyAny>) -> Result<Vec<u8>> {
 
     match source {
         Source::Bytes(bytes) => Ok(bytes),
-        Source::Path(path) => {
-            if path.starts_with("s3://") {
-                fetch_s3_url(&path).await
-            } else {
-                tokio::task::spawn_blocking(move || fs::read(&path))
-                    .await
-                    .map_err(|e| RadrsError::Python(format!("File read task failed: {}", e)))?
-                    .map_err(RadrsError::Io)
-            }
-        }
+        Source::Path(path) => fetch_bytes_from_url(&path, storage_options)
+            .await
+            .map(|b| b.to_vec()),
     }
 }

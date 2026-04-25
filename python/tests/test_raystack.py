@@ -573,6 +573,40 @@ class TestActivityConsistency:
         )
 
 
+class TestMultiCloudRouting:
+    """Verify open_datatree routes non-s3 URIs through fetch_bytes_from_url
+    rather than the old s3-only / local-fs branch.
+    """
+
+    def test_local_path_missing_raises(self):
+        with pytest.raises(Exception) as excinfo:
+            rrs.open_datatree("/nonexistent/definitely/not/a/file")
+        msg = str(excinfo.value).lower()
+        assert "unsupported uri scheme" not in msg
+
+    @pytest.mark.network
+    def test_gs_uri_routes_to_object_store(self):
+        """A gs:// URI must reach the object_store fetch path. The public GCS
+        NEXRAD mirror stores tar archives rather than single-volume files, so
+        parse will fail with a "truncated record" error — that's expected and
+        proves bytes were fetched from GCS rather than rejected at the
+        URI-routing layer.
+        """
+        url = (
+            "gs://gcp-public-data-nexrad-l2/2025/01/01/KABR/"
+            "NWS_NEXRAD_NXL2DPBL_KABR_20250101000000_20250101005959.tar"
+        )
+        with pytest.raises(Exception) as excinfo:
+            rrs.open_datatree(url, storage_options={"skip_signature": "true"})
+        msg = str(excinfo.value).lower()
+        assert "unsupported uri scheme" not in msg
+        assert "truncated record" in msg or "nexrad data error" in msg
+
+    def test_storage_options_kwarg_accepted(self, test_file_path):
+        dt = rrs.open_datatree(test_file_path, storage_options=None)
+        assert "returns" in dt.children
+
+
 class TestPerformance:
     @pytest.mark.benchmark
     def test_parse_benchmark(self, benchmark, test_file_bytes):
