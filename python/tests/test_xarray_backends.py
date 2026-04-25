@@ -9,6 +9,7 @@ import pytest
 import xarray as xr
 
 from radrs import backends
+from radrs._source_format import DEFAULT_SOURCE_FORMAT
 
 
 def _clear_engine_cache() -> None:
@@ -128,11 +129,15 @@ def test_xradar_engine_forwards_options(
         "volume.ar2v",
         engine="radrs-xradar",
         sort_by_azimuth=True,
+        format=DEFAULT_SOURCE_FORMAT,
     )
 
     xr.testing.assert_equal(actual, xradar_tree)
     assert backend_calls["xradar"] == [
-        ("volume.ar2v", {"sort_by_azimuth": True})
+        (
+            "volume.ar2v",
+            {"sort_by_azimuth": True, "format": DEFAULT_SOURCE_FORMAT},
+        )
     ]
 
 
@@ -147,15 +152,29 @@ def test_raystack_engine_forwards_options(
         fold_size=256,
         qc=["qc-step"],
         include_activity=False,
+        format=DEFAULT_SOURCE_FORMAT,
     )
 
     xr.testing.assert_equal(default_actual, raystack_tree)
     xr.testing.assert_equal(actual, raystack_tree)
     assert backend_calls["raystack"] == [
-        ("volume.ar2v", {"fold_size": None, "qc": None, "include_activity": True}),
         (
             "volume.ar2v",
-            {"fold_size": 256, "qc": ["qc-step"], "include_activity": False},
+            {
+                "fold_size": None,
+                "qc": None,
+                "include_activity": True,
+                "format": DEFAULT_SOURCE_FORMAT,
+            },
+        ),
+        (
+            "volume.ar2v",
+            {
+                "fold_size": 256,
+                "qc": ["qc-step"],
+                "include_activity": False,
+                "format": DEFAULT_SOURCE_FORMAT,
+            },
         )
     ]
 
@@ -272,6 +291,15 @@ def test_decoder_kwargs_are_rejected(
             engine="radrs-xradar",
             mask_and_scale=False,
         )
+
+
+@pytest.mark.parametrize("engine", ["radrs-xradar", "radrs-raystack"])
+def test_invalid_format_is_rejected(
+    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
+    engine: str,
+) -> None:
+    with pytest.raises(ValueError, match="Supported formats: nexrad-level2"):
+        xr.open_datatree("volume.ar2v", engine=engine, format="odim")
 
 
 class BytesIOText:

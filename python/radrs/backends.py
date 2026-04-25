@@ -8,6 +8,7 @@ from collections.abc import Iterable
 import xarray as xr
 from xarray.backends import BackendEntrypoint
 
+from radrs._source_format import DEFAULT_SOURCE_FORMAT, validate_source_format
 from radrs import raystack as radrs_raystack
 from radrs import xradar as radrs_xradar
 
@@ -126,6 +127,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
     """xarray backend for the radrs xradar-compatible DataTree schema."""
 
     open_dataset_parameters = _RadrsBackendBase.open_dataset_parameters + (
+        "format",
         "sort_by_azimuth",
     )
     description = "Fast radrs NEXRAD Level II reader returning xradar-style DataTrees"
@@ -136,6 +138,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
         *,
         drop_variables: str | Iterable[str] | None = None,
         sort_by_azimuth: bool = False,
+        format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> xr.DataTree:
         _unsupported_decoder_kwargs(kwargs)
@@ -146,6 +149,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
         tree = radrs_xradar.open_datatree(
             _normalize_source(filename_or_obj),
             sort_by_azimuth=sort_by_azimuth,
+            format=validate_source_format(format),
         )
         return _drop_variables(tree, drop_variables)
 
@@ -156,12 +160,14 @@ class RadrsXradarBackend(_RadrsBackendBase):
         drop_variables: str | Iterable[str] | None = None,
         group: str | None = None,
         sort_by_azimuth: bool = False,
+        format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> xr.Dataset:
         tree = self.open_datatree(
             filename_or_obj,
             drop_variables=drop_variables,
             sort_by_azimuth=sort_by_azimuth,
+            format=format,
             **kwargs,
         )
         return _dataset_for_group(tree, group, "radrs-xradar")
@@ -172,12 +178,14 @@ class RadrsXradarBackend(_RadrsBackendBase):
         *,
         drop_variables: str | Iterable[str] | None = None,
         sort_by_azimuth: bool = False,
+        format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> dict[str, xr.Dataset]:
         tree = self.open_datatree(
             filename_or_obj,
             drop_variables=drop_variables,
             sort_by_azimuth=sort_by_azimuth,
+            format=format,
             **kwargs,
         )
         return _groups_as_dict(tree)
@@ -187,6 +195,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
     """xarray backend for the radrs flattened raystack DataTree schema."""
 
     open_dataset_parameters = _RadrsBackendBase.open_dataset_parameters + (
+        "format",
         "fold_size",
         "qc",
         "include_activity",
@@ -201,6 +210,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
         fold_size: int | None = None,
         qc: object = None,
         include_activity: bool = True,
+        format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> xr.DataTree:
         _unsupported_decoder_kwargs(kwargs)
@@ -213,6 +223,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
             fold_size=fold_size,
             qc=qc,
             include_activity=include_activity,
+            format=validate_source_format(format),
         )
         return _drop_variables(tree, drop_variables)
 
@@ -225,6 +236,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
         fold_size: int | None = None,
         qc: object = None,
         include_activity: bool = True,
+        format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> xr.Dataset:
         tree = self.open_datatree(
@@ -233,6 +245,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
             fold_size=fold_size,
             qc=qc,
             include_activity=include_activity,
+            format=format,
             **kwargs,
         )
         return _dataset_for_group(tree, group, "radrs-raystack")
@@ -245,6 +258,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
         fold_size: int | None = None,
         qc: object = None,
         include_activity: bool = True,
+        format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> dict[str, xr.Dataset]:
         tree = self.open_datatree(
@@ -253,6 +267,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
             fold_size=fold_size,
             qc=qc,
             include_activity=include_activity,
+            format=format,
             **kwargs,
         )
         return _groups_as_dict(tree)

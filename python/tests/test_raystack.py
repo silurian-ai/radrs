@@ -96,6 +96,10 @@ class TestParse:
         assert "sweeps" in rs
         assert "returns" in rs
 
+    def test_parse_invalid_format(self):
+        with pytest.raises(ValueError, match="Supported formats: nexrad-level2"):
+            rrs.parse(b"", format="odim")
+
     def test_parse_with_fold_size(self, test_file_bytes):
         for fold_size in [32, 64, 128, 256]:
             rs = rrs.parse(test_file_bytes, fold_size=fold_size)
@@ -369,6 +373,10 @@ class TestRaystackDatatree:
         assert "returns" in dt.children
         assert "vcps" in dt.children
         assert "sweeps" in dt.children
+
+    def test_open_datatree_invalid_format(self):
+        with pytest.raises(ValueError, match="Supported formats: nexrad-level2"):
+            rrs.open_datatree(b"", format="odim")
 
     @pytest.mark.asyncio
     async def test_open_datatree_async_returns_raystack(self, test_file_path):

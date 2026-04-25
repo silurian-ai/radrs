@@ -80,6 +80,10 @@ class TestOpenDatatree:
         sweep_keys = [k for k in dt.children.keys() if k.startswith("sweep_")]
         assert len(sweep_keys) > 0
 
+    def test_open_datatree_invalid_format(self):
+        with pytest.raises(ValueError, match="Supported formats: nexrad-level2"):
+            rxr.open_datatree(b"", format="odim")
+
     def test_datatree_has_moments(self, compact_radrs_datatree):
         """Test that DataTree contains expected moment variables."""
 
