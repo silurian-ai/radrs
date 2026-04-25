@@ -80,6 +80,13 @@ code, pre, kbd, .md-typeset code, .md-typeset pre {
   font-family: var(--silurian-mono);
 }
 
+/* Dark-mode logo swap — uses CSS content replacement on <img> */
+[data-md-color-scheme="slate"] .md-header__button.md-logo img,
+[data-md-color-scheme="slate"] .md-nav__button.md-logo img,
+[data-md-color-scheme="slate"] .radrs-hero__glyph {
+  content: url("../assets/radrs-glyph-dark.png");
+}
+
 /* ==========================================================================
    HERO — full-bleed navy block (icechunk-inspired)
    ========================================================================== */
