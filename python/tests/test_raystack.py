@@ -606,6 +606,18 @@ class TestMultiCloudRouting:
         dt = rrs.open_datatree(test_file_path, storage_options=None)
         assert "returns" in dt.children
 
+    def test_relative_local_path(self, test_file_path, tmp_path, monkeypatch):
+        """Relative local paths must keep working — regression test."""
+        import os
+        import shutil
+
+        copied = tmp_path / os.path.basename(test_file_path)
+        shutil.copy(test_file_path, copied)
+        monkeypatch.chdir(tmp_path)
+
+        dt = rrs.open_datatree(copied.name)
+        assert "returns" in dt.children
+
 
 class TestPerformance:
     @pytest.mark.benchmark

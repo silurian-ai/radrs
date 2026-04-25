@@ -110,14 +110,29 @@ pub fn build_store_from_uri(
 }
 
 fn parse_store_url(uri: &str) -> Result<Url> {
-    if uri.starts_with('/') {
-        return Url::from_file_path(uri)
-            .map_err(|_| RadrsError::InvalidUrl(format!("Invalid local path: {}", uri)));
-    }
-
     if uri.starts_with("file://") {
         return Url::parse(uri)
             .map_err(|e| RadrsError::InvalidUrl(format!("Invalid file URI: {} ({})", uri, e)));
+    }
+
+    // No `://` → local filesystem path (absolute or relative). Url::from_file_path
+    // requires an absolute path, so resolve relatives against the cwd first.
+    if !uri.contains("://") {
+        let path = std::path::Path::new(uri);
+        let abs = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|e| {
+                    RadrsError::InvalidUrl(format!(
+                        "Cannot resolve relative path {}: {}",
+                        uri, e
+                    ))
+                })?
+                .join(path)
+        };
+        return Url::from_file_path(&abs)
+            .map_err(|_| RadrsError::InvalidUrl(format!("Invalid local path: {}", uri)));
     }
 
     let (scheme, rest) = uri
@@ -303,6 +318,21 @@ mod tests {
             "file"
         );
         assert!(parse_store_url("http://example.com").is_err());
+    }
+
+    #[test]
+    fn test_parse_store_url_relative_path() {
+        // Relative path resolves against cwd to a file:// URL.
+        let url = parse_store_url("relative/path/file.ar2v").unwrap();
+        assert_eq!(url.scheme(), "file");
+        let cwd = std::env::current_dir().unwrap();
+        assert!(url.path().starts_with(cwd.to_str().unwrap()));
+        assert!(url.path().ends_with("relative/path/file.ar2v"));
+
+        // Bare filename works too.
+        let url = parse_store_url("file.ar2v").unwrap();
+        assert_eq!(url.scheme(), "file");
+        assert!(url.path().ends_with("file.ar2v"));
     }
 
     #[test]

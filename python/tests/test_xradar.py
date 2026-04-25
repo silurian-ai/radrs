@@ -438,3 +438,19 @@ class TestMultiCloudRouting:
         """
         dt = rxr.open_datatree(test_file_path, storage_options=None)
         assert hasattr(dt, "children")
+
+    def test_relative_local_path(self, test_file_path, tmp_path, monkeypatch):
+        """Relative local paths must keep working — historical fs::read
+        behavior. Regression test for the URI router rejecting paths without
+        a leading '/' or 'file://'.
+        """
+        import os
+        import shutil
+
+        # Copy the volume into a tmp dir so we can pass it by relative name.
+        copied = tmp_path / os.path.basename(test_file_path)
+        shutil.copy(test_file_path, copied)
+        monkeypatch.chdir(tmp_path)
+
+        dt = rxr.open_datatree(copied.name)
+        assert hasattr(dt, "children")
