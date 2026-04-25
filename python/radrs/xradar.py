@@ -1,20 +1,19 @@
-"""
-radrs.xradar - xradar-compatible interface
+"""xradar-compatible interface.
 
-This module provides an interface that matches xradar's API for easy comparison
-and drop-in replacement.
+Drop-in replacement for ``xradar.io.open_nexradlevel2_datatree`` —
+returns an ``xarray.DataTree`` with the same structure as xradar.
 
-Example
--------
->>> import radrs.xradar as rxr
->>>
->>> # Exactly like xradar.io.open_nexradlevel2_datatree
->>> dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000000_V06")
->>> dt = rxr.open_datatree("/path/to/local/file.ar2v")
->>> dt = rxr.open_datatree(file_bytes)  # From bytes
->>>
->>> # Returns xarray.DataTree with same structure as xradar
->>> print(dt)
+Examples
+--------
+Open a NEXRAD volume from S3, a local path, or in-memory bytes:
+
+```python
+import radrs.xradar as rxr
+
+dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000000_V06")
+dt = rxr.open_datatree("/path/to/local/file.ar2v")
+dt = rxr.open_datatree(file_bytes)
+```
 
 Cloud support
 -------------
@@ -22,9 +21,9 @@ The URI fetch layer accepts any scheme `object_store` supports (`s3://`,
 `gs://`, `az://`, `file://`, local paths) and forwards `storage_options` to
 it — so a single-volume NEXRAD file living on any of these works.
 
-For the public NEXRAD archive, AWS S3 (``s3://unidata-nexrad-level2``)
-is the only cloud source that works out of the box: it stores one volume
-per key. The public GCS mirror (``gs://gcp-public-data-nexrad-l2``) batches
+For the public NEXRAD archive, AWS S3 (``s3://unidata-nexrad-level2``) is
+the only cloud source that works out of the box: it stores one volume per
+key. The public GCS mirror (``gs://gcp-public-data-nexrad-l2``) batches
 volumes into 6-minute tar archives, which we do not unpack — pointing
 ``open_datatree`` at one of those URLs will fetch the bytes successfully
 but fail at parse. We are not aware of a public Azure mirror at the time

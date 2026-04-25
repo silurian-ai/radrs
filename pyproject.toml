@@ -64,3 +64,8 @@ dev = [
     "xradar>=0.11.0",
     "zizmor>=1.24.1",
 ]
+docs = [
+    "zensical",
+    "mkdocstrings[python]",
+    "mike @ git+https://github.com/squidfunk/mike.git",
+]

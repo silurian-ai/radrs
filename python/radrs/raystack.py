@@ -1,38 +1,44 @@
-"""
-radrs.raystack - Raystack format tools for ML training
+"""Raystack format tools for ML training.
 
-This module provides tools for converting NEXRAD data to the raystack format,
-which is optimized for machine learning training pipelines.
+This module provides tools for converting NEXRAD data into the raystack
+format — a flat layout of `vcps`, `sweeps`, `returns`, and `activity` arrays
+optimized for machine learning training pipelines.
 
-Example
--------
->>> import radrs.raystack as rrs
->>>
->>> # Parse directly to raystack format (faster - single pass)
->>> rs = rrs.parse(file_bytes, fold_size=128)
->>>
->>> # rs is a dict with vcps/sweeps/returns/activity (and qc when requested)
->>> print(rs.keys())  # ['vcps', 'sweeps', 'returns', 'activity']
->>> print(rs['returns']['DBZH'].shape)  # (n_returns * 128,) flat storage
->>> print(rs['returns']['DBZH'].reshape(-1, 128).shape)  # (n_returns, 128)
->>> print(rs['returns']['return_time'].shape)  # (n_returns,)
->>>
->>> # Convert DataTree to raystack format
->>> import radrs.xradar as rxr
->>> dt = rxr.open_datatree(file_path)
->>> rs = rrs.from_xradar_datatree(dt, fold_size=128)
->>>
->>> # Apply built-in QC during parse
->>> import radrs.qc as qc
->>> rs = rrs.parse(file_bytes, qc=[qc.RhohvThreshold(threshold=0.8)])
->>> rs["qc"]["rhohv_threshold_mask"].shape
->>>
->>> # Write raystack to Zarr via xarray
->>> rrs.to_raystack_datatree(rs).to_zarr("output.zarr")
+Returns are chunked segments of physical radials. A single radial can produce
+multiple returns when ``n_gates > fold_size``. Activity metrics are computed
+over these return chunks.
 
-Note: returns are chunked segments of physical radials. A single radial can
-produce multiple returns when `n_gates > fold_size`. Activity metrics are
-computed over these return chunks.
+Examples
+--------
+Open a NEXRAD volume as a raystack DataTree:
+
+```python
+import radrs.raystack as rrs
+
+rdt = rrs.open_datatree("s3://unidata-nexrad-level2/.../KTLX20240315_120000_V06", fold_size=128)
+rdt["returns"]["DBZH"].shape  # (n_returns, 128)
+```
+
+Convert an existing xradar DataTree to raystack:
+
+```python
+import radrs.xradar as rxr
+import radrs.raystack as rrs
+
+dt = rxr.open_datatree(file_path)
+rs = rrs.from_xradar_datatree(dt, fold_size=128)
+```
+
+Apply built-in QC at parse time:
+
+```python
+import radrs.raystack as rrs
+import radrs.qc as qc
+
+rdt = rrs.open_datatree(src, fold_size=128, qc=[qc.RhohvThreshold(threshold=0.8)])
+```
+
+For lower-level use over already-loaded bytes, see ``parse``.
 """
 
 from radrs.qc import compile_qc_steps
