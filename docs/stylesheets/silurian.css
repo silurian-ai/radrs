@@ -80,11 +80,13 @@ code, pre, kbd, .md-typeset code, .md-typeset pre {
   font-family: var(--silurian-mono);
 }
 
-/* Dark-mode logo swap — uses CSS content replacement on <img> */
+/* Dark-mode logo handling. Single PNG asset, flipped in software:
+   invert→hue-rotate brings the navy disc to off-white while keeping the
+   coloured arcs and bars roughly true to the original ramp. */
 [data-md-color-scheme="slate"] .md-header__button.md-logo img,
 [data-md-color-scheme="slate"] .md-nav__button.md-logo img,
 [data-md-color-scheme="slate"] .radrs-hero__glyph {
-  content: url("../assets/radrs-glyph-dark.png");
+  filter: invert(1) hue-rotate(180deg) brightness(1.05);
 }
 
 /* ==========================================================================
