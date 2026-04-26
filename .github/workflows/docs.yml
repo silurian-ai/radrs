@@ -54,15 +54,18 @@ jobs:
         with:
           toolchain: stable
 
+      # Caches are scoped to PR validation only — not deploy paths.
+      # The deploy paths (push to main, release tags) push to gh-pages,
+      # so a poisoned cache restored on a deploy run could ship malicious
+      # content to the published site (zizmor cache-poisoning audit).
       - name: Cache Rust dependencies
+        if: github.event_name == 'pull_request'
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
-          enable-cache: true
+          enable-cache: ${{ github.event_name == 'pull_request' }}
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install docs dependencies
