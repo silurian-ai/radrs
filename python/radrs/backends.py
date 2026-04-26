@@ -148,6 +148,7 @@ class _RadrsBackendBase(BackendEntrypoint):
         "use_cftime",
         "decode_coords",
         "group",
+        "storage_options",
     )
 
     def guess_can_open(self, filename_or_obj: object) -> bool:
@@ -170,6 +171,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
         drop_variables: str | Iterable[str] | None = None,
         group: str | None = None,
         sort_by_azimuth: bool = False,
+        storage_options: dict[str, object] | None = None,
         format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> xr.DataTree:
@@ -178,10 +180,16 @@ class RadrsXradarBackend(_RadrsBackendBase):
             joined = ", ".join(sorted(kwargs))
             raise TypeError(f"Unsupported radrs-xradar keyword argument(s): {joined}")
 
+        reader_kwargs: dict[str, object] = {
+            "sort_by_azimuth": sort_by_azimuth,
+            "format": require_supported_format(format),
+        }
+        if storage_options is not None:
+            reader_kwargs["storage_options"] = storage_options
+
         tree = radrs_xradar.open_datatree(
             _normalize_source(filename_or_obj),
-            sort_by_azimuth=sort_by_azimuth,
-            format=require_supported_format(format),
+            **reader_kwargs,
         )
         tree = _drop_variables(tree, drop_variables)
         return _subtree_for_group(tree, group, "radrs-xradar")
@@ -193,6 +201,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
         drop_variables: str | Iterable[str] | None = None,
         group: str | None = None,
         sort_by_azimuth: bool = False,
+        storage_options: dict[str, object] | None = None,
         format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> xr.Dataset:
@@ -200,6 +209,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
             filename_or_obj,
             drop_variables=drop_variables,
             sort_by_azimuth=sort_by_azimuth,
+            storage_options=storage_options,
             format=format,
             **kwargs,
         )
@@ -212,6 +222,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
         drop_variables: str | Iterable[str] | None = None,
         group: str | None = None,
         sort_by_azimuth: bool = False,
+        storage_options: dict[str, object] | None = None,
         format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> dict[str, xr.Dataset]:
@@ -220,6 +231,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
             drop_variables=drop_variables,
             group=group,
             sort_by_azimuth=sort_by_azimuth,
+            storage_options=storage_options,
             format=format,
             **kwargs,
         )
@@ -246,6 +258,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
         fold_size: int | None = None,
         qc: object = None,
         include_activity: bool = True,
+        storage_options: dict[str, object] | None = None,
         format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> xr.DataTree:
@@ -254,12 +267,18 @@ class RadrsRaystackBackend(_RadrsBackendBase):
             joined = ", ".join(sorted(kwargs))
             raise TypeError(f"Unsupported radrs-raystack keyword argument(s): {joined}")
 
+        reader_kwargs = {
+            "fold_size": fold_size,
+            "qc": qc,
+            "include_activity": include_activity,
+            "format": require_supported_format(format),
+        }
+        if storage_options is not None:
+            reader_kwargs["storage_options"] = storage_options
+
         tree = radrs_raystack.open_datatree(
             _normalize_source(filename_or_obj),
-            fold_size=fold_size,
-            qc=qc,
-            include_activity=include_activity,
-            format=require_supported_format(format),
+            **reader_kwargs,
         )
         tree = _drop_variables(tree, drop_variables)
         return _subtree_for_group(tree, group, "radrs-raystack")
@@ -273,6 +292,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
         fold_size: int | None = None,
         qc: object = None,
         include_activity: bool = True,
+        storage_options: dict[str, object] | None = None,
         format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> xr.Dataset:
@@ -282,6 +302,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
             fold_size=fold_size,
             qc=qc,
             include_activity=include_activity,
+            storage_options=storage_options,
             format=format,
             **kwargs,
         )
@@ -296,6 +317,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
         fold_size: int | None = None,
         qc: object = None,
         include_activity: bool = True,
+        storage_options: dict[str, object] | None = None,
         format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
     ) -> dict[str, xr.Dataset]:
@@ -306,6 +328,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
             fold_size=fold_size,
             qc=qc,
             include_activity=include_activity,
+            storage_options=storage_options,
             format=format,
             **kwargs,
         )

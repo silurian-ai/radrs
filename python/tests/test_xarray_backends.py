@@ -148,6 +148,7 @@ def test_xradar_engine_forwards_options(
         "volume.ar2v",
         engine="radrs-xradar",
         sort_by_azimuth=True,
+        storage_options={"anon": "true"},
         format=DEFAULT_SOURCE_FORMAT,
     )
 
@@ -155,7 +156,11 @@ def test_xradar_engine_forwards_options(
     assert backend_calls["xradar"] == [
         (
             "volume.ar2v",
-            {"sort_by_azimuth": True, "format": DEFAULT_SOURCE_FORMAT},
+            {
+                "sort_by_azimuth": True,
+                "format": DEFAULT_SOURCE_FORMAT,
+                "storage_options": {"anon": "true"},
+            },
         )
     ]
 
@@ -171,6 +176,7 @@ def test_raystack_engine_forwards_options(
         fold_size=256,
         qc=["qc-step"],
         include_activity=False,
+        storage_options={"anon": "true"},
         format=DEFAULT_SOURCE_FORMAT,
     )
 
@@ -193,9 +199,48 @@ def test_raystack_engine_forwards_options(
                 "qc": ["qc-step"],
                 "include_activity": False,
                 "format": DEFAULT_SOURCE_FORMAT,
+                "storage_options": {"anon": "true"},
             },
         )
     ]
+
+
+def test_open_dataset_forwards_storage_options(
+    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
+) -> None:
+    storage_options = {"account_name": "radar", "access_key": "secret"}
+
+    xr.open_dataset(
+        "az://private/volume.ar2v",
+        engine="radrs-xradar",
+        group="sweep_0",
+        storage_options=storage_options,
+    )
+    xr.open_dataset(
+        "az://private/volume.ar2v",
+        engine="radrs-raystack",
+        group="returns",
+        storage_options=storage_options,
+    )
+
+    assert backend_calls["xradar"][-1] == (
+        "az://private/volume.ar2v",
+        {
+            "sort_by_azimuth": False,
+            "format": DEFAULT_SOURCE_FORMAT,
+            "storage_options": storage_options,
+        },
+    )
+    assert backend_calls["raystack"][-1] == (
+        "az://private/volume.ar2v",
+        {
+            "fold_size": None,
+            "qc": None,
+            "include_activity": True,
+            "format": DEFAULT_SOURCE_FORMAT,
+            "storage_options": storage_options,
+        },
+    )
 
 
 def test_open_dataset_extracts_group(
