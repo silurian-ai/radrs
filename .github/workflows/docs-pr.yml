@@ -5,6 +5,9 @@ on:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      # docs/changelog.md includes the root CHANGELOG.md via pymdownx.snippets;
+      # edits there must trigger a docs rebuild.
+      - 'CHANGELOG.md'
       - 'pyproject.toml'
       - 'python/radrs/**'
       - 'src/**'

@@ -9,6 +9,10 @@ on:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      # docs/changelog.md includes the root CHANGELOG.md via pymdownx.snippets;
+      # release-please touches CHANGELOG.md on every release, so the deploy
+      # has to re-publish when only that file changed.
+      - 'CHANGELOG.md'
       - 'pyproject.toml'
       - 'python/radrs/**'
       - 'src/**'
