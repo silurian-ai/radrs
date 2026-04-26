@@ -109,6 +109,26 @@ pub fn build_store_from_uri(
     Ok(Arc::from(store))
 }
 
+/// Logically collapse `.` and `..` segments without touching the filesystem.
+///
+/// Equivalent to `cargo`/`path-clean`'s normalization. Cannot use
+/// `Path::canonicalize` because that requires the file to exist and resolves
+/// symlinks.
+fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::{Component, PathBuf};
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
 fn parse_store_url(uri: &str) -> Result<Url> {
     if uri.starts_with("file://") {
         return Url::parse(uri)
@@ -116,10 +136,12 @@ fn parse_store_url(uri: &str) -> Result<Url> {
     }
 
     // No `://` → local filesystem path (absolute or relative). Url::from_file_path
-    // requires an absolute path, so resolve relatives against the cwd first.
+    // requires an absolute path, and object_store rejects URLs containing
+    // `..` segments — so resolve relatives against cwd and collapse `..`/`.`
+    // logically before constructing the file:// URL.
     if !uri.contains("://") {
         let path = std::path::Path::new(uri);
-        let abs = if path.is_absolute() {
+        let joined = if path.is_absolute() {
             path.to_path_buf()
         } else {
             std::env::current_dir()
@@ -131,7 +153,8 @@ fn parse_store_url(uri: &str) -> Result<Url> {
                 })?
                 .join(path)
         };
-        return Url::from_file_path(&abs)
+        let normalized = normalize_path(&joined);
+        return Url::from_file_path(&normalized)
             .map_err(|_| RadrsError::InvalidUrl(format!("Invalid local path: {}", uri)));
     }
 
@@ -333,6 +356,33 @@ mod tests {
         let url = parse_store_url("file.ar2v").unwrap();
         assert_eq!(url.scheme(), "file");
         assert!(url.path().ends_with("file.ar2v"));
+    }
+
+    #[test]
+    fn test_parse_store_url_parent_dir_segments() {
+        // `..` and `.` must be collapsed logically; object_store rejects
+        // URLs containing `..` segments.
+        let url = parse_store_url("../data/file.ar2v").unwrap();
+        assert_eq!(url.scheme(), "file");
+        assert!(!url.path().contains(".."));
+        assert!(url.path().ends_with("/data/file.ar2v"));
+
+        let url = parse_store_url("./foo/./bar/../baz.ar2v").unwrap();
+        assert!(!url.path().contains(".."));
+        assert!(url.path().ends_with("/foo/baz.ar2v"));
+
+        // Absolute paths with `..` get collapsed too.
+        let url = parse_store_url("/tmp/a/../b/file").unwrap();
+        assert_eq!(url.path(), "/tmp/b/file");
+    }
+
+    #[test]
+    fn test_normalize_path() {
+        use std::path::Path;
+        assert_eq!(normalize_path(Path::new("/a/b/../c")), Path::new("/a/c"));
+        assert_eq!(normalize_path(Path::new("/a/./b")), Path::new("/a/b"));
+        assert_eq!(normalize_path(Path::new("a/b/../c")), Path::new("a/c"));
+        assert_eq!(normalize_path(Path::new("/a/../b")), Path::new("/b"));
     }
 
     #[test]

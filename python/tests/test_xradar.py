@@ -454,3 +454,24 @@ class TestMultiCloudRouting:
 
         dt = rxr.open_datatree(copied.name)
         assert hasattr(dt, "children")
+
+    def test_parent_relative_local_path(self, test_file_path, tmp_path, monkeypatch):
+        """Parent-relative paths (../data/file) must resolve correctly.
+
+        Regression test: object_store rejects URLs containing `..` segments,
+        so the path must be normalized before URL construction.
+        """
+        import os
+        import shutil
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        copied = data_dir / os.path.basename(test_file_path)
+        shutil.copy(test_file_path, copied)
+        monkeypatch.chdir(work_dir)
+
+        dt = rxr.open_datatree(f"../data/{copied.name}")
+        assert hasattr(dt, "children")
