@@ -121,6 +121,25 @@ def test_open_datatree_reads_real_volume(
     assert expected_group in actual.children
 
 
+@pytest.mark.parametrize(
+    ("engine", "group", "expected_variable"),
+    [
+        ("radrs-xradar", "sweep_0", "DBZH"),
+        ("radrs-raystack", "returns", "DBZH"),
+    ],
+)
+def test_open_datatree_reads_real_group(
+    test_file_path: str,
+    engine: str,
+    group: str,
+    expected_variable: str,
+) -> None:
+    actual = xr.open_datatree(test_file_path, engine=engine, group=group)
+
+    assert not actual.children
+    assert expected_variable in actual.dataset
+
+
 def test_xradar_engine_forwards_options(
     backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
     xradar_tree: xr.DataTree,
@@ -199,6 +218,28 @@ def test_open_dataset_extracts_group(
     _assert_dataset_content_equal(raystack_ds, raystack_tree["returns"].dataset)
 
 
+def test_open_datatree_extracts_group_as_root(
+    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
+    xradar_tree: xr.DataTree,
+    raystack_tree: xr.DataTree,
+) -> None:
+    xradar_dt = xr.open_datatree(
+        "volume.ar2v",
+        engine="radrs-xradar",
+        group="sweep_0",
+    )
+    raystack_dt = xr.open_datatree(
+        "volume.ar2v",
+        engine="radrs-raystack",
+        group="returns",
+    )
+
+    assert not xradar_dt.children
+    assert not raystack_dt.children
+    _assert_dataset_content_equal(xradar_dt.dataset, xradar_tree["sweep_0"].dataset)
+    _assert_dataset_content_equal(raystack_dt.dataset, raystack_tree["returns"].dataset)
+
+
 def test_open_groups_returns_all_groups(
     backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
 ) -> None:
@@ -213,6 +254,28 @@ def test_open_groups_returns_all_groups(
         "/radar_calibration",
     }
     assert set(raystack_groups) == {"/", "/vcps", "/sweeps", "/returns", "/activity"}
+
+
+def test_open_groups_extracts_relative_group(
+    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
+    xradar_tree: xr.DataTree,
+    raystack_tree: xr.DataTree,
+) -> None:
+    xradar_groups = xr.open_groups(
+        "volume.ar2v",
+        engine="radrs-xradar",
+        group="sweep_0",
+    )
+    raystack_groups = xr.open_groups(
+        "volume.ar2v",
+        engine="radrs-raystack",
+        group="returns",
+    )
+
+    assert set(xradar_groups) == {"."}
+    assert set(raystack_groups) == {"."}
+    _assert_dataset_content_equal(xradar_groups["."], xradar_tree["sweep_0"].dataset)
+    _assert_dataset_content_equal(raystack_groups["."], raystack_tree["returns"].dataset)
 
 
 def test_drop_variables_applies_to_each_schema(
@@ -280,6 +343,22 @@ def test_invalid_group_error_lists_valid_groups(
 ) -> None:
     with pytest.raises(ValueError, match="Valid groups"):
         xr.open_dataset("volume.ar2v", engine=engine, group=group)
+
+
+@pytest.mark.parametrize(
+    ("engine", "group"),
+    [
+        ("radrs-xradar", "returns"),
+        ("radrs-raystack", "sweep_0"),
+    ],
+)
+def test_open_datatree_invalid_group_error_lists_valid_groups(
+    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
+    engine: str,
+    group: str,
+) -> None:
+    with pytest.raises(ValueError, match="Valid groups"):
+        xr.open_datatree("volume.ar2v", engine=engine, group=group)
 
 
 def test_decoder_kwargs_are_rejected(

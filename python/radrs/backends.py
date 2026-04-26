@@ -81,6 +81,30 @@ def _valid_groups(tree: xr.DataTree) -> list[str]:
     return ["/" if key == "." else key for key, _ in tree.subtree_with_keys]
 
 
+def _is_root_group(group: str | None) -> bool:
+    return group in (None, "", ".", "/")
+
+
+def _subtree_for_group(
+    tree: xr.DataTree,
+    group: str | None,
+    engine_name: str,
+) -> xr.DataTree:
+    if _is_root_group(group):
+        return tree
+
+    assert group is not None
+    try:
+        subtree = tree[group]
+    except KeyError as exc:
+        groups = ", ".join(_valid_groups(tree))
+        raise ValueError(
+            f"Unknown group {group!r} for {engine_name}. Valid groups: {groups}"
+        ) from exc
+
+    return xr.DataTree.from_dict(_groups_as_dict(subtree, relative=True))
+
+
 def _dataset_for_group(tree: xr.DataTree, group: str | None, engine_name: str) -> xr.Dataset:
     if group is None:
         raise ValueError(
@@ -97,10 +121,17 @@ def _dataset_for_group(tree: xr.DataTree, group: str | None, engine_name: str) -
         ) from exc
 
 
-def _groups_as_dict(tree: xr.DataTree) -> dict[str, xr.Dataset]:
+def _groups_as_dict(
+    tree: xr.DataTree,
+    *,
+    relative: bool = False,
+) -> dict[str, xr.Dataset]:
     groups: dict[str, xr.Dataset] = {}
     for key, node in tree.subtree_with_keys:
-        group = "/" if key == "." else f"/{key}"
+        if relative:
+            group = key
+        else:
+            group = "/" if key == "." else f"/{key}"
         groups[group] = node.dataset.copy()
     return groups
 
@@ -137,6 +168,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
         filename_or_obj: object,
         *,
         drop_variables: str | Iterable[str] | None = None,
+        group: str | None = None,
         sort_by_azimuth: bool = False,
         format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
@@ -151,7 +183,8 @@ class RadrsXradarBackend(_RadrsBackendBase):
             sort_by_azimuth=sort_by_azimuth,
             format=require_supported_format(format),
         )
-        return _drop_variables(tree, drop_variables)
+        tree = _drop_variables(tree, drop_variables)
+        return _subtree_for_group(tree, group, "radrs-xradar")
 
     def open_dataset(
         self,
@@ -177,6 +210,7 @@ class RadrsXradarBackend(_RadrsBackendBase):
         filename_or_obj: object,
         *,
         drop_variables: str | Iterable[str] | None = None,
+        group: str | None = None,
         sort_by_azimuth: bool = False,
         format: str = DEFAULT_SOURCE_FORMAT,
         **kwargs: object,
@@ -184,11 +218,12 @@ class RadrsXradarBackend(_RadrsBackendBase):
         tree = self.open_datatree(
             filename_or_obj,
             drop_variables=drop_variables,
+            group=group,
             sort_by_azimuth=sort_by_azimuth,
             format=format,
             **kwargs,
         )
-        return _groups_as_dict(tree)
+        return _groups_as_dict(tree, relative=not _is_root_group(group))
 
 
 class RadrsRaystackBackend(_RadrsBackendBase):
@@ -207,6 +242,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
         filename_or_obj: object,
         *,
         drop_variables: str | Iterable[str] | None = None,
+        group: str | None = None,
         fold_size: int | None = None,
         qc: object = None,
         include_activity: bool = True,
@@ -225,7 +261,8 @@ class RadrsRaystackBackend(_RadrsBackendBase):
             include_activity=include_activity,
             format=require_supported_format(format),
         )
-        return _drop_variables(tree, drop_variables)
+        tree = _drop_variables(tree, drop_variables)
+        return _subtree_for_group(tree, group, "radrs-raystack")
 
     def open_dataset(
         self,
@@ -255,6 +292,7 @@ class RadrsRaystackBackend(_RadrsBackendBase):
         filename_or_obj: object,
         *,
         drop_variables: str | Iterable[str] | None = None,
+        group: str | None = None,
         fold_size: int | None = None,
         qc: object = None,
         include_activity: bool = True,
@@ -264,13 +302,14 @@ class RadrsRaystackBackend(_RadrsBackendBase):
         tree = self.open_datatree(
             filename_or_obj,
             drop_variables=drop_variables,
+            group=group,
             fold_size=fold_size,
             qc=qc,
             include_activity=include_activity,
             format=format,
             **kwargs,
         )
-        return _groups_as_dict(tree)
+        return _groups_as_dict(tree, relative=not _is_root_group(group))
 
 
 __all__ = ["RadrsRaystackBackend", "RadrsXradarBackend"]
