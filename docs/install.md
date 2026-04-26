@@ -14,9 +14,7 @@ radrs ships as a precompiled wheel on PyPI. Python 3.11+ is required.
     pip install radrs
     ```
 
-Wheels are published for Linux (x86_64, aarch64) and macOS (x86_64, arm64).
-On other platforms, pip will build from source and you will need a Rust
-toolchain.
+Wheels are published for Linux, macOS, and Windows on x86_64 and aarch64.
 
 ## From source
 
