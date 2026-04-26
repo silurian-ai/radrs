@@ -305,7 +305,9 @@ pub(crate) fn extract_base_path(uri: &str) -> Result<String> {
 /// `object_store` credential chain. Callers who need anonymous access for
 /// those (e.g., the public GCS NEXRAD mirror) must request it explicitly.
 pub fn default_open_datatree_storage_options(uri: &str) -> Option<HashMap<String, String>> {
-    if uri.len() >= 5 && uri[..5].eq_ignore_ascii_case("s3://") {
+    // get(..5) returns None on a non-char-boundary slice (e.g., local paths
+    // starting with a multi-byte character) so this is panic-safe.
+    if uri.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("s3://")) {
         let mut opts = HashMap::new();
         opts.insert("anon".to_string(), "true".to_string());
         Some(opts)
@@ -428,6 +430,14 @@ mod tests {
         assert!(default_open_datatree_storage_options("az://bucket/key").is_none());
         assert!(default_open_datatree_storage_options("/local/path").is_none());
         assert!(default_open_datatree_storage_options("file:///local").is_none());
+
+        // Multibyte-character paths must not panic even though byte
+        // offset 5 may not be a UTF-8 char boundary.
+        assert!(default_open_datatree_storage_options("日本語file.ar2v").is_none());
+        assert!(default_open_datatree_storage_options("ñ.ar2v").is_none());
+        assert!(default_open_datatree_storage_options("").is_none());
+        assert!(default_open_datatree_storage_options("s3").is_none());
+        assert!(default_open_datatree_storage_options("s3:/").is_none());
     }
 
     #[test]
