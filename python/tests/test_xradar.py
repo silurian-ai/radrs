@@ -476,6 +476,48 @@ class TestMultiCloudRouting:
         dt = rxr.open_datatree(f"../data/{copied.name}")
         assert hasattr(dt, "children")
 
+    def test_no_silent_substitution_via_parent_dir_collapse(
+        self, test_file_path, tmp_path, monkeypatch
+    ):
+        """When `link/../target` doesn't resolve via OS semantics, we must
+        NOT lexically collapse to a cwd-relative `target` that happens to
+        exist (data-correctness regression flagged in PR #31 review).
+
+        Layout:
+            tmp/work/  (cwd)
+            tmp/work/decoy_V06   ← exists in cwd, would be picked up by lexical collapse
+            tmp/work/link → /nonexistent_dir   ← broken symlink
+            (no tmp/target_V06; OS-resolved path doesn't exist)
+
+        Calling open_datatree("link/../decoy_V06") under the buggy lexical
+        fallback would resolve to "decoy_V06" (cwd) and silently read the
+        decoy. Correct behavior: raise an error.
+        """
+        import os
+        import shutil
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        # The decoy file the bug would silently substitute to.
+        decoy = work_dir / "decoy_V06"
+        shutil.copy(test_file_path, decoy)
+
+        # Broken symlink so canonicalize fails.
+        link = work_dir / "link"
+        os.symlink(tmp_path / "nonexistent_dir", link)
+        monkeypatch.chdir(work_dir)
+
+        # `link/../decoy_V06`: under OS semantics, resolves through link
+        # (broken) → fails. Under lexical collapse, becomes `decoy_V06`
+        # (exists, but wrong file). We require an error.
+        with pytest.raises(Exception) as excinfo:
+            rxr.open_datatree("link/../decoy_V06")
+        # The error should NOT be a successful parse — i.e., we did not
+        # silently substitute the decoy.
+        msg = str(excinfo.value).lower()
+        assert "unsupported uri scheme" not in msg
+
     def test_symlinked_parent_dir_resolves_with_os_semantics(
         self, test_file_path, tmp_path, monkeypatch
     ):

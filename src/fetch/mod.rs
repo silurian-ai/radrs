@@ -109,25 +109,10 @@ pub fn build_store_from_uri(
     Ok(Arc::from(store))
 }
 
-/// Logically collapse `.` and `..` segments without touching the filesystem.
-///
-/// Used as a fallback when `std::fs::canonicalize` fails (e.g., the path
-/// doesn't exist yet). Equivalent to `cargo`/`path-clean`'s normalization.
-/// Symlink-aware resolution is preferred and handled by `canonicalize`
-/// in the caller.
-fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
-    use std::path::{Component, PathBuf};
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
+/// True if the path contains any `..` segment.
+fn has_parent_dir_segment(path: &std::path::Path) -> bool {
+    path.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
 }
 
 fn parse_store_url(uri: &str) -> Result<Url> {
@@ -138,10 +123,18 @@ fn parse_store_url(uri: &str) -> Result<Url> {
 
     // No `://` → local filesystem path (absolute or relative). Url::from_file_path
     // requires an absolute path, and object_store rejects URLs containing
-    // `..` segments. Prefer std::fs::canonicalize so symlinks are resolved
-    // with OS semantics (matching the historical fs::read behavior); fall
-    // back to logical normalization for paths that don't exist on disk yet
-    // (so the eventual object_store fetch surfaces a clean not-found error).
+    // `..` segments.
+    //
+    // Resolution rules (matching historical fs::read semantics):
+    //   * If std::fs::canonicalize succeeds, use it — handles `..` and
+    //     symlinks with OS semantics.
+    //   * If canonicalize fails AND the path contains `..`, surface an
+    //     error rather than lexically collapsing. Lexical collapse is
+    //     unsafe through symlinks: `link/../foo` could syntactically
+    //     resolve to a sibling `foo` that exists by accident, instead of
+    //     failing as the OS would.
+    //   * If canonicalize fails AND the path has no `..`, pass through —
+    //     object_store will return a clean not-found error.
     if !uri.contains("://") {
         let path = std::path::Path::new(uri);
         let joined = if path.is_absolute() {
@@ -156,8 +149,17 @@ fn parse_store_url(uri: &str) -> Result<Url> {
                 })?
                 .join(path)
         };
-        let resolved =
-            std::fs::canonicalize(&joined).unwrap_or_else(|_| normalize_path(&joined));
+        let resolved = match std::fs::canonicalize(&joined) {
+            Ok(p) => p,
+            Err(e) if has_parent_dir_segment(&joined) => {
+                return Err(RadrsError::InvalidUrl(format!(
+                    "Cannot resolve path {} (paths containing `..` must \
+                     resolve to an existing file so symlinks are honored): {}",
+                    uri, e
+                )));
+            }
+            Err(_) => joined,
+        };
         return Url::from_file_path(&resolved)
             .map_err(|_| RadrsError::InvalidUrl(format!("Invalid local path: {}", uri)));
     }
@@ -362,31 +364,43 @@ mod tests {
         assert!(url.path().ends_with("file.ar2v"));
     }
 
+    // Existing-file canonicalize behavior is covered by the Python
+    // regression tests in test_xradar.py / test_raystack.py
+    // (test_parent_relative_local_path,
+    //  test_symlinked_parent_dir_resolves_with_os_semantics) which can
+    // create real fixtures via tmp_path.
+
     #[test]
-    fn test_parse_store_url_parent_dir_segments() {
-        // `..` and `.` must be collapsed logically; object_store rejects
-        // URLs containing `..` segments.
-        let url = parse_store_url("../data/file.ar2v").unwrap();
-        assert_eq!(url.scheme(), "file");
-        assert!(!url.path().contains(".."));
-        assert!(url.path().ends_with("/data/file.ar2v"));
-
-        let url = parse_store_url("./foo/./bar/../baz.ar2v").unwrap();
-        assert!(!url.path().contains(".."));
-        assert!(url.path().ends_with("/foo/baz.ar2v"));
-
-        // Absolute paths with `..` get collapsed too.
-        let url = parse_store_url("/tmp/a/../b/file").unwrap();
-        assert_eq!(url.path(), "/tmp/b/file");
+    fn test_parse_store_url_parent_dir_nonexistent_errors() {
+        // `..` paths that don't resolve: must not be lexically collapsed,
+        // since collapse can silently substitute a sibling file across
+        // symlink boundaries. Surface an error instead.
+        let err = parse_store_url("/tmp/definitely-not-here/../also-not-here").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("paths containing `..`") || msg.contains("Cannot resolve"),
+            "unexpected error: {}",
+            msg
+        );
     }
 
     #[test]
-    fn test_normalize_path() {
+    fn test_parse_store_url_nonexistent_no_dotdot_passes_through() {
+        // No `..`: pass through as-is (object_store will surface a clean
+        // not-found at fetch time).
+        let url = parse_store_url("/tmp/definitely-not-here/foo.ar2v").unwrap();
+        assert_eq!(url.scheme(), "file");
+        assert!(url.path().ends_with("/foo.ar2v"));
+    }
+
+    #[test]
+    fn test_has_parent_dir_segment() {
         use std::path::Path;
-        assert_eq!(normalize_path(Path::new("/a/b/../c")), Path::new("/a/c"));
-        assert_eq!(normalize_path(Path::new("/a/./b")), Path::new("/a/b"));
-        assert_eq!(normalize_path(Path::new("a/b/../c")), Path::new("a/c"));
-        assert_eq!(normalize_path(Path::new("/a/../b")), Path::new("/b"));
+        assert!(has_parent_dir_segment(Path::new("a/../b")));
+        assert!(has_parent_dir_segment(Path::new("/x/y/../z")));
+        assert!(!has_parent_dir_segment(Path::new("a/b/c")));
+        assert!(!has_parent_dir_segment(Path::new("/x/y/z")));
+        assert!(!has_parent_dir_segment(Path::new("./a/b")));
     }
 
     #[test]
