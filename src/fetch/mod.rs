@@ -111,9 +111,10 @@ pub fn build_store_from_uri(
 
 /// Logically collapse `.` and `..` segments without touching the filesystem.
 ///
-/// Equivalent to `cargo`/`path-clean`'s normalization. Cannot use
-/// `Path::canonicalize` because that requires the file to exist and resolves
-/// symlinks.
+/// Used as a fallback when `std::fs::canonicalize` fails (e.g., the path
+/// doesn't exist yet). Equivalent to `cargo`/`path-clean`'s normalization.
+/// Symlink-aware resolution is preferred and handled by `canonicalize`
+/// in the caller.
 fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
     use std::path::{Component, PathBuf};
     let mut out = PathBuf::new();
@@ -137,8 +138,10 @@ fn parse_store_url(uri: &str) -> Result<Url> {
 
     // No `://` → local filesystem path (absolute or relative). Url::from_file_path
     // requires an absolute path, and object_store rejects URLs containing
-    // `..` segments — so resolve relatives against cwd and collapse `..`/`.`
-    // logically before constructing the file:// URL.
+    // `..` segments. Prefer std::fs::canonicalize so symlinks are resolved
+    // with OS semantics (matching the historical fs::read behavior); fall
+    // back to logical normalization for paths that don't exist on disk yet
+    // (so the eventual object_store fetch surfaces a clean not-found error).
     if !uri.contains("://") {
         let path = std::path::Path::new(uri);
         let joined = if path.is_absolute() {
@@ -153,8 +156,9 @@ fn parse_store_url(uri: &str) -> Result<Url> {
                 })?
                 .join(path)
         };
-        let normalized = normalize_path(&joined);
-        return Url::from_file_path(&normalized)
+        let resolved =
+            std::fs::canonicalize(&joined).unwrap_or_else(|_| normalize_path(&joined));
+        return Url::from_file_path(&resolved)
             .map_err(|_| RadrsError::InvalidUrl(format!("Invalid local path: {}", uri)));
     }
 

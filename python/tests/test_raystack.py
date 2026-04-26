@@ -504,7 +504,11 @@ class TestActivityDataTree:
     @pytest.mark.network
     @pytest.mark.slow
     def test_open_datatree_activity_s3(self):
-        dt = rrs.open_datatree(S3_TEST_FILE)
+        # Public bucket — caller must request anonymous access explicitly.
+        # (The old fetch_s3_url hardcoded skip_signature=true for the
+        # archive bucket, but the unified fetch_bytes_from_url path does
+        # not, so opt in here.)
+        dt = rrs.open_datatree(S3_TEST_FILE, storage_options={"anon": "true"})
         assert "activity" in dt
         activity = dt["activity"].dataset
         assert "volume_valid_fraction" in activity

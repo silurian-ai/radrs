@@ -475,3 +475,42 @@ class TestMultiCloudRouting:
 
         dt = rxr.open_datatree(f"../data/{copied.name}")
         assert hasattr(dt, "children")
+
+    def test_symlinked_parent_dir_resolves_with_os_semantics(
+        self, test_file_path, tmp_path, monkeypatch
+    ):
+        """`link/../file` where `link` is a symlink must follow OS semantics.
+
+        Regression test for the symlink-aware-resolution P2: if we collapse
+        `..` syntactically, `link/../file` becomes just `file` (relative to
+        cwd), which reads the wrong file. The OS resolves through the
+        symlink first, then applies `..` from the link target.
+        """
+        import os
+        import shutil
+
+        # Layout:
+        #   tmp/real_dir/<volume>          ← actual file
+        #   tmp/sibling/decoy              ← unrelated file (would shadow on syntactic collapse)
+        #   tmp/work/link → tmp/real_dir   ← symlink
+        # Resolving `link/../<basename>` syntactically:  work/<basename>     (no such file)
+        # Resolving with symlink awareness:              real_dir/../<basename> = tmp/<basename>
+        # Use a unique basename that exists only via the symlink path.
+        real_dir = tmp_path / "real_dir"
+        real_dir.mkdir()
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        # Place the volume in tmp so OS resolution finds it via real_dir/..
+        volume = tmp_path / "via_symlink_V06"
+        shutil.copy(test_file_path, volume)
+
+        link = work_dir / "link"
+        os.symlink(real_dir, link)
+        monkeypatch.chdir(work_dir)
+
+        # `link/../via_symlink_V06`:
+        #   - Symlink-aware (OS):  real_dir/../via_symlink_V06 → tmp/via_symlink_V06 (exists)
+        #   - Syntactic collapse: work/via_symlink_V06 (does not exist)
+        dt = rxr.open_datatree(f"link/../{volume.name}")
+        assert hasattr(dt, "children")

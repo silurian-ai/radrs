@@ -28,6 +28,12 @@ volumes into 6-minute tar archives, which we do not unpack — pointing
 ``open_datatree`` at one of those URLs will fetch the bytes successfully
 but fail at parse. We are not aware of a public Azure mirror at the time
 of writing, so ``az://`` is plumbed but untested for NEXRAD.
+
+Public buckets need ``storage_options={"anon": "true"}`` (or
+``"skip_signature": "true"``); the same convention as
+``radrs.NexradL2ArchiveIter``. Without it, the underlying ``object_store``
+client tries the credential chain (env, config, IMDS) and fails on
+unauthenticated machines.
 """
 
 # Import from the Rust extension
