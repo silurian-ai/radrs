@@ -294,6 +294,26 @@ pub(crate) fn extract_base_path(uri: &str) -> Result<String> {
 /// // Local filesystem
 /// let bytes = fetch_bytes_from_url("/data/nexrad/KTLX20240315_120000_V06", None).await?;
 /// ```
+/// Default `storage_options` for the `open_datatree` URI fetch path.
+///
+/// `open_datatree` historically routed all S3 URLs through `fetch_s3_url`,
+/// which hardcoded `skip_signature=true` for every request. To preserve
+/// that behavior for existing callers, return `{"anon": "true"}` when the
+/// URI is `s3://` and no explicit options were provided.
+///
+/// Other schemes (`gs://`, `az://`, local) defer to the underlying
+/// `object_store` credential chain. Callers who need anonymous access for
+/// those (e.g., the public GCS NEXRAD mirror) must request it explicitly.
+pub fn default_open_datatree_storage_options(uri: &str) -> Option<HashMap<String, String>> {
+    if uri.len() >= 5 && uri[..5].eq_ignore_ascii_case("s3://") {
+        let mut opts = HashMap::new();
+        opts.insert("anon".to_string(), "true".to_string());
+        Some(opts)
+    } else {
+        None
+    }
+}
+
 pub async fn fetch_bytes_from_url(
     url: &str,
     storage_options: Option<HashMap<String, String>>,
@@ -391,6 +411,23 @@ mod tests {
         let url = parse_store_url("/tmp/definitely-not-here/foo.ar2v").unwrap();
         assert_eq!(url.scheme(), "file");
         assert!(url.path().ends_with("/foo.ar2v"));
+    }
+
+    #[test]
+    fn test_default_open_datatree_storage_options() {
+        // s3:// URIs get implicit anon to match old fetch_s3_url behavior.
+        let opts = default_open_datatree_storage_options("s3://bucket/key").unwrap();
+        assert_eq!(opts.get("anon").map(String::as_str), Some("true"));
+
+        // Case-insensitive scheme match.
+        let opts = default_open_datatree_storage_options("S3://bucket/key").unwrap();
+        assert_eq!(opts.get("anon").map(String::as_str), Some("true"));
+
+        // Other schemes defer to object_store's credential chain.
+        assert!(default_open_datatree_storage_options("gs://bucket/key").is_none());
+        assert!(default_open_datatree_storage_options("az://bucket/key").is_none());
+        assert!(default_open_datatree_storage_options("/local/path").is_none());
+        assert!(default_open_datatree_storage_options("file:///local").is_none());
     }
 
     #[test]

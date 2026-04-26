@@ -29,11 +29,11 @@ volumes into 6-minute tar archives, which we do not unpack — pointing
 but fail at parse. We are not aware of a public Azure mirror at the time
 of writing, so ``az://`` is plumbed but untested for NEXRAD.
 
-Public buckets need ``storage_options={"anon": "true"}`` (or
-``"skip_signature": "true"``); the same convention as
-``radrs.NexradL2ArchiveIter``. Without it, the underlying ``object_store``
-client tries the credential chain (env, config, IMDS) and fails on
-unauthenticated machines.
+``s3://`` URIs default to anonymous access (preserving the historical
+behavior of ``open_datatree``); pass ``storage_options`` to provide
+credentials for private buckets. ``gs://`` and ``az://`` URIs use
+``object_store``'s credential chain by default — pass
+``storage_options={"anon": "true"}`` for public buckets.
 """
 
 # Import from the Rust extension

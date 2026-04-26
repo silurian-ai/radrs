@@ -2,7 +2,7 @@
 
 use crate::constants::XRADAR_MOMENT_NAMES;
 use crate::error::{RadrsError, Result};
-use crate::fetch::{RUNTIME, fetch_bytes_from_url};
+use crate::fetch::{RUNTIME, default_open_datatree_storage_options, fetch_bytes_from_url};
 use crate::metadata::{ScanMeta, extract_scan_meta};
 use crate::metadata_build::{build_root_attrs, build_root_vars, set_sweep_mode_scalars};
 use nexrad_data::volume::File as VolumeFile;
@@ -48,6 +48,8 @@ pub fn open_datatree_py(
     } else {
         // String path or URL — supports s3://, gs://, az://, and local
         let path_str: String = source.extract()?;
+        let storage_options =
+            storage_options.or_else(|| default_open_datatree_storage_options(&path_str));
         RUNTIME
             .block_on(fetch_bytes_from_url(&path_str, storage_options))?
             .to_vec()
@@ -142,9 +144,13 @@ async fn fetch_source_bytes_async(
 
     match source {
         Source::Bytes(bytes) => Ok(bytes),
-        Source::Path(path) => fetch_bytes_from_url(&path, storage_options)
-            .await
-            .map(|b| b.to_vec()),
+        Source::Path(path) => {
+            let storage_options =
+                storage_options.or_else(|| default_open_datatree_storage_options(&path));
+            fetch_bytes_from_url(&path, storage_options)
+                .await
+                .map(|b| b.to_vec())
+        }
     }
 }
 

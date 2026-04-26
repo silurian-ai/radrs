@@ -4,7 +4,7 @@
 //! raystack outputs share one chunked return representation.
 
 use crate::error::{RadrsError, Result};
-use crate::fetch::{RUNTIME, fetch_bytes_from_url};
+use crate::fetch::{RUNTIME, default_open_datatree_storage_options, fetch_bytes_from_url};
 use crate::raystack::batch::{add_activity_to_dict, compute_batch_activity, parse_single_volume};
 use nexrad_model::data::{DataMoment, Scan};
 use pyo3::PyErr;
@@ -498,6 +498,8 @@ pub fn open_raystack_datatree_py<'py>(
         source.extract::<Vec<u8>>()?
     } else {
         let path_str: String = source.extract()?;
+        let storage_options =
+            storage_options.or_else(|| default_open_datatree_storage_options(&path_str));
         RUNTIME
             .block_on(fetch_bytes_from_url(&path_str, storage_options))?
             .to_vec()
@@ -605,8 +607,12 @@ async fn fetch_source_bytes_async(
 
     match source {
         Source::Bytes(bytes) => Ok(bytes),
-        Source::Path(path) => fetch_bytes_from_url(&path, storage_options)
-            .await
-            .map(|b| b.to_vec()),
+        Source::Path(path) => {
+            let storage_options =
+                storage_options.or_else(|| default_open_datatree_storage_options(&path));
+            fetch_bytes_from_url(&path, storage_options)
+                .await
+                .map(|b| b.to_vec())
+        }
     }
 }
