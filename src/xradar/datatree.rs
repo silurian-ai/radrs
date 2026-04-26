@@ -2,7 +2,7 @@
 
 use crate::constants::XRADAR_MOMENT_NAMES;
 use crate::error::{RadrsError, Result};
-use crate::fetch::{RUNTIME, fetch_s3_url};
+use crate::fetch::{RUNTIME, default_open_datatree_storage_options, fetch_bytes_from_url};
 use crate::metadata::{ScanMeta, extract_scan_meta};
 use crate::metadata_build::{build_root_attrs, build_root_vars, set_sweep_mode_scalars};
 use nexrad_data::volume::File as VolumeFile;
@@ -15,38 +15,44 @@ use pyo3::prelude::*;
 use pyo3::types::{IntoPyDict, PyBytes, PyDict};
 use pyo3_async_runtimes::tokio::future_into_py;
 use std::collections::HashMap;
-use std::fs;
 use std::time::Instant;
 
 /// Open a NEXRAD Level 2 file and return an xarray DataTree
 ///
 /// # Arguments
-/// * `source` - Path to file, S3 URL, or bytes
+/// * `source` - Bytes, a local path, or a URI (`s3://`, `gs://`, `az://`,
+///   `file://`). The URI must point at a single NEXRAD Level 2 volume.
+///   Tar archives — including the public GCS NEXRAD mirror's 6-minute
+///   bundles at `gs://gcp-public-data-nexrad-l2` — are not unpacked here
+///   and will fail at parse. For the public archive, S3
+///   (`s3://unidata-nexrad-level2`) is the only out-of-the-box source
+///   today; `az://` is plumbed but no public NEXRAD Azure mirror is
+///   known at the time of writing.
+/// * `storage_options` - Optional storage credentials forwarded to
+///   object_store (e.g. `{"anon": "true"}`)
 ///
 /// # Returns
 /// xarray.DataTree with sweeps as children
 #[pyfunction]
-#[pyo3(name = "open_datatree", signature = (source, sort_by_azimuth = false))]
+#[pyo3(name = "open_datatree", signature = (source, sort_by_azimuth = false, storage_options = None))]
 pub fn open_datatree_py(
     py: Python<'_>,
     source: &Bound<'_, PyAny>,
     sort_by_azimuth: bool,
+    storage_options: Option<HashMap<String, String>>,
 ) -> PyResult<Py<PyAny>> {
     // Handle different input types
     let data = if source.is_instance_of::<PyBytes>() {
         // Bytes input
         source.extract::<Vec<u8>>()?
     } else {
-        // String path or URL
+        // String path or URL — supports s3://, gs://, az://, and local
         let path_str: String = source.extract()?;
-
-        if path_str.starts_with("s3://") {
-            // S3 URL - use async fetch
-            RUNTIME.block_on(fetch_s3_url(&path_str))?
-        } else {
-            // Local file path
-            fs::read(&path_str).map_err(RadrsError::Io)?
-        }
+        let storage_options =
+            storage_options.or_else(|| default_open_datatree_storage_options(&path_str));
+        RUNTIME
+            .block_on(fetch_bytes_from_url(&path_str, storage_options))?
+            .to_vec()
     };
 
     // Parse NEXRAD data without holding the GIL
@@ -58,16 +64,17 @@ pub fn open_datatree_py(
 
 /// Open a NEXRAD Level 2 file asynchronously and return an xarray DataTree.
 #[pyfunction]
-#[pyo3(name = "open_datatree_async", signature = (source, sort_by_azimuth = false))]
+#[pyo3(name = "open_datatree_async", signature = (source, sort_by_azimuth = false, storage_options = None))]
 pub fn open_datatree_async_py(
     py: Python<'_>,
     source: &Bound<'_, PyAny>,
     sort_by_azimuth: bool,
+    storage_options: Option<HashMap<String, String>>,
 ) -> PyResult<Py<PyAny>> {
     let source = source.as_borrowed().to_owned().unbind();
 
     let awaitable = future_into_py(py, async move {
-        let data = fetch_source_bytes_async(source).await?;
+        let data = fetch_source_bytes_async(source, storage_options).await?;
 
         let (scan, meta) = tokio::task::spawn_blocking(move || parse_nexrad_data(data))
             .await
@@ -111,7 +118,10 @@ fn parse_nexrad_data(data: Vec<u8>) -> Result<(Scan, ScanMeta)> {
     Ok((scan, meta))
 }
 
-async fn fetch_source_bytes_async(source: Py<PyAny>) -> Result<Vec<u8>> {
+async fn fetch_source_bytes_async(
+    source: Py<PyAny>,
+    storage_options: Option<HashMap<String, String>>,
+) -> Result<Vec<u8>> {
     enum Source {
         Bytes(Vec<u8>),
         Path(String),
@@ -135,14 +145,11 @@ async fn fetch_source_bytes_async(source: Py<PyAny>) -> Result<Vec<u8>> {
     match source {
         Source::Bytes(bytes) => Ok(bytes),
         Source::Path(path) => {
-            if path.starts_with("s3://") {
-                fetch_s3_url(&path).await
-            } else {
-                tokio::task::spawn_blocking(move || fs::read(&path))
-                    .await
-                    .map_err(|e| RadrsError::Python(format!("File read task failed: {}", e)))?
-                    .map_err(RadrsError::Io)
-            }
+            let storage_options =
+                storage_options.or_else(|| default_open_datatree_storage_options(&path));
+            fetch_bytes_from_url(&path, storage_options)
+                .await
+                .map(|b| b.to_vec())
         }
     }
 }

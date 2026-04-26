@@ -504,6 +504,9 @@ class TestActivityDataTree:
     @pytest.mark.network
     @pytest.mark.slow
     def test_open_datatree_activity_s3(self):
+        # Public bucket. open_datatree defaults s3:// URIs to anonymous
+        # access (preserving the old fetch_s3_url behavior), so callers
+        # don't need to pass storage_options for public archive data.
         dt = rrs.open_datatree(S3_TEST_FILE)
         assert "activity" in dt
         activity = dt["activity"].dataset
@@ -571,6 +574,69 @@ class TestActivityConsistency:
         np.testing.assert_array_equal(
             activity["volume_valid_count"], expected["volume_valid_count"]
         )
+
+
+class TestMultiCloudRouting:
+    """Verify open_datatree routes non-s3 URIs through fetch_bytes_from_url
+    rather than the old s3-only / local-fs branch.
+    """
+
+    def test_local_path_missing_raises(self):
+        with pytest.raises(Exception) as excinfo:
+            rrs.open_datatree("/nonexistent/definitely/not/a/file")
+        msg = str(excinfo.value).lower()
+        assert "unsupported uri scheme" not in msg
+
+    @pytest.mark.network
+    def test_gs_uri_routes_to_object_store(self):
+        """A gs:// URI must reach the object_store fetch path. The public GCS
+        NEXRAD mirror stores tar archives rather than single-volume files, so
+        parse will fail with a "truncated record" error — that's expected and
+        proves bytes were fetched from GCS rather than rejected at the
+        URI-routing layer.
+        """
+        url = (
+            "gs://gcp-public-data-nexrad-l2/2025/01/01/KABR/"
+            "NWS_NEXRAD_NXL2DPBL_KABR_20250101000000_20250101005959.tar"
+        )
+        with pytest.raises(Exception) as excinfo:
+            rrs.open_datatree(url, storage_options={"skip_signature": "true"})
+        msg = str(excinfo.value).lower()
+        assert "unsupported uri scheme" not in msg
+        assert "truncated record" in msg or "nexrad data error" in msg
+
+    def test_storage_options_kwarg_accepted(self, test_file_path):
+        dt = rrs.open_datatree(test_file_path, storage_options=None)
+        assert "returns" in dt.children
+
+    def test_relative_local_path(self, test_file_path, tmp_path, monkeypatch):
+        """Relative local paths must keep working — regression test."""
+        import os
+        import shutil
+
+        copied = tmp_path / os.path.basename(test_file_path)
+        shutil.copy(test_file_path, copied)
+        monkeypatch.chdir(tmp_path)
+
+        dt = rrs.open_datatree(copied.name)
+        assert "returns" in dt.children
+
+    def test_parent_relative_local_path(self, test_file_path, tmp_path, monkeypatch):
+        """Parent-relative paths (../data/file) must resolve correctly."""
+        import os
+        import shutil
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        copied = data_dir / os.path.basename(test_file_path)
+        shutil.copy(test_file_path, copied)
+        monkeypatch.chdir(work_dir)
+
+        dt = rrs.open_datatree(f"../data/{copied.name}")
+        assert "returns" in dt.children
 
 
 class TestPerformance:

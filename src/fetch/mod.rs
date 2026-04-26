@@ -109,15 +109,59 @@ pub fn build_store_from_uri(
     Ok(Arc::from(store))
 }
 
-fn parse_store_url(uri: &str) -> Result<Url> {
-    if uri.starts_with('/') {
-        return Url::from_file_path(uri)
-            .map_err(|_| RadrsError::InvalidUrl(format!("Invalid local path: {}", uri)));
-    }
+/// True if the path contains any `..` segment.
+fn has_parent_dir_segment(path: &std::path::Path) -> bool {
+    path.components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+}
 
+fn parse_store_url(uri: &str) -> Result<Url> {
     if uri.starts_with("file://") {
         return Url::parse(uri)
             .map_err(|e| RadrsError::InvalidUrl(format!("Invalid file URI: {} ({})", uri, e)));
+    }
+
+    // No `://` → local filesystem path (absolute or relative). Url::from_file_path
+    // requires an absolute path, and object_store rejects URLs containing
+    // `..` segments.
+    //
+    // Resolution rules (matching historical fs::read semantics):
+    //   * If std::fs::canonicalize succeeds, use it — handles `..` and
+    //     symlinks with OS semantics.
+    //   * If canonicalize fails AND the path contains `..`, surface an
+    //     error rather than lexically collapsing. Lexical collapse is
+    //     unsafe through symlinks: `link/../foo` could syntactically
+    //     resolve to a sibling `foo` that exists by accident, instead of
+    //     failing as the OS would.
+    //   * If canonicalize fails AND the path has no `..`, pass through —
+    //     object_store will return a clean not-found error.
+    if !uri.contains("://") {
+        let path = std::path::Path::new(uri);
+        let joined = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|e| {
+                    RadrsError::InvalidUrl(format!(
+                        "Cannot resolve relative path {}: {}",
+                        uri, e
+                    ))
+                })?
+                .join(path)
+        };
+        let resolved = match std::fs::canonicalize(&joined) {
+            Ok(p) => p,
+            Err(e) if has_parent_dir_segment(&joined) => {
+                return Err(RadrsError::InvalidUrl(format!(
+                    "Cannot resolve path {} (paths containing `..` must \
+                     resolve to an existing file so symlinks are honored): {}",
+                    uri, e
+                )));
+            }
+            Err(_) => joined,
+        };
+        return Url::from_file_path(&resolved)
+            .map_err(|_| RadrsError::InvalidUrl(format!("Invalid local path: {}", uri)));
     }
 
     let (scheme, rest) = uri
@@ -250,6 +294,28 @@ pub(crate) fn extract_base_path(uri: &str) -> Result<String> {
 /// // Local filesystem
 /// let bytes = fetch_bytes_from_url("/data/nexrad/KTLX20240315_120000_V06", None).await?;
 /// ```
+/// Default `storage_options` for the `open_datatree` URI fetch path.
+///
+/// `open_datatree` historically routed all S3 URLs through `fetch_s3_url`,
+/// which hardcoded `skip_signature=true` for every request. To preserve
+/// that behavior for existing callers, return `{"anon": "true"}` when the
+/// URI is `s3://` and no explicit options were provided.
+///
+/// Other schemes (`gs://`, `az://`, local) defer to the underlying
+/// `object_store` credential chain. Callers who need anonymous access for
+/// those (e.g., the public GCS NEXRAD mirror) must request it explicitly.
+pub fn default_open_datatree_storage_options(uri: &str) -> Option<HashMap<String, String>> {
+    // get(..5) returns None on a non-char-boundary slice (e.g., local paths
+    // starting with a multi-byte character) so this is panic-safe.
+    if uri.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("s3://")) {
+        let mut opts = HashMap::new();
+        opts.insert("anon".to_string(), "true".to_string());
+        Some(opts)
+    } else {
+        None
+    }
+}
+
 pub async fn fetch_bytes_from_url(
     url: &str,
     storage_options: Option<HashMap<String, String>>,
@@ -303,6 +369,85 @@ mod tests {
             "file"
         );
         assert!(parse_store_url("http://example.com").is_err());
+    }
+
+    #[test]
+    fn test_parse_store_url_relative_path() {
+        // Relative path resolves against cwd to a file:// URL.
+        let url = parse_store_url("relative/path/file.ar2v").unwrap();
+        assert_eq!(url.scheme(), "file");
+        let cwd = std::env::current_dir().unwrap();
+        assert!(url.path().starts_with(cwd.to_str().unwrap()));
+        assert!(url.path().ends_with("relative/path/file.ar2v"));
+
+        // Bare filename works too.
+        let url = parse_store_url("file.ar2v").unwrap();
+        assert_eq!(url.scheme(), "file");
+        assert!(url.path().ends_with("file.ar2v"));
+    }
+
+    // Existing-file canonicalize behavior is covered by the Python
+    // regression tests in test_xradar.py / test_raystack.py
+    // (test_parent_relative_local_path,
+    //  test_symlinked_parent_dir_resolves_with_os_semantics) which can
+    // create real fixtures via tmp_path.
+
+    #[test]
+    fn test_parse_store_url_parent_dir_nonexistent_errors() {
+        // `..` paths that don't resolve: must not be lexically collapsed,
+        // since collapse can silently substitute a sibling file across
+        // symlink boundaries. Surface an error instead.
+        let err = parse_store_url("/tmp/definitely-not-here/../also-not-here").unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("paths containing `..`") || msg.contains("Cannot resolve"),
+            "unexpected error: {}",
+            msg
+        );
+    }
+
+    #[test]
+    fn test_parse_store_url_nonexistent_no_dotdot_passes_through() {
+        // No `..`: pass through as-is (object_store will surface a clean
+        // not-found at fetch time).
+        let url = parse_store_url("/tmp/definitely-not-here/foo.ar2v").unwrap();
+        assert_eq!(url.scheme(), "file");
+        assert!(url.path().ends_with("/foo.ar2v"));
+    }
+
+    #[test]
+    fn test_default_open_datatree_storage_options() {
+        // s3:// URIs get implicit anon to match old fetch_s3_url behavior.
+        let opts = default_open_datatree_storage_options("s3://bucket/key").unwrap();
+        assert_eq!(opts.get("anon").map(String::as_str), Some("true"));
+
+        // Case-insensitive scheme match.
+        let opts = default_open_datatree_storage_options("S3://bucket/key").unwrap();
+        assert_eq!(opts.get("anon").map(String::as_str), Some("true"));
+
+        // Other schemes defer to object_store's credential chain.
+        assert!(default_open_datatree_storage_options("gs://bucket/key").is_none());
+        assert!(default_open_datatree_storage_options("az://bucket/key").is_none());
+        assert!(default_open_datatree_storage_options("/local/path").is_none());
+        assert!(default_open_datatree_storage_options("file:///local").is_none());
+
+        // Multibyte-character paths must not panic even though byte
+        // offset 5 may not be a UTF-8 char boundary.
+        assert!(default_open_datatree_storage_options("日本語file.ar2v").is_none());
+        assert!(default_open_datatree_storage_options("ñ.ar2v").is_none());
+        assert!(default_open_datatree_storage_options("").is_none());
+        assert!(default_open_datatree_storage_options("s3").is_none());
+        assert!(default_open_datatree_storage_options("s3:/").is_none());
+    }
+
+    #[test]
+    fn test_has_parent_dir_segment() {
+        use std::path::Path;
+        assert!(has_parent_dir_segment(Path::new("a/../b")));
+        assert!(has_parent_dir_segment(Path::new("/x/y/../z")));
+        assert!(!has_parent_dir_segment(Path::new("a/b/c")));
+        assert!(!has_parent_dir_segment(Path::new("/x/y/z")));
+        assert!(!has_parent_dir_segment(Path::new("./a/b")));
     }
 
     #[test]

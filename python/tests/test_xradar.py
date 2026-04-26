@@ -397,3 +397,162 @@ class TestPerformance:
 
         result = benchmark(lambda: rxr.open_datatree(test_file_bytes))
         assert hasattr(result, "children")
+
+
+class TestMultiCloudRouting:
+    """Verify open_datatree routes non-s3 URIs through fetch_bytes_from_url
+    rather than the old s3-only / local-fs branch.
+    """
+
+    def test_local_path_missing_raises(self):
+        """A bogus local path should surface as a fetch/IO error, not a
+        scheme-not-supported error.
+        """
+        with pytest.raises(Exception) as excinfo:
+            rxr.open_datatree("/nonexistent/definitely/not/a/file")
+        msg = str(excinfo.value).lower()
+        assert "unsupported uri scheme" not in msg
+
+    @pytest.mark.network
+    def test_gs_uri_routes_to_object_store(self):
+        """A gs:// URI must reach the object_store fetch path. The public GCS
+        NEXRAD mirror stores tar archives rather than single-volume files, so
+        parse will fail with a "truncated record" error — that's expected and
+        is exactly the proof that bytes were fetched from GCS rather than
+        rejected at the URI-routing layer. Single-volume gs:// URIs (if you
+        have them) work end-to-end; the public bucket simply isn't one.
+        """
+        url = (
+            "gs://gcp-public-data-nexrad-l2/2025/01/01/KABR/"
+            "NWS_NEXRAD_NXL2DPBL_KABR_20250101000000_20250101005959.tar"
+        )
+        with pytest.raises(Exception) as excinfo:
+            rxr.open_datatree(url, storage_options={"skip_signature": "true"})
+        msg = str(excinfo.value).lower()
+        assert "unsupported uri scheme" not in msg
+        assert "truncated record" in msg or "nexrad data error" in msg
+
+    def test_storage_options_kwarg_accepted(self, test_file_path):
+        """storage_options should be a no-op for local paths but accepted as a
+        kwarg without error.
+        """
+        dt = rxr.open_datatree(test_file_path, storage_options=None)
+        assert hasattr(dt, "children")
+
+    def test_relative_local_path(self, test_file_path, tmp_path, monkeypatch):
+        """Relative local paths must keep working — historical fs::read
+        behavior. Regression test for the URI router rejecting paths without
+        a leading '/' or 'file://'.
+        """
+        import os
+        import shutil
+
+        # Copy the volume into a tmp dir so we can pass it by relative name.
+        copied = tmp_path / os.path.basename(test_file_path)
+        shutil.copy(test_file_path, copied)
+        monkeypatch.chdir(tmp_path)
+
+        dt = rxr.open_datatree(copied.name)
+        assert hasattr(dt, "children")
+
+    def test_parent_relative_local_path(self, test_file_path, tmp_path, monkeypatch):
+        """Parent-relative paths (../data/file) must resolve correctly.
+
+        Regression test: object_store rejects URLs containing `..` segments,
+        so the path must be normalized before URL construction.
+        """
+        import os
+        import shutil
+
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        copied = data_dir / os.path.basename(test_file_path)
+        shutil.copy(test_file_path, copied)
+        monkeypatch.chdir(work_dir)
+
+        dt = rxr.open_datatree(f"../data/{copied.name}")
+        assert hasattr(dt, "children")
+
+    def test_no_silent_substitution_via_parent_dir_collapse(
+        self, test_file_path, tmp_path, monkeypatch
+    ):
+        """When `link/../target` doesn't resolve via OS semantics, we must
+        NOT lexically collapse to a cwd-relative `target` that happens to
+        exist (data-correctness regression flagged in PR #31 review).
+
+        Layout:
+            tmp/work/  (cwd)
+            tmp/work/decoy_V06   ← exists in cwd, would be picked up by lexical collapse
+            tmp/work/link → /nonexistent_dir   ← broken symlink
+            (no tmp/target_V06; OS-resolved path doesn't exist)
+
+        Calling open_datatree("link/../decoy_V06") under the buggy lexical
+        fallback would resolve to "decoy_V06" (cwd) and silently read the
+        decoy. Correct behavior: raise an error.
+        """
+        import os
+        import shutil
+
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        # The decoy file the bug would silently substitute to.
+        decoy = work_dir / "decoy_V06"
+        shutil.copy(test_file_path, decoy)
+
+        # Broken symlink so canonicalize fails.
+        link = work_dir / "link"
+        os.symlink(tmp_path / "nonexistent_dir", link)
+        monkeypatch.chdir(work_dir)
+
+        # `link/../decoy_V06`: under OS semantics, resolves through link
+        # (broken) → fails. Under lexical collapse, becomes `decoy_V06`
+        # (exists, but wrong file). We require an error.
+        with pytest.raises(Exception) as excinfo:
+            rxr.open_datatree("link/../decoy_V06")
+        # The error should NOT be a successful parse — i.e., we did not
+        # silently substitute the decoy.
+        msg = str(excinfo.value).lower()
+        assert "unsupported uri scheme" not in msg
+
+    def test_symlinked_parent_dir_resolves_with_os_semantics(
+        self, test_file_path, tmp_path, monkeypatch
+    ):
+        """`link/../file` where `link` is a symlink must follow OS semantics.
+
+        Regression test for the symlink-aware-resolution P2: if we collapse
+        `..` syntactically, `link/../file` becomes just `file` (relative to
+        cwd), which reads the wrong file. The OS resolves through the
+        symlink first, then applies `..` from the link target.
+        """
+        import os
+        import shutil
+
+        # Layout:
+        #   tmp/real_dir/<volume>          ← actual file
+        #   tmp/sibling/decoy              ← unrelated file (would shadow on syntactic collapse)
+        #   tmp/work/link → tmp/real_dir   ← symlink
+        # Resolving `link/../<basename>` syntactically:  work/<basename>     (no such file)
+        # Resolving with symlink awareness:              real_dir/../<basename> = tmp/<basename>
+        # Use a unique basename that exists only via the symlink path.
+        real_dir = tmp_path / "real_dir"
+        real_dir.mkdir()
+        work_dir = tmp_path / "work"
+        work_dir.mkdir()
+
+        # Place the volume in tmp so OS resolution finds it via real_dir/..
+        volume = tmp_path / "via_symlink_V06"
+        shutil.copy(test_file_path, volume)
+
+        link = work_dir / "link"
+        os.symlink(real_dir, link)
+        monkeypatch.chdir(work_dir)
+
+        # `link/../via_symlink_V06`:
+        #   - Symlink-aware (OS):  real_dir/../via_symlink_V06 → tmp/via_symlink_V06 (exists)
+        #   - Syntactic collapse: work/via_symlink_V06 (does not exist)
+        dt = rxr.open_datatree(f"link/../{volume.name}")
+        assert hasattr(dt, "children")
