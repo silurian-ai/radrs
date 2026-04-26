@@ -965,6 +965,25 @@ returns an <code>xarray.DataTree</code> with the same structure as xradar.</p>
 </span></code></pre></div>
 
 
+<details class="cloud-support" open>
+  <summary>Cloud support</summary>
+  <p>The URI fetch layer accepts any scheme <code>object_store</code> supports (<code>s3://</code>,
+<code>gs://</code>, <code>az://</code>, <code>file://</code>, local paths) and forwards <code>storage_options</code> to
+it — so a single-volume NEXRAD file living on any of these works.</p>
+<p>For the public NEXRAD archive, AWS S3 (<code>s3://unidata-nexrad-level2</code>) is
+the only cloud source that works out of the box: it stores one volume per
+key. The public GCS mirror (<code>gs://gcp-public-data-nexrad-l2</code>) batches
+volumes into 6-minute tar archives, which we do not unpack — pointing
+<code>open_datatree</code> at one of those URLs will fetch the bytes successfully
+but fail at parse. We are not aware of a public Azure mirror at the time
+of writing, so <code>az://</code> is plumbed but untested for NEXRAD.</p>
+<p><code>s3://</code> URIs default to anonymous access (preserving the historical
+behavior of <code>open_datatree</code>); pass <code>storage_options</code> to provide
+credentials for private buckets. <code>gs://</code> and <code>az://</code> URIs use
+<code>object_store</code>'s credential chain by default — pass
+<code>storage_options={"anon": "true"}</code> for public buckets.</p>
+</details>
+
 
 
 
@@ -988,7 +1007,7 @@ returns an <code>xarray.DataTree</code> with the same structure as xradar.</p>
 
 
 <h2 id="radrs.xradar.open_datatree" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">open_datatree</span><span class="p">(</span><span class="n">source</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">open_datatree</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">sort_by_azimuth</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">storage_options</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
 <a href="#radrs.xradar.open_datatree" class="headerlink" title="Permanent link">&para;</a></h2>
 
@@ -996,6 +1015,76 @@ returns an <code>xarray.DataTree</code> with the same structure as xradar.</p>
     <div class="doc doc-contents ">
 
         <p>Open a NEXRAD Level 2 file as xarray DataTree.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>source</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> or <span title="bytes">bytes</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to file, URI (<code>s3://</code>, <code>gs://</code>, <code>az://</code>, <code>file://</code>,
+or absolute local path), or raw bytes. The URI must point at a
+single NEXRAD Level 2 volume — tar archives (e.g. the public
+GCS NEXRAD mirror's 6-minute bundles) are not unpacked here and
+will fail at parse. See module docstring for details.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>sort_by_azimuth</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, sort radials within each sweep by azimuth (xradar convention).</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>storage_options</code>
+            </td>
+            <td>
+                  <code><span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Storage backend configuration forwarded to object_store. Examples:
+- S3 anonymous: {"anon": "true"}
+- GCS service account: {"service_account_path": "/path/to/key.json"}
+- Azure: {"account_name": "...", "access_key": "..."}</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
 
 
     </div>
@@ -1006,7 +1095,7 @@ returns an <code>xarray.DataTree</code> with the same structure as xradar.</p>
 
 
 <h2 id="radrs.xradar.open_datatree_async" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">open_datatree_async</span><span class="p">(</span><span class="n">source</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">open_datatree_async</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">sort_by_azimuth</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">storage_options</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
   <span class="doc doc-labels">
       <small class="doc doc-label doc-label-async"><code>async</code></small>
@@ -1018,6 +1107,8 @@ returns an <code>xarray.DataTree</code> with the same structure as xradar.</p>
     <div class="doc doc-contents ">
 
         <p>Open a NEXRAD Level 2 file as xarray DataTree (async).</p>
+<p>See <code>open_datatree</code> for parameter descriptions, including the
+single-volume-only caveat for non-S3 cloud sources.</p>
 
 
     </div>

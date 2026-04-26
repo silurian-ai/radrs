@@ -849,6 +849,28 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#radrs.raystack.open_datatree" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        open_datatree
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#radrs.raystack.open_datatree_async" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        open_datatree_async
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1148,6 +1170,28 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         to_raystack_datatree
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#radrs.raystack.open_datatree" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        open_datatree
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#radrs.raystack.open_datatree_async" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        open_datatree_async
       </span>
     </span>
   </a>
@@ -2117,6 +2161,150 @@ Returns dict includes: vcp_time, sweep_time (parent times)</p>
     <div class="doc doc-contents ">
 
         <p>Convert raystack dict to raystack DataTree.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="radrs.raystack.open_datatree" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">open_datatree</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">fold_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">qc</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">include_activity</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">storage_options</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#radrs.raystack.open_datatree" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Open a NEXRAD volume and return a raystack DataTree.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>source</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span> or <span title="bytes">bytes</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to file, URI (<code>s3://</code>, <code>gs://</code>, <code>az://</code>, <code>file://</code>,
+or absolute local path), or raw bytes. The URI must point at a
+single NEXRAD Level 2 volume — tar archives (e.g. the public
+GCS NEXRAD mirror's 6-minute bundles) are not unpacked here and
+will fail at parse.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>fold_size</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Range fold size (chunks each radial into segments).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>qc</code>
+            </td>
+            <td>
+                  <code>list of QCStep or QCStep</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Quality control steps to apply during parse.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>include_activity</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Include activity metrics in the output.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>storage_options</code>
+            </td>
+            <td>
+                  <code><span title="dict">dict</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Storage backend configuration forwarded to object_store. Examples:
+- S3 anonymous: {"anon": "true"}
+- GCS service account: {"service_account_path": "/path/to/key.json"}
+- Azure: {"account_name": "...", "access_key": "..."}</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="radrs.raystack.open_datatree_async" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">open_datatree_async</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">fold_size</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">qc</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">include_activity</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">storage_options</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+<a href="#radrs.raystack.open_datatree_async" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Async variant of <code>open_datatree</code>.</p>
+<p>See <code>open_datatree</code> for parameter descriptions, including the
+single-volume-only caveat for non-S3 cloud sources.</p>
 
 
     </div>
