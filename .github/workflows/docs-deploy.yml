@@ -1,0 +1,83 @@
+name: Docs (deploy)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      # docs/changelog.md includes the root CHANGELOG.md via pymdownx.snippets;
+      # release-please touches CHANGELOG.md on every release, so the deploy
+      # has to re-publish when only that file changed.
+      - 'CHANGELOG.md'
+      - 'pyproject.toml'
+      - 'python/radrs/**'
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/docs-deploy.yml'
+
+env:
+  PYTHON_VERSION: '3.12'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          # mike needs full history of gh-pages to update versioned docs.
+          fetch-depth: 0
+          persist-credentials: true
+
+      # Deploy paths run uncached: this workflow has contents: write and
+      # pushes to gh-pages, so caches sourced from another run could
+      # poison the published site (zizmor cache-poisoning audit).
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
+        with:
+          toolchain: stable
+          cache: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with:
+          enable-cache: false
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install docs dependencies
+        run: uv sync --group docs
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Deploy dev alias (push to main)
+        if: github.ref == 'refs/heads/main'
+        run: uv run mike deploy --push --update-aliases dev
+
+      - name: Deploy versioned docs (release tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Strip leading 'v' and keep only MAJOR.MINOR (e.g. v0.3.5 -> 0.3).
+          tag="${GITHUB_REF_NAME#v}"
+          version="${tag%.*}"
+          echo "Deploying docs for version ${version} (from tag ${GITHUB_REF_NAME})"
+          uv run mike deploy --push --update-aliases "${version}" latest
+          uv run mike set-default --push latest

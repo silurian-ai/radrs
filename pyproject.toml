@@ -18,6 +18,11 @@ dependencies = [
     "xarray>=2024.1",
 ]
 
+[project.urls]
+Documentation = "https://silurian-ai.github.io/radrs"
+Repository = "https://github.com/silurian-ai/radrs"
+Issues = "https://github.com/silurian-ai/radrs/issues"
+
 [project.optional-dependencies]
 zarr = ["zarr>=3"]
 test = ["pytest", "pytest-asyncio", "pytest-benchmark", "xradar"]
