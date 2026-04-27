@@ -131,7 +131,3 @@ row-for-row, so the same matrix is consumable as a tensor and
 interpretable as radar data.
 
 ![ML tensor panel showing a DBZH return-by-range matrix and aligned metadata.](../assets/raystack-explainer-panels/ml-tensor.png)
-
-The same panels are also available as a single combined figure:
-
-![Raystack explainer figure generated from a KABR NEXRAD Level 2 volume.](../assets/raystack-explainer.png)

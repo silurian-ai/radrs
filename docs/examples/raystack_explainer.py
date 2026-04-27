@@ -118,112 +118,226 @@ def draw_physical_scan(
     *,
     show_title: bool = True,
 ) -> None:
-    """Draw the VCP/sweep/radial/gate hierarchy using real sweep counts."""
+    """Draw the VCP as a side-view fan of beams at real elevation angles."""
     if show_title:
-        ax.set_title("1. Physical scan", loc="left", fontsize=12, fontweight="bold")
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+        ax.set_title("1. Volume coverage", loc="left", fontsize=12, fontweight="bold")
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_ylim(-0.15, 1.05)
     ax.axis("off")
 
+    elevations = np.sort(np.asarray(sweeps["elevation_angle"].values, dtype=np.float32))
     vcp_number = int(np.asarray(vcps["vcp_number"].values)[0])
-    elevations = np.asarray(sweeps["elevation_angle"].values, dtype=np.float32)
-    counts = np.asarray(sweeps["num_returns"].values, dtype=np.int64)
-    shown = min(5, elevations.size)
+    n_sweeps = elevations.size
+    lo = float(elevations[0])
+    hi = float(elevations[-1])
 
-    radar = (0.15, 0.22)
-    ax.scatter([radar[0]], [radar[1]], s=130, color="#315452", zorder=3)
-    ax.text(radar[0], 0.08, "radar", ha="center", va="center", fontsize=8)
+    ax.plot([-0.02, 1.02], [0, 0], color="#a8b3b1", linewidth=1.0, zorder=1)
+    ax.scatter([0], [0], s=140, color="#315452", zorder=5)
+    ax.text(0.0, -0.06, "radar", ha="center", va="top", fontsize=8, color="#203332")
 
-    colors = ["#6ea8fe", "#72bf78", "#f3b95f", "#a990d6", "#e56b6f"]
-    for idx in range(shown):
-        y = 0.34 + idx * 0.1
-        ax.plot(
-            [radar[0], 0.85],
-            [radar[1], y],
-            color=colors[idx % len(colors)],
-            linewidth=2.0,
-            alpha=0.85,
-        )
-        ax.scatter(
-            [0.46, 0.56, 0.66, 0.76],
-            np.interp([0.46, 0.56, 0.66, 0.76], [radar[0], 0.85], [radar[1], y]),
-            s=18,
-            color=colors[idx % len(colors)],
-            alpha=0.9,
-        )
+    cmap = plt.get_cmap("viridis")
+    visual_scale = 60.0 / max(hi, 1.0)
+    beam_length = 0.95
+
+    for i, angle in enumerate(elevations):
+        plot_angle = np.deg2rad(angle * visual_scale)
+        x_end = beam_length * np.cos(plot_angle)
+        y_end = beam_length * np.sin(plot_angle)
+        color = cmap(0.18 + 0.72 * (i / max(n_sweeps - 1, 1)))
+        ax.plot([0, x_end], [0, y_end], color=color, linewidth=1.6, alpha=0.92, zorder=3)
+
+    for angle, label in ((lo, f"{lo:.1f}°"), (hi, f"{hi:.1f}°")):
+        plot_angle = np.deg2rad(angle * visual_scale)
         ax.text(
-            0.88,
-            y,
-            f"sweep {idx}: {elevations[idx]:.1f} deg, {counts[idx]:,} returns",
+            beam_length * np.cos(plot_angle) + 0.02,
+            beam_length * np.sin(plot_angle),
+            label,
             ha="left",
             va="center",
             fontsize=8,
+            color="#203332",
         )
 
-    ax.text(0.05, 0.91, f"VCP {vcp_number}", fontsize=10, fontweight="bold", color="#203332")
-    ax.text(0.05, 0.82, f"{elevations.size} sweeps", fontsize=9, color="#50615f")
-    ax.text(0.42, 0.17, "radials carry range gates", fontsize=9, color="#50615f")
+    ax.text(0.02, 1.0, f"VCP {vcp_number}", fontsize=11, fontweight="bold", color="#203332")
+    ax.text(
+        0.02,
+        0.92,
+        f"{n_sweeps} sweeps from {lo:.1f}° to {hi:.1f}° elevation",
+        fontsize=9,
+        color="#50615f",
+    )
+    ax.text(
+        0.5,
+        -0.12,
+        "side view; vertical scale exaggerated for clarity",
+        ha="center",
+        va="top",
+        fontsize=7,
+        color="#7a8a87",
+        style="italic",
+    )
 
 
 def draw_radial_folding(
     ax: Axes,
     sweeps: xr.Dataset,
+    returns: xr.Dataset,
+    moment: str,
+    offsets: NDArray[np.int64],
     fold_size: int,
     *,
     show_title: bool = True,
 ) -> None:
-    """Draw how a radial is split into fixed-width return chunks."""
+    """Show a real radial as a flattened strip, then folded into return rows."""
     if show_title:
         ax.set_title("2. Fold one radial", loc="left", fontsize=12, fontweight="bold")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")
 
-    max_gates = int(np.nanmax(np.asarray(sweeps["max_gates"].values, dtype=np.float32)))
-    chunks = max(1, int(np.ceil(max_gates / fold_size)))
-    shown_chunks = min(chunks, 4)
-    gate_rows = 12
-    gate_cols = 8
-    gate_count_shown = gate_rows * gate_cols
-    chunk_width = 0.18
-    x0 = 0.08
-    y0 = 0.45
-    colors = ["#6ea8fe", "#72bf78", "#f3b95f", "#a990d6"]
+    sweep_max_gates = np.asarray(sweeps["max_gates"].values, dtype=np.int64)
+    moment_data = np.asarray(returns[moment].values, dtype=np.float32)
 
-    for chunk in range(shown_chunks):
-        start_x = x0 + chunk * (chunk_width + 0.035)
-        draw_box(
-            ax,
-            (start_x, y0 - 0.05),
-            chunk_width,
-            0.28,
-            "",
-            facecolor="#ffffff",
-            edgecolor=colors[chunk % len(colors)],
+    target_sweep = 0
+    best_score = -1.0
+    for s_idx in range(sweep_max_gates.size):
+        chunks = int(np.ceil(sweep_max_gates[s_idx] / fold_size))
+        if chunks < 2:
+            continue
+        s_start = int(offsets[s_idx])
+        s_stop = int(offsets[s_idx + 1])
+        if s_stop <= s_start:
+            continue
+        valid_count = float(np.sum(~np.isnan(moment_data[s_start:s_stop])))
+        if valid_count > best_score:
+            best_score = valid_count
+            target_sweep = s_idx
+
+    n_chunks = max(1, int(np.ceil(sweep_max_gates[target_sweep] / fold_size)))
+    s_start = int(offsets[target_sweep])
+    s_stop = int(offsets[target_sweep + 1])
+    n_radials_in_sweep = max(1, (s_stop - s_start) // n_chunks)
+    sweep_grid = moment_data[s_start : s_start + n_radials_in_sweep * n_chunks].reshape(
+        n_radials_in_sweep, n_chunks, fold_size
+    )
+    valid_per_radial = np.sum(~np.isnan(sweep_grid), axis=(1, 2))
+    radial = sweep_grid[int(np.argmax(valid_per_radial))]
+    flattened = radial.reshape(1, -1)
+    actual_gates = int(sweep_max_gates[target_sweep])
+
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad(color="#e6ebe9")
+
+    strip_y0, strip_h = 0.78, 0.10
+    ax.imshow(
+        flattened,
+        extent=(0.05, 0.95, strip_y0, strip_y0 + strip_h),
+        aspect="auto",
+        cmap=cmap,
+        interpolation="nearest",
+        zorder=2,
+    )
+    n_total = flattened.shape[1]
+    for chunk in range(1, n_chunks):
+        x_pos = 0.05 + (chunk * fold_size) / n_total * 0.9
+        ax.plot(
+            [x_pos, x_pos],
+            [strip_y0, strip_y0 + strip_h],
+            color="white",
+            linewidth=0.6,
+            alpha=0.85,
+            zorder=3,
         )
-        for gate in range(gate_count_shown):
-            row = gate // gate_cols
-            col = gate % gate_cols
-            ax.add_patch(
-                Rectangle(
-                    (start_x + 0.012 + col * 0.018, y0 + 0.165 - row * 0.018),
-                    0.012,
-                    0.012,
-                    linewidth=0,
-                    facecolor=colors[chunk % len(colors)],
-                    alpha=0.75,
-                )
-            )
-        label = f"return {chunk}"
-        if chunk == shown_chunks - 1 and chunks > shown_chunks:
-            label = f"return {chunk}..."
-        ax.text(start_x + chunk_width / 2, y0 - 0.11, label, ha="center", fontsize=8)
+    ax.add_patch(
+        Rectangle(
+            (0.05, strip_y0),
+            0.9,
+            strip_h,
+            linewidth=1.0,
+            edgecolor="#315452",
+            facecolor="none",
+            zorder=4,
+        )
+    )
+    ax.text(
+        0.05,
+        strip_y0 + strip_h + 0.04,
+        f"one radial: {actual_gates:,} range gates of {moment}",
+        fontsize=9,
+        color="#203332",
+    )
+    ax.text(0.05, strip_y0 - 0.04, "gate 0", fontsize=7, color="#50615f", ha="left", va="top")
+    ax.text(
+        0.95,
+        strip_y0 - 0.04,
+        f"gate {n_total - 1}",
+        fontsize=7,
+        color="#50615f",
+        ha="right",
+        va="top",
+    )
 
-    ax.text(0.08, 0.82, f"max gates in volume: {max_gates:,}", fontsize=9, color="#203332")
-    ax.text(0.08, 0.74, f"fold_size: {fold_size:,} gates", fontsize=9, color="#203332")
-    ax.text(0.08, 0.28, f"one physical radial can become {chunks} return rows", fontsize=9)
-    draw_arrow(ax, (0.78, 0.58), (0.92, 0.58))
-    draw_box(ax, (0.93, 0.48), 0.06, 0.2, "R,G", facecolor="#dbeafe", fontsize=8)
+    draw_arrow(ax, (0.5, 0.72), (0.5, 0.55))
+    ax.text(
+        0.52,
+        0.635,
+        f"split into chunks of fold_size = {fold_size}",
+        fontsize=8,
+        color="#50615f",
+        va="center",
+    )
+
+    stack_top, stack_h = 0.50, 0.40
+    ax.imshow(
+        radial,
+        extent=(0.05, 0.95, stack_top - stack_h, stack_top),
+        aspect="auto",
+        cmap=cmap,
+        interpolation="nearest",
+        zorder=2,
+    )
+    cell_h = stack_h / n_chunks
+    for chunk in range(n_chunks):
+        y_top = stack_top - chunk * cell_h
+        ax.add_patch(
+            Rectangle(
+                (0.05, y_top - cell_h),
+                0.9,
+                cell_h,
+                linewidth=0.5,
+                edgecolor="#315452",
+                facecolor="none",
+                zorder=3,
+            )
+        )
+    for chunk_label_idx in (0, n_chunks - 1):
+        y_center = stack_top - (chunk_label_idx + 0.5) * cell_h
+        ax.text(
+            0.045,
+            y_center,
+            f"return {chunk_label_idx}",
+            ha="right",
+            va="center",
+            fontsize=7,
+            color="#50615f",
+        )
+    ax.text(
+        0.05,
+        stack_top + 0.03,
+        f"stored as {n_chunks} return rows × fold_size = {fold_size}",
+        fontsize=9,
+        color="#203332",
+    )
+    ax.text(
+        0.95,
+        stack_top - stack_h - 0.04,
+        "trailing pad cells (NaN) shown in gray",
+        fontsize=7,
+        color="#7a8a87",
+        ha="right",
+        va="top",
+        style="italic",
+    )
 
 
 def draw_flat_schema(
@@ -353,7 +467,14 @@ def create_raystack_explainer(parts: RaystackParts, *, fold_size: int = 128) -> 
     fig, axes = plt.subplots(2, 2, figsize=(15, 9), constrained_layout=True)
     flat_axes: Sequence[Axes] = axes.ravel()
     draw_physical_scan(flat_axes[0], parts.vcps, parts.sweeps)
-    draw_radial_folding(flat_axes[1], parts.sweeps, fold_size)
+    draw_radial_folding(
+        flat_axes[1],
+        parts.sweeps,
+        parts.returns,
+        parts.moment,
+        parts.offsets,
+        fold_size,
+    )
     draw_flat_schema(flat_axes[2], parts.vcps, parts.sweeps, parts.returns)
     draw_ml_tensor(flat_axes[3], parts.returns, parts.moment, parts.offsets)
     fig.suptitle("Raystack: from NEXRAD L2 volume to flat training arrays", fontsize=16)
@@ -371,7 +492,15 @@ def create_panel_figures(parts: RaystackParts, *, fold_size: int = 128) -> list[
         (
             "fold-radial",
             "2. Fold one radial",
-            lambda ax: draw_radial_folding(ax, parts.sweeps, fold_size, show_title=False),
+            lambda ax: draw_radial_folding(
+                ax,
+                parts.sweeps,
+                parts.returns,
+                parts.moment,
+                parts.offsets,
+                fold_size,
+                show_title=False,
+            ),
         ),
         (
             "flat-schema",
