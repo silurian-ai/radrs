@@ -6,9 +6,9 @@
 
 Fast NEXRAD Level 2 processing for Python.
 
-radrs parses NEXRAD weather radar data ~10–15× faster than xradar, with direct
-multi-cloud streaming, async I/O, and two output formats: xarray DataTree
-(xradar-compatible) or a flat "raystack" layout optimized for ML pipelines.
+radrs parses NEXRAD weather radar data with direct multi-cloud streaming,
+async I/O, and two output formats: a CfRadial2 xarray DataTree (xradar-compatible)
+or a flattened "raystack" xarray DataTree optimized for ML pipelines.
 
 - Multi-cloud streaming (`s3://`, `gs://`, `az://`, local) with connection pooling
 - Async/await API with prefetch
