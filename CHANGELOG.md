@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6](https://github.com/silurian-ai/radrs/compare/radrs-v0.3.5...radrs-v0.3.6) (2026-04-27)
+
+
+### Features
+
+* accept gs:// and az:// URIs in open_datatree ([#31](https://github.com/silurian-ai/radrs/issues/31)) ([bd878ef](https://github.com/silurian-ai/radrs/commit/bd878ef1f4412a9266a7590237d64e8777811f51))
+
 ## [0.3.5](https://github.com/silurian-ai/radrs/compare/radrs-v0.3.4...radrs-v0.3.5) (2026-04-24)
 
 
