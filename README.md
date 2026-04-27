@@ -30,7 +30,7 @@ Or with pip: `pip install radrs`. Requires Python 3.11+.
 import radrs.xradar as rxr
 import radrs.raystack as rrs
 
-src = "s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_120000_V06"
+src = "s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06"
 
 # xradar-compatible DataTree
 dt = rxr.open_datatree(src)
