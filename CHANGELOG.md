@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.7](https://github.com/silurian-ai/radrs/compare/radrs-v0.3.6...radrs-v0.3.7) (2026-04-27)
+
+
+### Bug Fixes
+
+* Update source URL in quick start ([#39](https://github.com/silurian-ai/radrs/issues/39)) ([c4812d7](https://github.com/silurian-ai/radrs/commit/c4812d7633447031ef78e6ea780871d7f93d9f26))
+
 ## [0.3.6](https://github.com/silurian-ai/radrs/compare/radrs-v0.3.5...radrs-v0.3.6) (2026-04-27)
 
 
