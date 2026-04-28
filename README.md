@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/radrs.svg)](https://pypi.org/project/radrs/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-silurian--ai.github.io-blue)](https://silurian-ai.github.io/radrs)
+[![Docs](https://img.shields.io/badge/docs-silurian--ai.github.io-blue)](https://silurian-ai.github.io/radrs/dev/)
 
 Fast NEXRAD Level 2 processing for Python.
 
@@ -40,11 +40,11 @@ rdt = rrs.open_datatree(src, fold_size=128)
 ```
 
 For S3 archive iteration, async I/O, QC, and the raystack format reference, see
-the [full documentation](https://silurian-ai.github.io/radrs).
+the [full documentation](https://silurian-ai.github.io/radrs/dev/).
 
 ## Documentation
 
-- [User guide & API reference](https://silurian-ai.github.io/radrs)
+- [User guide & API reference](https://silurian-ai.github.io/radrs/dev/)
 - [Changelog](CHANGELOG.md)
 
 ## License

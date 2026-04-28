@@ -6,6 +6,7 @@ on:
       - main
     tags:
       - 'v*.*.*'
+      - 'radrs-v*.*.*'
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
@@ -71,12 +72,18 @@ jobs:
         run: uv run mike deploy --push --update-aliases dev
 
       - name: Deploy versioned docs (release tag)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/radrs-v')
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
         run: |
-          # Strip leading 'v' and keep only MAJOR.MINOR (e.g. v0.3.5 -> 0.3).
-          tag="${GITHUB_REF_NAME#v}"
+          case "${GITHUB_REF_NAME}" in
+            radrs-v*) tag="${GITHUB_REF_NAME#radrs-v}" ;;
+            v*) tag="${GITHUB_REF_NAME#v}" ;;
+            *)
+              echo "Unsupported release tag: ${GITHUB_REF_NAME}" >&2
+              exit 1
+              ;;
+          esac
           version="${tag%.*}"
           echo "Deploying docs for version ${version} (from tag ${GITHUB_REF_NAME})"
           uv run mike deploy --push --update-aliases "${version}" latest
