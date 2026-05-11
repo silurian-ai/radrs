@@ -46,7 +46,6 @@ pub mod constants;
 pub mod metadata;
 pub mod metadata_build;
 pub mod ops;
-pub mod parse;
 pub mod qc;
 pub mod raystack;
 pub mod xradar;
