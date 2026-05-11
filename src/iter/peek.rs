@@ -216,7 +216,7 @@ fn scan_record_for_extras(
     for msg in messages {
         match msg.into_contents() {
             MessageContents::VolumeCoveragePattern(vcp_msg) => {
-                extras.vcp = Some(vcp_msg.header().pattern_number() as u16);
+                extras.vcp = Some(vcp_msg.header().pattern_number());
             }
             MessageContents::DigitalRadarData(drd) => {
                 if let Some(vol_block) = drd.volume_data_block() {

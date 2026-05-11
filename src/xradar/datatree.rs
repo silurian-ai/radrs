@@ -80,8 +80,7 @@ pub fn open_datatree_async_py(
             .await
             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
 
-        Python::attach(|py| scan_to_datatree(py, &scan, &meta, sort_by_azimuth)).map_err(Into::into)
-    })?;
+        Python::attach(|py| scan_to_datatree(py, &scan, &meta, sort_by_azimuth))})?;
 
     Ok(awaitable.into())
 }

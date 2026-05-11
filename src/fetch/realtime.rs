@@ -38,11 +38,10 @@ pub async fn poll_realtime_chunks(
                 // Fetch the chunk data
                 let object_path = ObjectPath::from(path.clone());
                 let _permit = FETCH_SEMAPHORE.acquire().await.expect("semaphore closed");
-                if let Ok(result) = store.get(&object_path).await {
-                    if let Ok(bytes) = result.bytes().await {
+                if let Ok(result) = store.get(&object_path).await
+                    && let Ok(bytes) = result.bytes().await {
                         new_chunks.push((path, bytes.to_vec()));
                     }
-                }
             }
         }
     }

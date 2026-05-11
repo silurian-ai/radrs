@@ -32,7 +32,7 @@ pub(crate) fn combine_regions(
         return true;
     }
     let (node1, node2, diff, edge_number) = extra;
-    let mut rdiff = round_even(diff as f64) as i32;
+    let mut rdiff = round_even(diff as f64);
 
     let node1_size = region_tracker.get_node_size(node1);
     let node2_size = region_tracker.get_node_size(node2);
@@ -225,7 +225,7 @@ impl EdgeTracker {
         let old_beta = self.node_beta[edge];
         self.node_alpha[edge] = old_beta;
         self.node_beta[edge] = old_alpha;
-        self.sum_diff[edge] = -1.0 * self.sum_diff[edge];
+        self.sum_diff[edge] = -self.sum_diff[edge];
     }
 
     pub(crate) fn unwrap_node(&mut self, node: usize, nwrap: i32) {

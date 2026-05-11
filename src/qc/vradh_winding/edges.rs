@@ -173,11 +173,10 @@ fn scan_neighbor(
                     }
                 }
             }
-            if y_step != 0 {
-                if y_check == -1 || y_check == bottom + 1 {
+            if y_step != 0
+                && (y_check == -1 || y_check == bottom + 1) {
                     break;
                 }
-            }
             neighbor = labels[x_check as usize * n_cols + y_check as usize];
             nvel = data[x_check as usize * n_cols + y_check as usize] as f64;
             if neighbor != 0 {

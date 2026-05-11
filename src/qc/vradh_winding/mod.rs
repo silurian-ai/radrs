@@ -67,11 +67,10 @@ pub fn vradh_winding_number(
     let mut invalid = Vec::with_capacity(total);
     for &v in vradh.iter().take(total) {
         let mut is_invalid = v.is_nan();
-        if let Some(fill) = params.fill_value {
-            if (v - fill).abs() <= params.fill_tolerance {
+        if let Some(fill) = params.fill_value
+            && (v - fill).abs() <= params.fill_tolerance {
                 is_invalid = true;
             }
-        }
         if is_invalid {
             vel.push(f32::NAN);
         } else {
@@ -179,7 +178,7 @@ pub fn vradh_winding_number(
             let sweep_offset = round_even(total_folds as f64 / gates_dealiased as f64);
             if sweep_offset != 0 {
                 for u in region_tracker.unwrap_number.iter_mut() {
-                    *u -= sweep_offset as i32;
+                    *u -= sweep_offset;
                 }
             }
         }

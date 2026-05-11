@@ -296,7 +296,7 @@ pub fn parse_single_volume(data: &[u8], fold_size: usize) -> Result<RaystackBatc
             let folds_per_radial = if fold_size == 0 {
                 1
             } else {
-                ((sm.max_gates + fold_size - 1) / fold_size).max(1)
+                sm.max_gates.div_ceil(fold_size).max(1)
             };
             sm.n_radials * folds_per_radial
         })
@@ -636,7 +636,7 @@ impl RaystackBatchData {
         let scan: Scan = volume.scan()?;
         let vol_meta = collect_metadata(&scan);
 
-        return self.add_scan(&volume, &scan, &scan_meta, &vol_meta);
+        self.add_scan(&volume, &scan, &scan_meta, &vol_meta)
     }
 
     /// Add a VCP peek if we're just looking for basic metadata
@@ -677,7 +677,7 @@ impl RaystackBatchData {
 
         self.n_vcps += 1;
 
-        return Ok(());
+        Ok(())
     }
 
     pub fn add_vcp_metadata(
@@ -769,23 +769,21 @@ impl RaystackBatchData {
             ));
         }
 
-        for maybe_values in &moments {
-            if let Some(values) = maybe_values {
-                let expected = n_radials * n_range;
-                if values.len() != expected {
-                    return Err(RadrsError::InvalidInput(format!(
-                        "Moment array length mismatch: expected {}, got {}",
-                        expected,
-                        values.len()
-                    )));
-                }
+        for values in moments.iter().flatten() {
+            let expected = n_radials * n_range;
+            if values.len() != expected {
+                return Err(RadrsError::InvalidInput(format!(
+                    "Moment array length mismatch: expected {}, got {}",
+                    expected,
+                    values.len()
+                )));
             }
         }
 
         let n_folds = if self.fold_size == 0 {
             1
         } else {
-            (n_range + self.fold_size - 1) / self.fold_size
+            n_range.div_ceil(self.fold_size)
         }
         .max(1);
 
@@ -944,7 +942,7 @@ impl RaystackBatchData {
                 let folds_per_radial = if self.fold_size == 0 {
                     1
                 } else {
-                    ((sm.max_gates + self.fold_size - 1) / self.fold_size).max(1)
+                    sm.max_gates.div_ceil(self.fold_size).max(1)
                 };
                 sm.n_radials * folds_per_radial
             })
@@ -1090,7 +1088,7 @@ impl RaystackBatchData {
                 }
 
                 // // ceil int division
-                let n_folds = ((rad_max_gates as usize) + self.fold_size - 1) / self.fold_size;
+                let n_folds = (rad_max_gates as usize).div_ceil(self.fold_size);
                 for f in 0..n_folds {
                     let base_gate = f * self.fold_size;
                     let start_m_val_idx = base_gate;

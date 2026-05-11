@@ -98,7 +98,7 @@ impl AzimuthPlan {
         }
 
         let arr = out.into_pyarray(py);
-        Ok(arr.reshape([self.dst_len, n_cols])?)
+        arr.reshape([self.dst_len, n_cols])
     }
 }
 
@@ -190,7 +190,7 @@ impl RangePlan {
         }
 
         let arr = out.into_pyarray(py);
-        Ok(arr.reshape([n_rows, self.dst_len])?)
+        arr.reshape([n_rows, self.dst_len])
     }
 }
 
@@ -212,7 +212,7 @@ fn default_range_tolerance(src_step: f32, dst_step: f32) -> f32 {
 fn azimuth_distance(a: f32, b: f32, wrap: bool) -> f32 {
     let mut diff = (a - b).abs();
     if wrap {
-        diff = diff % 360.0;
+        diff %= 360.0;
         let wrapped = 360.0 - diff;
         if wrapped < diff { wrapped } else { diff }
     } else {
@@ -387,14 +387,14 @@ pub fn velocity_texture_py<'py>(
     if nyq <= 0.0 {
         let out = vec![f32::NAN; n_rows * n_cols];
         let arr = out.into_pyarray(py);
-        return Ok(arr.reshape([n_rows, n_cols])?);
+        return arr.reshape([n_rows, n_cols]);
     }
 
     let window = wind_size.unwrap_or(3).max(1);
     let tex = velocity_texture(vel, n_rows, n_cols, window, nyq);
     let out: Vec<f32> = tex.into_iter().map(|v| v as f32).collect();
     let arr = out.into_pyarray(py);
-    Ok(arr.reshape([n_rows, n_cols])?)
+    arr.reshape([n_rows, n_cols])
 }
 
 /// Register ops submodule.

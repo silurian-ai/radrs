@@ -32,7 +32,7 @@ pub fn from_xradar_datatree_py(
             let folds_per_radial = if fold_size == 0 {
                 1
             } else {
-                (s.max_gates + fold_size - 1) / fold_size
+                s.max_gates.div_ceil(fold_size)
             }
             .max(1);
             s.n_radials * folds_per_radial
@@ -76,14 +76,13 @@ pub fn from_xradar_datatree_py(
         .ok()
         .and_then(|v| v.extract().ok());
 
-    if (latitude.is_none() || longitude.is_none() || altitude.is_none()) && !sweep_meta.is_empty() {
-        if let Some(child) = children_dict.get_item(sweep_meta[0].name.as_str())? {
+    if (latitude.is_none() || longitude.is_none() || altitude.is_none()) && !sweep_meta.is_empty()
+        && let Some(child) = children_dict.get_item(sweep_meta[0].name.as_str())? {
             let dataset = child.getattr("dataset")?;
             latitude = latitude.or_else(|| extract_scalar_coord(&np, &dataset, "latitude"));
             longitude = longitude.or_else(|| extract_scalar_coord(&np, &dataset, "longitude"));
             altitude = altitude.or_else(|| extract_scalar_coord(&np, &dataset, "altitude"));
         }
-    }
 
     let vcp_time = estimate_vcp_time(py, &np, &children_dict, &sweep_meta).unwrap_or(0);
 
@@ -777,11 +776,10 @@ fn raystack_dict_to_raystack_datatree(
             }
         }
 
-        if !sweeps_vars.contains("sweep_fixed_angle")? {
-            if let Some(elevation_angle) = sweeps.get_item("elevation_angle")? {
+        if !sweeps_vars.contains("sweep_fixed_angle")?
+            && let Some(elevation_angle) = sweeps.get_item("elevation_angle")? {
                 sweeps_vars.set_item("sweep_fixed_angle", (("sweep_time",), elevation_angle))?;
             }
-        }
 
         let n_sweeps = sweeps
             .get_item("sweep_time")?

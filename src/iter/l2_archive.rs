@@ -374,7 +374,7 @@ async fn list_volumes_in_site(
         };
 
         let path = meta.location.to_string();
-        let filename = path.split('/').last().unwrap_or("");
+        let filename = path.split('/').next_back().unwrap_or("");
 
         // Skip MDM files
         if filename.ends_with("MDM") {
@@ -396,7 +396,7 @@ async fn list_volumes_in_site(
             uri: path.clone(),
             instrument_name,
             vcp_time,
-            size: Some(meta.size as u64),
+            size: Some(meta.size),
             store: store.clone(),
             object_path: path,
         });
