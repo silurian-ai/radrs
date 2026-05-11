@@ -86,7 +86,7 @@ impl NexradL2ArchiveInfo {
     ///
     /// # Arguments
     /// * `max_bytes` - Optional maximum number of bytes to fetch from the start of the file.
-    ///                 If None, fetches the entire file.
+    ///   If None, fetches the entire file.
     pub async fn fetch(&self, max_bytes: usize) -> Result<Vec<u8>> {
         let (bytes, _size) = self.fetch_with_size(max_bytes).await?;
         Ok(bytes)
@@ -96,7 +96,7 @@ impl NexradL2ArchiveInfo {
     ///
     /// # Arguments
     /// * `max_bytes` - Optional maximum number of bytes to fetch from the start of the file.
-    ///                 If 0, fetches the entire file.
+    ///   If 0, fetches the entire file.
     ///
     /// # Returns
     /// A tuple of (data, total_file_size) where total_file_size is the complete file size in bytes

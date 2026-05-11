@@ -133,7 +133,7 @@ impl EdgeTracker {
         let mut edges_in_node: Vec<Vec<usize>> = (0..nnodes).map(|_| Vec::new()).collect();
 
         let mut edge_idx = 0usize;
-        for i in 0..indices.0.len() {
+        for (i, &count) in edge_count.iter().enumerate().take(indices.0.len()) {
             let a = indices.0[i] as isize;
             let b = indices.1[i] as isize;
             if a < b {
@@ -146,7 +146,7 @@ impl EdgeTracker {
             node_beta[edge_idx] = b as usize;
             let diff = (velocities.0[i] - velocities.1[i]) / nyquist_interval;
             sum_diff[edge_idx] = diff as f32;
-            weight[edge_idx] = edge_count[i];
+            weight[edge_idx] = count;
             edges_in_node[a as usize].push(edge_idx);
             edges_in_node[b as usize].push(edge_idx);
             edge_idx += 1;

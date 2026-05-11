@@ -480,7 +480,7 @@ fn parse_s3_url(url: &str) -> Result<(String, String)> {
 /// # Arguments
 /// * `source` - S3 URL (s3://bucket/path) or local file path
 /// * `header_only` - If true, only fetch 24 bytes for basic metadata.
-///                   If false (default), adaptively fetch to get VCP, lat/lon, moments.
+///   If false (default), adaptively fetch to get VCP, lat/lon, moments.
 ///
 /// # Returns
 /// VolumeMeta with extracted fields
@@ -671,7 +671,7 @@ fn decompress_gzip_prefix(data: &[u8], max_bytes: usize) -> Result<Vec<u8>> {
 /// # Arguments
 /// * `data` - Byte array containing NEXRAD Level 2 volume data (raw or gzipped)
 /// * `header_only` - If true, only parse 24 bytes for basic metadata (site, datetime, version).
-///                   If false (default), scan records until VCP is found (up to 2MB cap).
+///   If false (default), scan records until VCP is found (up to 2MB cap).
 ///
 /// This function automatically detects and handles gzipped data in a streaming fashion,
 /// decompressing only as much as needed to extract the requested metadata.
@@ -722,10 +722,7 @@ pub fn peek_volume_bytes(data: &[u8], header_only: bool) -> Result<VolumeMeta> {
     }
 
     // Scan records to extract additional metadata
-    let scan_max = working_data
-        .len()
-        .min(PEEK_SCAN_MAX)
-        .max(VOLUME_HEADER_SIZE);
+    let scan_max = working_data.len().clamp(VOLUME_HEADER_SIZE, PEEK_SCAN_MAX);
     let extras = scan_records_buffer(working_data, scan_max);
 
     Ok(VolumeMeta {

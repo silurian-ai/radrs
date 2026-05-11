@@ -213,6 +213,7 @@ pub fn vradh_winding_number(
         fill_tolerance = None,
     )
 )]
+#[allow(clippy::too_many_arguments)]
 pub fn vradh_winding_number_py<'py>(
     py: Python<'py>,
     vradh: PyReadonlyArray2<'py, f32>,
@@ -238,8 +239,10 @@ pub fn vradh_winding_number_py<'py>(
         None => None,
     };
 
-    let mut params = VradhWindingParams::default();
-    params.nyquist = nyquist;
+    let mut params = VradhWindingParams {
+        nyquist,
+        ..Default::default()
+    };
     if let Some(v) = wind_size {
         params.wind_size = v;
     }

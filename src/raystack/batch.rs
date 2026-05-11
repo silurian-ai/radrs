@@ -26,6 +26,7 @@ use std::collections::VecDeque;
 use tokio::task::JoinHandle;
 
 const PEEK_SCAN_LATLON: usize = PEEK_SCAN_MAX / 2;
+type VolumeFetchHandle = JoinHandle<Result<(Vec<u8>, u64)>>;
 
 // Asserts that a value is the same as another and returns the value
 #[macro_export]
@@ -400,6 +401,7 @@ impl RaystackBatchData {
     /// * `max_returns` - Maximum total number of returns/radials
     /// * `fold_size` - Range fold size (default 128)
     /// * `truncate` - Whether to truncate arrays to actual size on finalize (default true)
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         max_vcps: usize,
         max_sweeps: usize,
@@ -553,7 +555,7 @@ impl RaystackBatchData {
         /// Helper to spawn a fetch task for the next volume
         async fn try_spawn_next(
             iter: &mut crate::iter::NexradL2ArchiveIterator,
-            in_flight: &mut VecDeque<JoinHandle<Result<(Vec<u8>, u64)>>>,
+            in_flight: &mut VecDeque<VolumeFetchHandle>,
             peek: bool,
         ) -> Result<bool> {
             match iter.next().await? {
@@ -571,7 +573,7 @@ impl RaystackBatchData {
         }
 
         let mut count = 0usize;
-        let mut in_flight: VecDeque<JoinHandle<Result<(Vec<u8>, u64)>>> = VecDeque::new();
+        let mut in_flight: VecDeque<VolumeFetchHandle> = VecDeque::new();
 
         // Fill the initial prefetch queue
         for _ in 0..prefetch {
@@ -680,6 +682,7 @@ impl RaystackBatchData {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_vcp_metadata(
         &mut self,
         source_fs_size: i64,
@@ -853,9 +856,10 @@ impl RaystackBatchData {
                             let src_row_end = src_row_start + n_range;
                             let row = &values[src_row_start..src_row_end];
                             let copy_end = (base_gate + self.fold_size).min(n_range);
-                            for src_gate in base_gate..copy_end {
+                            for (src_gate, &val) in
+                                row.iter().enumerate().take(copy_end).skip(base_gate)
+                            {
                                 let out_idx = start_out + (src_gate - base_gate);
-                                let val = row[src_gate];
                                 out[out_idx] = val;
                                 if val.is_finite() {
                                     n_finite_values += 1;
@@ -1351,6 +1355,7 @@ impl RaystackBatchData {
     }
 
     /// Convert to Python dict (for compatibility with existing tools)
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_python_dict(mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         use numpy::IntoPyArray;
         self.finalize();
@@ -1456,6 +1461,7 @@ pub struct BatchedRaystackPy {
 impl BatchedRaystackPy {
     #[new]
     #[pyo3(signature = (max_vcps, max_sweeps, max_returns, fold_size=DEFAULT_FOLD_SIZE, truncate=true, drop_empty_returns=false, include_sweeps=true, include_returns=true))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         max_vcps: usize,
         max_sweeps: usize,

@@ -269,7 +269,7 @@ fn align_range_indices(
         return indices;
     }
 
-    for dst_idx in 0..dst_len {
+    for (dst_idx, index) in indices.iter_mut().enumerate().take(dst_len) {
         let dst_range = dst_start_m + dst_idx as f32 * dst_step_m;
         let src_pos = (dst_range - src_start_m) / src_step_m;
         let src_idx_round = src_pos.round();
@@ -282,7 +282,7 @@ fn align_range_indices(
         }
         let src_range = src_start_m + src_idx_round * src_step_m;
         if (src_range - dst_range).abs() <= tolerance_m {
-            indices[dst_idx] = src_idx_i;
+            *index = src_idx_i;
         }
     }
 
