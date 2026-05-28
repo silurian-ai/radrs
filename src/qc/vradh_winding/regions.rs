@@ -134,8 +134,7 @@ pub(crate) fn region_sizes_and_masked(
 ) -> (Vec<i32>, usize) {
     let mut sizes = vec![0i32; nfeatures];
     let mut masked = 0usize;
-    for idx in 0..(n_rows * n_cols) {
-        let l = labels[idx];
+    for &l in labels.iter().take(n_rows * n_cols) {
         if l == 0 {
             masked += 1;
         } else {

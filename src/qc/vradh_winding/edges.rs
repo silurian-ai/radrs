@@ -1,3 +1,8 @@
+type EdgeIndices = (Vec<i32>, Vec<i32>);
+type EdgeVelocities = (Vec<f64>, Vec<f64>);
+pub(crate) type EdgeSummary = (EdgeIndices, Vec<i32>, EdgeVelocities);
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn edge_sum_and_count(
     labels: &[i32],
     num_masked_gates: usize,
@@ -7,7 +12,7 @@ pub(crate) fn edge_sum_and_count(
     rays_wrap_around: bool,
     max_gap_x: usize,
     max_gap_y: usize,
-) -> ((Vec<i32>, Vec<i32>), Vec<i32>, (Vec<f64>, Vec<f64>)) {
+) -> EdgeSummary {
     let total_nodes = if rays_wrap_around {
         n_rows * n_cols - num_masked_gates + n_rows * 2
     } else {
@@ -136,6 +141,7 @@ pub(crate) fn edge_sum_and_count(
     ((index1, index2), count, (vel1, vel2))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scan_neighbor(
     labels: &[i32],
     data: &[f32],
@@ -173,11 +179,10 @@ fn scan_neighbor(
                     }
                 }
             }
-            if y_step != 0 {
-                if y_check == -1 || y_check == bottom + 1 {
+            if y_step != 0
+                && (y_check == -1 || y_check == bottom + 1) {
                     break;
                 }
-            }
             neighbor = labels[x_check as usize * n_cols + y_check as usize];
             nvel = data[x_check as usize * n_cols + y_check as usize] as f64;
             if neighbor != 0 {

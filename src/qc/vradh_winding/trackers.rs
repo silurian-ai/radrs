@@ -32,7 +32,7 @@ pub(crate) fn combine_regions(
         return true;
     }
     let (node1, node2, diff, edge_number) = extra;
-    let mut rdiff = round_even(diff as f64) as i32;
+    let mut rdiff = round_even(diff as f64);
 
     let node1_size = region_tracker.get_node_size(node1);
     let node2_size = region_tracker.get_node_size(node2);
@@ -133,7 +133,7 @@ impl EdgeTracker {
         let mut edges_in_node: Vec<Vec<usize>> = (0..nnodes).map(|_| Vec::new()).collect();
 
         let mut edge_idx = 0usize;
-        for i in 0..indices.0.len() {
+        for (i, &count) in edge_count.iter().enumerate().take(indices.0.len()) {
             let a = indices.0[i] as isize;
             let b = indices.1[i] as isize;
             if a < b {
@@ -146,7 +146,7 @@ impl EdgeTracker {
             node_beta[edge_idx] = b as usize;
             let diff = (velocities.0[i] - velocities.1[i]) / nyquist_interval;
             sum_diff[edge_idx] = diff as f32;
-            weight[edge_idx] = edge_count[i];
+            weight[edge_idx] = count;
             edges_in_node[a as usize].push(edge_idx);
             edges_in_node[b as usize].push(edge_idx);
             edge_idx += 1;
@@ -225,7 +225,7 @@ impl EdgeTracker {
         let old_beta = self.node_beta[edge];
         self.node_alpha[edge] = old_beta;
         self.node_beta[edge] = old_alpha;
-        self.sum_diff[edge] = -1.0 * self.sum_diff[edge];
+        self.sum_diff[edge] = -self.sum_diff[edge];
     }
 
     pub(crate) fn unwrap_node(&mut self, node: usize, nwrap: i32) {

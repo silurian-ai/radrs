@@ -113,7 +113,7 @@ pub(crate) fn parse_qc_ops(py: Python<'_>, qc: Option<&Bound<'_, PyAny>>) -> PyR
                 .get_item("name")?
                 .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("QC spec missing 'name'"))?;
             let name: String = name_any.extract()?;
-            ops.push(qc_op_from_name(&name, Some(&dict), py)?);
+            ops.push(qc_op_from_name(&name, Some(dict), py)?);
             continue;
         }
 
@@ -574,9 +574,7 @@ pub fn open_raystack_datatree_async_py<'py>(
         Python::attach(|py| {
             let dict = finalize_batch_to_dict(py, batch, &qc_ops, include_activity)?;
             crate::raystack::convert::to_raystack_datatree_py(py, dict.bind(py))
-        })
-        .map_err(Into::into)
-    })?;
+        })})?;
 
     Ok(awaitable.into())
 }

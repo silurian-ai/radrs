@@ -26,6 +26,7 @@ use std::collections::VecDeque;
 use tokio::task::JoinHandle;
 
 const PEEK_SCAN_LATLON: usize = PEEK_SCAN_MAX / 2;
+type VolumeFetchHandle = JoinHandle<Result<(Vec<u8>, u64)>>;
 
 // Asserts that a value is the same as another and returns the value
 #[macro_export]
@@ -296,7 +297,7 @@ pub fn parse_single_volume(data: &[u8], fold_size: usize) -> Result<RaystackBatc
             let folds_per_radial = if fold_size == 0 {
                 1
             } else {
-                ((sm.max_gates + fold_size - 1) / fold_size).max(1)
+                sm.max_gates.div_ceil(fold_size).max(1)
             };
             sm.n_radials * folds_per_radial
         })
@@ -400,6 +401,7 @@ impl RaystackBatchData {
     /// * `max_returns` - Maximum total number of returns/radials
     /// * `fold_size` - Range fold size (default 128)
     /// * `truncate` - Whether to truncate arrays to actual size on finalize (default true)
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         max_vcps: usize,
         max_sweeps: usize,
@@ -553,7 +555,7 @@ impl RaystackBatchData {
         /// Helper to spawn a fetch task for the next volume
         async fn try_spawn_next(
             iter: &mut crate::iter::NexradL2ArchiveIterator,
-            in_flight: &mut VecDeque<JoinHandle<Result<(Vec<u8>, u64)>>>,
+            in_flight: &mut VecDeque<VolumeFetchHandle>,
             peek: bool,
         ) -> Result<bool> {
             match iter.next().await? {
@@ -571,7 +573,7 @@ impl RaystackBatchData {
         }
 
         let mut count = 0usize;
-        let mut in_flight: VecDeque<JoinHandle<Result<(Vec<u8>, u64)>>> = VecDeque::new();
+        let mut in_flight: VecDeque<VolumeFetchHandle> = VecDeque::new();
 
         // Fill the initial prefetch queue
         for _ in 0..prefetch {
@@ -636,7 +638,7 @@ impl RaystackBatchData {
         let scan: Scan = volume.scan()?;
         let vol_meta = collect_metadata(&scan);
 
-        return self.add_scan(&volume, &scan, &scan_meta, &vol_meta);
+        self.add_scan(&volume, &scan, &scan_meta, &vol_meta)
     }
 
     /// Add a VCP peek if we're just looking for basic metadata
@@ -677,9 +679,10 @@ impl RaystackBatchData {
 
         self.n_vcps += 1;
 
-        return Ok(());
+        Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_vcp_metadata(
         &mut self,
         source_fs_size: i64,
@@ -769,23 +772,21 @@ impl RaystackBatchData {
             ));
         }
 
-        for maybe_values in &moments {
-            if let Some(values) = maybe_values {
-                let expected = n_radials * n_range;
-                if values.len() != expected {
-                    return Err(RadrsError::InvalidInput(format!(
-                        "Moment array length mismatch: expected {}, got {}",
-                        expected,
-                        values.len()
-                    )));
-                }
+        for values in moments.iter().flatten() {
+            let expected = n_radials * n_range;
+            if values.len() != expected {
+                return Err(RadrsError::InvalidInput(format!(
+                    "Moment array length mismatch: expected {}, got {}",
+                    expected,
+                    values.len()
+                )));
             }
         }
 
         let n_folds = if self.fold_size == 0 {
             1
         } else {
-            (n_range + self.fold_size - 1) / self.fold_size
+            n_range.div_ceil(self.fold_size)
         }
         .max(1);
 
@@ -855,9 +856,10 @@ impl RaystackBatchData {
                             let src_row_end = src_row_start + n_range;
                             let row = &values[src_row_start..src_row_end];
                             let copy_end = (base_gate + self.fold_size).min(n_range);
-                            for src_gate in base_gate..copy_end {
+                            for (src_gate, &val) in
+                                row.iter().enumerate().take(copy_end).skip(base_gate)
+                            {
                                 let out_idx = start_out + (src_gate - base_gate);
-                                let val = row[src_gate];
                                 out[out_idx] = val;
                                 if val.is_finite() {
                                     n_finite_values += 1;
@@ -944,7 +946,7 @@ impl RaystackBatchData {
                 let folds_per_radial = if self.fold_size == 0 {
                     1
                 } else {
-                    ((sm.max_gates + self.fold_size - 1) / self.fold_size).max(1)
+                    sm.max_gates.div_ceil(self.fold_size).max(1)
                 };
                 sm.n_radials * folds_per_radial
             })
@@ -1090,7 +1092,7 @@ impl RaystackBatchData {
                 }
 
                 // // ceil int division
-                let n_folds = ((rad_max_gates as usize) + self.fold_size - 1) / self.fold_size;
+                let n_folds = (rad_max_gates as usize).div_ceil(self.fold_size);
                 for f in 0..n_folds {
                     let base_gate = f * self.fold_size;
                     let start_m_val_idx = base_gate;
@@ -1353,6 +1355,7 @@ impl RaystackBatchData {
     }
 
     /// Convert to Python dict (for compatibility with existing tools)
+    #[allow(clippy::wrong_self_convention)]
     pub fn to_python_dict(mut self, py: Python<'_>) -> PyResult<Py<PyDict>> {
         use numpy::IntoPyArray;
         self.finalize();
@@ -1458,6 +1461,7 @@ pub struct BatchedRaystackPy {
 impl BatchedRaystackPy {
     #[new]
     #[pyo3(signature = (max_vcps, max_sweeps, max_returns, fold_size=DEFAULT_FOLD_SIZE, truncate=true, drop_empty_returns=false, include_sweeps=true, include_returns=true))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         max_vcps: usize,
         max_sweeps: usize,
