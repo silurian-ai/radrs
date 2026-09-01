@@ -37,7 +37,7 @@ Issues = "https://github.com/silurian-ai/radrs/issues"
 
 [project.optional-dependencies]
 zarr = ["zarr>=3"]
-test = ["pytest", "pytest-asyncio", "pytest-benchmark", "xradar"]
+test = ["pytest", "pytest-asyncio", "pytest-benchmark", "xradar>=0.12", "fsspec"]
 ray = ["ray"]
 
 [tool.maturin]
