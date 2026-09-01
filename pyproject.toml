@@ -27,7 +27,7 @@ dynamic = ["version"]
 dependencies = [
     "numpy>=1.20",
     "pyarrow>=22.0.0",
-    "xarray>=2024.1",
+    "xarray>=2024.10.0",
 ]
 
 [project.urls]
