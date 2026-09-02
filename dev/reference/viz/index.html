@@ -952,6 +952,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallPayload" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        FoldedWaterfallPayload
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FoldedWaterfallPayload">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallPayload.n_groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        n_groups
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallPayload.to_widget_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        to_widget_state
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallPayload.to_html" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        to_html
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallWidget" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        FoldedWaterfallWidget
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#radrs.viz.get_returns_and_sweeps" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1055,6 +1116,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         prepare_waterfall_payload
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#radrs.viz.prepare_folded_waterfall_payload" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        prepare_folded_waterfall_payload
       </span>
     </span>
   </a>
@@ -1301,6 +1373,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallPayload" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        FoldedWaterfallPayload
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="FoldedWaterfallPayload">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallPayload.n_groups" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        n_groups
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallPayload.to_widget_state" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        to_widget_state
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallPayload.to_html" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        to_html
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#radrs.viz.FoldedWaterfallWidget" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        FoldedWaterfallWidget
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#radrs.viz.get_returns_and_sweeps" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1404,6 +1537,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         prepare_waterfall_payload
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#radrs.viz.prepare_folded_waterfall_payload" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        prepare_folded_waterfall_payload
       </span>
     </span>
   </a>
@@ -1841,6 +1985,166 @@
 
 </div>
 
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="radrs.viz.FoldedWaterfallPayload" class="doc doc-heading">
+            <code>FoldedWaterfallPayload</code>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-dataclass"><code>dataclass</code></small>
+  </span>
+
+<a href="#radrs.viz.FoldedWaterfallPayload" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents ">
+
+
+
+        <p>Row-per-return view of the folded returns matrix.</p>
+<p>Unlike :class:<code>WaterfallPayload</code>, rows are <em>not</em> strided: a window of
+consecutive returns is shown verbatim so every fold is visible. Returns
+chunked from one radial share a <code>return_time</code>, and <code>group_starts</code>
+marks where each such set of folds begins.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="radrs.viz.FoldedWaterfallPayload.n_groups" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">n_groups</span></code>
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+<a href="#radrs.viz.FoldedWaterfallPayload.n_groups" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Number of fold sets in the window.</p>
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="radrs.viz.FoldedWaterfallPayload.to_widget_state" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">to_widget_state</span><span class="p">()</span></code>
+
+<a href="#radrs.viz.FoldedWaterfallPayload.to_widget_state" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Serialize payload to binary traits for widget transport.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="radrs.viz.FoldedWaterfallPayload.to_html" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">to_html</span><span class="p">(</span><span class="n">width</span><span class="o">=</span><span class="mi">900</span><span class="p">,</span> <span class="n">height</span><span class="o">=</span><span class="mi">900</span><span class="p">)</span></code>
+
+<a href="#radrs.viz.FoldedWaterfallPayload.to_html" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Render as a self-contained HTML document.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="radrs.viz.FoldedWaterfallWidget" class="doc doc-heading">
+            <code>FoldedWaterfallWidget</code>
+
+
+<a href="#radrs.viz.FoldedWaterfallWidget" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents ">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="anywidget.AnyWidget">AnyWidget</span></code></p>
+
+
+
+        <p>Binary anywidget renderer for the row-per-return folded view.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
 
 <div class="doc doc-object doc-function">
 
@@ -2040,6 +2344,91 @@
               <div class="doc-md-description">
                 <p>If given, crop the range dimension to at most this many gates before
 downsampling.  <code>None</code> (default) keeps all gates.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="radrs.viz.prepare_folded_waterfall_payload" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">prepare_folded_waterfall_payload</span><span class="p">(</span><span class="n">returns</span><span class="p">,</span> <span class="n">moment</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">row_offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">row_count</span><span class="o">=</span><span class="mi">512</span><span class="p">,</span> <span class="n">max_range</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#radrs.viz.prepare_folded_waterfall_payload" class="headerlink" title="Permanent link">&para;</a></h2>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Create a row-per-return payload over a window of the returns matrix.</p>
+<p>Rows are taken verbatim (no striding), so every fold in the window is drawn.
+Folds chunked from one radial share a <code>return_time</code>; the boundaries between
+those sets are returned in <code>group_starts</code> for the renderer to divide on.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>row_offset</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Window into the <code>return_time</code> dimension, clamped to the dataset.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>row_count</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Window into the <code>return_time</code> dimension, clamped to the dataset.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>max_range</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span> | None</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Cap on drawn range columns; <code>None</code> (default) keeps every gate. Folds
+are usually narrow enough to draw whole.</p>
               </div>
             </td>
             <td>
