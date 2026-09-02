@@ -80,10 +80,10 @@ class TestOpenDatatree:
         sweep_keys = [k for k in dt.children.keys() if k.startswith("sweep_")]
         assert len(sweep_keys) > 0
 
-    def test_datatree_has_moments(self, test_file_path):
+    def test_datatree_has_moments(self, compact_radrs_datatree):
         """Test that DataTree contains expected moment variables."""
 
-        dt = rxr.open_datatree(test_file_path)
+        dt = compact_radrs_datatree
 
         # Check first sweep for moment data
         sweep_0 = dt["sweep_0"]
@@ -94,10 +94,10 @@ class TestOpenDatatree:
         found_vars = [v for v in moment_vars if v in ds]
         assert len(found_vars) > 0, f"Should have at least one moment variable, got: {list(ds.keys())}"
 
-    def test_datatree_has_coordinates(self, test_file_path):
+    def test_datatree_has_coordinates(self, compact_radrs_datatree):
         """Test that DataTree has expected coordinates."""
 
-        dt = rxr.open_datatree(test_file_path)
+        dt = compact_radrs_datatree
 
         sweep_0 = dt["sweep_0"]
         ds = sweep_0.dataset
@@ -113,10 +113,10 @@ class TestOpenDatatree:
         if "time" in ds.coords:
             assert ds["time"].dims == ("azimuth",)
 
-    def test_datatree_sweep_structure(self, test_file_path):
+    def test_datatree_sweep_structure(self, compact_radrs_datatree):
         """Test that each sweep has correct structure."""
 
-        dt = rxr.open_datatree(test_file_path)
+        dt = compact_radrs_datatree
 
         for key in dt.children:
             if not key.startswith("sweep_"):
@@ -134,19 +134,19 @@ class TestOpenDatatree:
                 assert len(ds["azimuth"].dims) == 1
                 assert len(ds["azimuth"]) > 0
 
-    def test_datatree_root_attributes(self, test_file_path):
+    def test_datatree_root_attributes(self, compact_radrs_datatree):
         """Test that root has expected attributes."""
 
-        dt = rxr.open_datatree(test_file_path)
+        dt = compact_radrs_datatree
 
         # Root should have instrument_type or similar metadata
         root_attrs = dt.attrs
         assert isinstance(root_attrs, dict)
 
-    def test_datatree_root_metadata(self, test_file_path):
+    def test_datatree_root_metadata(self, compact_radrs_datatree):
         """Root dataset should include key metadata variables."""
 
-        dt = rxr.open_datatree(test_file_path)
+        dt = compact_radrs_datatree
         root_ds = dt.dataset
         for var in [
             "volume_number",
@@ -160,19 +160,19 @@ class TestOpenDatatree:
         ]:
             assert var in root_ds, f"Missing root metadata variable: {var}"
 
-    def test_datatree_sweep_metadata(self, test_file_path):
+    def test_datatree_sweep_metadata(self, compact_radrs_datatree):
         """Sweep datasets should include sweep/prt/follow mode metadata."""
 
-        dt = rxr.open_datatree(test_file_path)
+        dt = compact_radrs_datatree
         sweep_0 = dt["sweep_0"]
         ds = sweep_0.dataset
         for var in ["sweep_mode", "prt_mode", "follow_mode"]:
             assert var in ds, f"Missing sweep metadata variable: {var}"
 
-    def test_datatree_azimuth_values(self, test_file_path):
+    def test_datatree_azimuth_values(self, compact_radrs_datatree):
         """Test that azimuth values are in valid range."""
 
-        dt = rxr.open_datatree(test_file_path)
+        dt = compact_radrs_datatree
 
         for key in dt.children:
             if not key.startswith("sweep_"):
@@ -184,10 +184,10 @@ class TestOpenDatatree:
                 assert np.nanmin(azimuth) >= 0.0, f"{key}: azimuth min < 0"
                 assert np.nanmax(azimuth) <= 360.0, f"{key}: azimuth max > 360"
 
-    def test_datatree_elevation_values(self, test_file_path):
+    def test_datatree_elevation_values(self, compact_radrs_datatree):
         """Test that elevation values are in valid range."""
 
-        dt = rxr.open_datatree(test_file_path)
+        dt = compact_radrs_datatree
 
         for key in dt.children:
             if not key.startswith("sweep_"):
@@ -219,97 +219,101 @@ class TestXradarCompatibility:
        handling of duplicate or incomplete radials between implementations.
     """
 
-    @pytest.fixture
-    def xradar_datatree(self, test_file_path):
-        """Get xradar DataTree for comparison."""
-        try:
-            import xradar as xd
-            return xd.io.open_nexradlevel2_datatree(test_file_path)
-        except ImportError:
-            pytest.skip("xradar not installed")
-
-    def test_sweep_count_matches(self, test_file_path, xradar_datatree):
+    @pytest.mark.slow
+    def test_sweep_count_matches(self, full_radrs_datatree, full_xradar_datatree):
         """Test that sweep count matches xradar."""
 
-        rust_dt = rxr.open_datatree(test_file_path)
+        rust_dt = full_radrs_datatree
 
         rust_sweeps = [k for k in rust_dt.children.keys() if k.startswith("sweep_")]
-        xrad_sweeps = [k for k in xradar_datatree.children.keys() if k.startswith("sweep_")]
+        xrad_sweeps = [
+            k for k in full_xradar_datatree.children.keys() if k.startswith("sweep_")
+        ]
 
         assert len(rust_sweeps) == len(xrad_sweeps), \
             f"Sweep count mismatch: radrs={len(rust_sweeps)}, xradar={len(xrad_sweeps)}"
 
-    def test_radial_count_close(self, test_file_path, xradar_datatree):
+    @pytest.mark.slow
+    def test_radial_count_close(self, full_radrs_datatree, full_xradar_datatree):
         """Test that radial count per sweep is close to xradar.
 
         Note: Small differences (1-2 radials) may occur due to different handling
         of duplicate or incomplete radials between implementations.
         """
 
-        rust_dt = rxr.open_datatree(test_file_path)
+        rust_dt = full_radrs_datatree
 
         for key in rust_dt.children:
             if not key.startswith("sweep_"):
                 continue
 
-            if key not in xradar_datatree.children:
+            if key not in full_xradar_datatree.children:
                 continue
 
             rust_n = len(rust_dt[key]["azimuth"])
-            xrad_n = len(xradar_datatree[key]["azimuth"])
+            xrad_n = len(full_xradar_datatree[key]["azimuth"])
 
             # Allow small difference (up to 1% or 3 radials, whichever is larger)
             max_diff = max(3, int(rust_n * 0.01))
             assert abs(rust_n - xrad_n) <= max_diff, \
                 f"{key}: radial count diff too large: radrs={rust_n}, xradar={xrad_n}"
 
-    def test_azimuth_values_match(self, test_file_path, xradar_datatree):
+    @pytest.mark.slow
+    def test_azimuth_values_match(self, full_volume_path, full_xradar_datatree):
         """Test that azimuth values match xradar.
 
         Both sorted by azimuth, so we match by finding closest azimuths
         (radial counts may differ slightly between implementations).
         """
-        rust_dt = rxr.open_datatree(test_file_path, sort_by_azimuth=True)
+        rust_dt = rxr.open_datatree(full_volume_path, sort_by_azimuth=True)
 
         for key in rust_dt.children:
             if not key.startswith("sweep_"):
                 continue
 
             rust_az = rust_dt[key]["azimuth"].values
-            xrad_az = xradar_datatree[key]["azimuth"].values
+            xrad_az = full_xradar_datatree[key]["azimuth"].values
 
             # Each azimuth should have a close match
             max_diff = max(np.min(np.abs(xrad_az - az)) for az in rust_az)
             tolerance = 360.0 / len(rust_az) * 1.1  # ~1 azimuth spacing
             assert max_diff < tolerance, f"{key}: worst azimuth match = {max_diff:.2f}°"
 
-    def test_moment_values_match(self, test_file_path, xradar_datatree):
+    @pytest.mark.slow
+    def test_moment_values_match(self, full_volume_path, full_xradar_datatree):
         """Test that moment values match xradar when aligned by azimuth.
 
         Note: radrs marks below-threshold/range-folded as NaN, while xradar
         preserves raw values. We only compare where both have finite values.
         """
-        rust_dt = rxr.open_datatree(test_file_path, sort_by_azimuth=True)
+        rust_dt = rxr.open_datatree(full_volume_path, sort_by_azimuth=True)
 
         for key in rust_dt.children:
             if not key.startswith("sweep_"):
                 continue
-            if key not in xradar_datatree.children:
+            if key not in full_xradar_datatree.children:
                 continue
 
             rust_az = rust_dt[key]["azimuth"].values
-            xrad_az = xradar_datatree[key]["azimuth"].values
+            xrad_az = full_xradar_datatree[key]["azimuth"].values
             rust_time = rust_dt[key]["time"].values if "time" in rust_dt[key].dataset else None
-            xrad_time = xradar_datatree[key]["time"].values if "time" in xradar_datatree[key].dataset else None
+            xrad_time = (
+                full_xradar_datatree[key]["time"].values
+                if "time" in full_xradar_datatree[key].dataset
+                else None
+            )
             az_spacing = 360.0 / len(xrad_az)
             az_tol = az_spacing * 0.55
 
             for moment in ["DBZH", "VRADH", "RHOHV"]:
-                if moment not in rust_dt[key].dataset or moment not in xradar_datatree[key].dataset:
+                if (
+                    moment not in rust_dt[key].dataset
+                    or moment not in full_xradar_datatree[key].dataset
+                ):
                     continue
 
                 rust_vals = rust_dt[key][moment].values
-                xrad_vals = xradar_datatree[key][moment].values
+                xrad_vals = full_xradar_datatree[key][moment].values
 
                 # Treat xradar below-threshold sentinel as NaN
                 xrad_vals = np.where(np.isclose(xrad_vals, -33.0, atol=0.01), np.nan, xrad_vals)
@@ -335,32 +339,40 @@ class TestXradarCompatibility:
                     assert float(np.max(matched_diffs)) < 0.01, \
                         f"{key}/{moment}: max diff = {float(np.max(matched_diffs))}"
 
-    def test_ccorh_values_match(self, test_file_path, xradar_datatree):
+    @pytest.mark.slow
+    def test_ccorh_values_match(self, full_volume_path, full_xradar_datatree):
         """Test that CCORH values match xradar when aligned by azimuth.
 
         CCORH can include CFP status codes which radrs treats as NaN. We compare
         only finite values and allow a very small number of outliers due to
         azimuth alignment edge cases.
         """
-        rust_dt = rxr.open_datatree(test_file_path, sort_by_azimuth=True)
+        rust_dt = rxr.open_datatree(full_volume_path, sort_by_azimuth=True)
 
         for key in rust_dt.children:
             if not key.startswith("sweep_"):
                 continue
-            if key not in xradar_datatree.children:
+            if key not in full_xradar_datatree.children:
                 continue
-            if "CCORH" not in rust_dt[key].dataset or "CCORH" not in xradar_datatree[key].dataset:
+            if (
+                "CCORH" not in rust_dt[key].dataset
+                or "CCORH" not in full_xradar_datatree[key].dataset
+            ):
                 continue
 
             rust_az = rust_dt[key]["azimuth"].values
-            xrad_az = xradar_datatree[key]["azimuth"].values
+            xrad_az = full_xradar_datatree[key]["azimuth"].values
             rust_time = rust_dt[key]["time"].values if "time" in rust_dt[key].dataset else None
-            xrad_time = xradar_datatree[key]["time"].values if "time" in xradar_datatree[key].dataset else None
+            xrad_time = (
+                full_xradar_datatree[key]["time"].values
+                if "time" in full_xradar_datatree[key].dataset
+                else None
+            )
             az_spacing = 360.0 / len(xrad_az)
             az_tol = az_spacing * 0.55
 
             rust_vals = rust_dt[key]["CCORH"].values
-            xrad_vals = xradar_datatree[key]["CCORH"].values
+            xrad_vals = full_xradar_datatree[key]["CCORH"].values
 
             aligned = _align_by_azimuth_time(
                 rust_vals,
@@ -392,10 +404,11 @@ class TestPerformance:
     """Performance-related tests for xradar module."""
 
     @pytest.mark.benchmark
-    def test_open_datatree_benchmark(self, benchmark, test_file_bytes):
+    @pytest.mark.slow
+    def test_open_datatree_benchmark(self, benchmark, full_volume_bytes):
         """Benchmark open_datatree performance."""
 
-        result = benchmark(lambda: rxr.open_datatree(test_file_bytes))
+        result = benchmark(lambda: rxr.open_datatree(full_volume_bytes))
         assert hasattr(result, "children")
 
 

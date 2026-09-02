@@ -1,6 +1,7 @@
 """Tests for QC integration in raystack parsing."""
 
 import numpy as np
+import pytest
 import radrs.qc as qc
 import radrs.raystack as rrs
 
@@ -68,22 +69,22 @@ def _sun_spike_mask(
     return mask_data
 
 
-def test_parse_with_rhohv_qc_mask(test_file_bytes):
+@pytest.mark.slow
+def test_parse_with_rhohv_qc_mask(full_volume_bytes):
 
-    rs = rrs.parse(test_file_bytes, qc=[qc.RhohvThreshold()])
+    rs = rrs.parse(full_volume_bytes, qc=[qc.RhohvThreshold()])
     returns = rs["returns"]
 
+    assert "RHOHV" in returns, "Full dual-pol fixture must contain RHOHV"
     assert "qc.rhohv_threshold_mask" in returns
     mask = np.asarray(returns["qc.rhohv_threshold_mask"])
     assert mask.dtype == np.int8
 
-    rhohv = np.asarray(returns["RHOHV"]) if "RHOHV" in returns else np.asarray(returns["DBZH"])
+    rhohv = np.asarray(returns["RHOHV"])
     assert mask.shape == rhohv.shape
     assert set(np.unique(mask)).issubset({-1, 0, 1})
 
-    if "RHOHV" in returns:
-        rhohv = np.asarray(returns["RHOHV"])
-        assert np.all(mask[np.isnan(rhohv)] == -1)
+    assert np.all(mask[np.isnan(rhohv)] == -1)
 
 
 def test_open_datatree_with_sun_spike_mask(test_file_path):
