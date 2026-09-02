@@ -89,8 +89,8 @@ def _compute_activity_python(rs, moments=None):
 class TestParse:
     """Tests for raystack.parse function."""
 
-    def test_parse_returns_dict(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_returns_dict(self, compact_raystack):
+        rs = compact_raystack
         assert isinstance(rs, dict)
         assert "vcps" in rs
         assert "sweeps" in rs
@@ -107,8 +107,8 @@ class TestParse:
                 assert dbzh.ndim == 1
                 assert dbzh.size % fold_size == 0
 
-    def test_parse_has_coordinates(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_has_coordinates(self, compact_raystack):
+        rs = compact_raystack
         returns = rs["returns"]
 
         assert "azimuth" in returns
@@ -123,14 +123,14 @@ class TestParse:
         assert len(returns["sweep_number"]) == n_returns
         assert len(returns["sweep_time"]) == n_returns
 
-    def test_parse_has_moments(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_has_moments(self, compact_raystack):
+        rs = compact_raystack
         returns = rs["returns"]
         found = [m for m in MOMENT_NAMES if m in returns]
         assert len(found) > 0
 
-    def test_parse_has_activity(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_has_activity(self, compact_raystack):
+        rs = compact_raystack
         assert "activity" in rs
 
         activity = rs["activity"]
@@ -157,8 +157,8 @@ class TestParse:
         rs = rrs.parse(test_file_bytes, include_activity=False)
         assert "activity" not in rs
 
-    def test_parse_sweep_number_alignment(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_sweep_number_alignment(self, compact_raystack):
+        rs = compact_raystack
 
         sweeps = rs["sweeps"]
         sweep_numbers = np.asarray(sweeps["sweep_number"], dtype=np.uint32)
@@ -174,8 +174,8 @@ class TestParse:
             expected = int(sweep_num_returns[idx])
             assert actual == expected
 
-    def test_parse_sweeps_metadata(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_sweeps_metadata(self, compact_raystack):
+        rs = compact_raystack
         sweeps = rs["sweeps"]
 
         keys = [
@@ -198,20 +198,20 @@ class TestParse:
         assert np.all(np.asarray(sweeps["elevation_angle"]) <= 90.0)
         assert np.all(np.asarray(sweeps["elevation_angle"]) >= -1.0)
 
-    def test_parse_num_returns_consistency(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_num_returns_consistency(self, compact_raystack):
+        rs = compact_raystack
         expected = int(np.asarray(rs["sweeps"]["num_returns"], dtype=np.int64).sum())
         actual = len(rs["returns"]["return_time"])
         assert expected == actual
 
-    def test_parse_azimuth_range(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_azimuth_range(self, compact_raystack):
+        rs = compact_raystack
         azimuth = np.asarray(rs["returns"]["azimuth"])
         assert np.nanmin(azimuth) >= 0.0
         assert np.nanmax(azimuth) <= 360.0
 
-    def test_parse_time_monotonic_per_sweep(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_time_monotonic_per_sweep(self, compact_raystack):
+        rs = compact_raystack
         time = np.asarray(rs["returns"]["return_time"], dtype=np.int64)
         sweep_number = np.asarray(rs["returns"]["sweep_number"], dtype=np.uint32)
 
@@ -242,16 +242,18 @@ class TestParse:
         n_radials = np.unique(keys, axis=0).shape[0]
         assert n_returns > n_radials
 
-    def test_parse_pattern_number_matches_datatree(self, test_file_path, test_file_bytes):
-        dt = rxr.open_datatree(test_file_path)
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_pattern_number_matches_datatree(
+        self, compact_radrs_datatree, compact_raystack
+    ):
+        dt = compact_radrs_datatree
+        rs = compact_raystack
 
         pattern = dt.attrs.get("volume_coverage_pattern", 0)
         assert rs["vcps"]["vcp_number"][0] == pattern
 
-    def test_parse_time_covers_datatree(self, test_file_path, test_file_bytes):
-        dt = rxr.open_datatree(test_file_path)
-        rs = rrs.parse(test_file_bytes)
+    def test_parse_time_covers_datatree(self, compact_radrs_datatree, compact_raystack):
+        dt = compact_radrs_datatree
+        rs = compact_raystack
 
         sweep_keys = [k for k in dt.children.keys() if k.startswith("sweep_")]
         sweep_keys.sort(key=lambda k: int(k.split("_", 1)[1]))
@@ -320,13 +322,9 @@ class TestFromXradarDatatree:
 
         assert set(unique_return_sweeps).issubset(set(unique_sweeps))
 
-    def test_from_xradar_datatree_with_xradar_datatree(self, test_file_path):
-        try:
-            import xradar as xd
-        except ImportError:
-            pytest.skip("xradar not installed")
-
-        xrad_dt = xd.io.open_nexradlevel2_datatree(test_file_path)
+    @pytest.mark.slow
+    def test_from_xradar_datatree_with_xradar_datatree(self, full_xradar_datatree):
+        xrad_dt = full_xradar_datatree
         non_sweep = [k for k in xrad_dt.children.keys() if not k.startswith("sweep_")]
         assert len(non_sweep) > 0
 
@@ -428,8 +426,9 @@ class TestRoundtrip:
                 err_msg=f"{key}: elevation values differ",
             )
 
-    def test_roundtrip_preserves_moment_values(self, test_file_path):
-        dt1 = rxr.open_datatree(test_file_path)
+    @pytest.mark.slow
+    def test_roundtrip_preserves_moment_values(self, full_volume_path):
+        dt1 = rxr.open_datatree(full_volume_path)
         rs = rrs.from_xradar_datatree(dt1, fold_size=2048)
         dt2 = rrs.to_xradar_datatree(rs)
 
@@ -519,8 +518,8 @@ class TestActivityDataTree:
 
 
 class TestActivityConsistency:
-    def test_activity_python_matches_rust(self, test_file_bytes):
-        rs = rrs.parse(test_file_bytes)
+    def test_activity_python_matches_rust(self, compact_raystack):
+        rs = compact_raystack
         activity = rs["activity"]
         moments = [str(m) for m in activity["moment"]]
 
@@ -641,6 +640,7 @@ class TestMultiCloudRouting:
 
 class TestPerformance:
     @pytest.mark.benchmark
-    def test_parse_benchmark(self, benchmark, test_file_bytes):
-        rs = benchmark(lambda: rrs.parse(test_file_bytes))
+    @pytest.mark.slow
+    def test_parse_benchmark(self, benchmark, full_volume_bytes):
+        rs = benchmark(lambda: rrs.parse(full_volume_bytes))
         assert isinstance(rs, dict)

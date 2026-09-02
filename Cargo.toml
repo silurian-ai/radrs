@@ -68,3 +68,10 @@ fast-alloc = ["mimalloc"]
 [profile.release]
 lto = 'fat'
 codegen-units = 1
+
+# Keep CI representative of optimized production code without paying the full
+# release-link cost on every pull request.
+[profile.ci]
+inherits = "release"
+lto = "thin"
+codegen-units = 16

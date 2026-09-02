@@ -5,14 +5,6 @@ import radrs.raystack as rrs
 import pytest
 
 
-def _load_pyart_radar(test_file_path):
-    pyart = pytest.importorskip("pyart")
-    read_fn = getattr(pyart.io, "read_nexrad_archive", None)
-    if read_fn is None:
-        pytest.skip("pyart.io.read_nexrad_archive not available")
-    return pyart, read_fn(test_file_path)
-
-
 def _pyart_ngates(radar):
     ngates = getattr(radar, "ngates", None)
     if ngates is not None:
@@ -142,12 +134,12 @@ def _align_by_azimuth(
 
 
 @pytest.mark.slow
-def test_parse_vs_pyart_sweep_and_radial_counts(test_file_path, test_file_bytes):
+def test_parse_vs_pyart_sweep_and_radial_counts(full_volume_bytes, full_pyart_radar):
     """Compare sweep/radial counts against Py-ART."""
-    pyart, radar = _load_pyart_radar(test_file_path)
+    radar = full_pyart_radar
 
     fold_size = _pyart_ngates(radar)
-    rs = rrs.parse(test_file_bytes, fold_size=fold_size)
+    rs = rrs.parse(full_volume_bytes, fold_size=fold_size)
 
     sweeps = rs["sweeps"]
     pairs = _pair_sweeps(sweeps, radar)
@@ -167,12 +159,12 @@ def test_parse_vs_pyart_sweep_and_radial_counts(test_file_path, test_file_bytes)
 
 
 @pytest.mark.slow
-def test_parse_vs_pyart_azimuth_alignment(test_file_path, test_file_bytes):
+def test_parse_vs_pyart_azimuth_alignment(full_volume_bytes, full_pyart_radar):
     """Ensure radrs azimuths align with Py-ART within tolerance."""
-    pyart, radar = _load_pyart_radar(test_file_path)
+    radar = full_pyart_radar
 
     fold_size = _pyart_ngates(radar)
-    rs = rrs.parse(test_file_bytes, fold_size=fold_size)
+    rs = rrs.parse(full_volume_bytes, fold_size=fold_size)
 
     returns = rs["returns"]
     sweeps = rs["sweeps"]
@@ -205,12 +197,12 @@ def test_parse_vs_pyart_azimuth_alignment(test_file_path, test_file_bytes):
 
 
 @pytest.mark.slow
-def test_parse_vs_pyart_moment_values(test_file_path, test_file_bytes):
+def test_parse_vs_pyart_moment_values(full_volume_bytes, full_pyart_radar):
     """Compare radrs moment values to Py-ART for matched azimuths."""
-    pyart, radar = _load_pyart_radar(test_file_path)
+    radar = full_pyart_radar
 
     fold_size = _pyart_ngates(radar)
-    rs = rrs.parse(test_file_bytes, fold_size=fold_size)
+    rs = rrs.parse(full_volume_bytes, fold_size=fold_size)
 
     returns = rs["returns"]
     sweeps = rs["sweeps"]
@@ -270,12 +262,12 @@ def test_parse_vs_pyart_moment_values(test_file_path, test_file_bytes):
 
 
 @pytest.mark.slow
-def test_parse_vs_pyart_dualpol_moment_values(test_file_path, test_file_bytes):
+def test_parse_vs_pyart_dualpol_moment_values(full_volume_bytes, full_pyart_radar):
     """Compare radrs dual-pol moments to Py-ART."""
-    pyart, radar = _load_pyart_radar(test_file_path)
+    radar = full_pyart_radar
 
     fold_size = _pyart_ngates(radar)
-    rs = rrs.parse(test_file_bytes, fold_size=fold_size)
+    rs = rrs.parse(full_volume_bytes, fold_size=fold_size)
 
     returns = rs["returns"]
     sweeps = rs["sweeps"]
