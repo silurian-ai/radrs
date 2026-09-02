@@ -2815,7 +2815,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'test'" },
     { name = "pytest-benchmark", marker = "extra == 'test'" },
     { name = "ray", marker = "extra == 'ray'" },
-    { name = "xarray", specifier = ">=2024.1" },
+    { name = "xarray", specifier = ">=2024.10.0" },
     { name = "xradar", marker = "extra == 'test'" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3" },
 ]
