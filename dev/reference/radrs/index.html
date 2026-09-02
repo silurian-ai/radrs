@@ -927,45 +927,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#radrs.stream_archive" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        stream_archive
-      </span>
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="stream_archive">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#radrs.stream_archive--arguments" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Arguments
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#radrs.stream_archive--returns" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Returns
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#radrs.stream_realtime" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1478,45 +1439,6 @@
       </span>
     </span>
   </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#radrs.stream_archive" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        stream_archive
-      </span>
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="stream_archive">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#radrs.stream_archive--arguments" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Arguments
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#radrs.stream_archive--returns" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Returns
-      </span>
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -2182,38 +2104,6 @@
 <div class="doc doc-object doc-function">
 
 
-<h2 id="radrs.stream_archive" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">stream_archive</span><span class="p">(</span><span class="n">site</span><span class="p">,</span> <span class="n">poll_interval</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
-
-  <span class="doc doc-labels">
-      <small class="doc doc-label doc-label-builtin"><code>builtin</code></small>
-  </span>
-
-<a href="#radrs.stream_archive" class="headerlink" title="Permanent link">&para;</a></h2>
-
-
-    <div class="doc doc-contents ">
-
-        <p>Stream NEXRAD data by polling the archive bucket (Python async generator)</p>
-<p>Polls the NOAA NEXRAD Level 2 archive bucket for new complete volumes.
-This has approximately 5 minute delay from real-time but provides complete volumes.</p>
-<p>For true near-realtime streaming, see <code>stream_realtime</code> (not yet implemented).</p>
-<h3 id="radrs.stream_archive--arguments">Arguments<a class="headerlink" href="#radrs.stream_archive--arguments" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>site</code> - NEXRAD site ID (e.g., "KTLX", "KDMX")</li>
-<li><code>poll_interval</code> - Seconds between polls (default: 30)</li>
-</ul>
-<h3 id="radrs.stream_archive--returns">Returns<a class="headerlink" href="#radrs.stream_archive--returns" title="Permanent link">&para;</a></h3>
-<p>Async generator yielding xarray DataTree objects</p>
-
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-function">
-
-
 <h2 id="radrs.stream_realtime" class="doc doc-heading">
             <code class="highlight language-python"><span class="n">stream_realtime</span><span class="p">(</span><span class="n">_site</span><span class="p">)</span></code>
 
@@ -2229,7 +2119,6 @@ This has approximately 5 minute delay from real-time but provides complete volum
         <p>Stream realtime NEXRAD data (not yet implemented)</p>
 <p>This would stream from the Unidata chunks bucket for near-realtime data.
 Requires accumulating chunks into complete volumes before parsing.</p>
-<p>For now, use <code>stream_archive</code> which polls for complete volumes with ~5 min delay.</p>
 
 
     </div>
