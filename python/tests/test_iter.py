@@ -1,5 +1,11 @@
 """Tests for radrs iterator functions."""
 
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
 import pytest
 import radrs
 
@@ -36,6 +42,79 @@ class TestStreamRealtime:
 
 class TestNexradL2ArchiveIter:
     """Tests for NexradL2ArchiveIter."""
+
+    def test_local_archive_uses_utc_contract_outside_utc(self, tmp_path):
+        """Naive and aware bounds agree, and the returned time is aware UTC."""
+        archive_root = tmp_path / "archive"
+        site_dir = archive_root / "2024" / "03" / "15" / "KTLX"
+        site_dir.mkdir(parents=True)
+        for filename in (
+            "KTLX20240315_000000_V06",
+            "KTLX20240315_010000_V06",
+            "KTLX20240315_020000_V06",
+        ):
+            (site_dir / filename).touch()
+
+        script = r"""
+import json
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import time
+import radrs
+
+time.tzset()
+root = Path(os.environ["RADRS_ARCHIVE_ROOT"])
+
+def collect(start, end):
+    return [
+        {
+            "uri": info.uri,
+            "vcp_time": info.vcp_time.isoformat(),
+            "is_utc": info.vcp_time.tzinfo is timezone.utc,
+            "offset": info.vcp_time.utcoffset().total_seconds(),
+        }
+        for info in radrs.NexradL2ArchiveIter(
+            str(root), start, end, site_filter=["KTLX"]
+        )
+    ]
+
+naive = collect(datetime(2024, 3, 15), datetime(2024, 3, 15, 2))
+after_first = collect(
+    datetime(2024, 3, 15, 0, 0, 0, 500000), datetime(2024, 3, 15, 2)
+)
+pdt = timezone(timedelta(hours=-7))
+aware = collect(
+    datetime(2024, 3, 14, 17, tzinfo=pdt),
+    datetime(2024, 3, 14, 19, tzinfo=pdt),
+)
+assert datetime(2024, 3, 15).astimezone().utcoffset() == timedelta(hours=-7)
+print(json.dumps({"naive": naive, "after_first": after_first, "aware": aware}))
+"""
+        env = os.environ.copy()
+        env["TZ"] = "America/Los_Angeles"
+        env["RADRS_ARCHIVE_ROOT"] = str(archive_root)
+        source_root = str(Path(__file__).resolve().parents[1])
+        env["PYTHONPATH"] = os.pathsep.join(
+            [source_root, env.get("PYTHONPATH", "")]
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        output = json.loads(result.stdout)
+
+        expected_uris = [
+            str(site_dir / "KTLX20240315_000000_V06").lstrip(os.sep),
+            str(site_dir / "KTLX20240315_010000_V06").lstrip(os.sep),
+        ]
+        assert [item["uri"] for item in output["naive"]] == expected_uris
+        assert [item["uri"] for item in output["after_first"]] == [expected_uris[1]]
+        assert output["aware"] == output["naive"]
+        assert all(item["is_utc"] and item["offset"] == 0 for item in output["naive"])
 
     @pytest.mark.slow
     @pytest.mark.network

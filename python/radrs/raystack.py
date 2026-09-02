@@ -189,7 +189,7 @@ else:
         Accumulate volumes from an L2 archive iterator into a batch:
 
         >>> import radrs
-        >>> from datetime import datetime
+        >>> from datetime import datetime, timezone
         >>> # Allocate for 10 VCPs, ~140 sweeps (14 per VCP), ~50k returns
         >>> batch = radrs.raystack.BatchedRaystack(
         ...     max_vcps=10,
@@ -199,8 +199,8 @@ else:
         ... )
         >>> archive = radrs.NexradL2ArchiveIter(
         ...     base_uri="s3://unidata-nexrad-level2",
-        ...     start_time=datetime(2024, 3, 15),
-        ...     end_time=datetime(2024, 3, 16),
+        ...     start_time=datetime(2024, 3, 15, tzinfo=timezone.utc),
+        ...     end_time=datetime(2024, 3, 16, tzinfo=timezone.utc),
         ...     storage_options={"anon": "true"},
         ...     site_filter=["KTLX"],
         ... )
@@ -385,11 +385,11 @@ else:
             S3 with anonymous access (time range within a single day):
 
             >>> import radrs.raystack as rrs
-            >>> from datetime import datetime
+            >>> from datetime import datetime, timezone
             >>> l2_iter = rrs.NexradL2ArchiveIter(
             ...     base_uri="s3://noaa-nexrad-level2",
-            ...     start_time=datetime(2024, 3, 15, 10, 0, 0),
-            ...     end_time=datetime(2024, 3, 15, 14, 0, 0),
+            ...     start_time=datetime(2024, 3, 15, 10, 0, 0, tzinfo=timezone.utc),
+            ...     end_time=datetime(2024, 3, 15, 14, 0, 0, tzinfo=timezone.utc),
             ...     storage_options={"anon": "true"},
             ...     site_filter=["KTLX"]
             ... )
@@ -400,8 +400,8 @@ else:
 
             >>> l2_iter = rrs.NexradL2ArchiveIter(
             ...     base_uri="s3://noaa-nexrad-level2",
-            ...     start_time=datetime(2024, 3, 15, 20, 0, 0),
-            ...     end_time=datetime(2024, 3, 16, 4, 0, 0),
+            ...     start_time=datetime(2024, 3, 15, 20, 0, 0, tzinfo=timezone.utc),
+            ...     end_time=datetime(2024, 3, 16, 4, 0, 0, tzinfo=timezone.utc),
             ...     storage_options={"anon": "true"},
             ...     site_filter=["KTLX"]
             ... )
@@ -410,8 +410,8 @@ else:
 
             >>> l2_iter = rrs.NexradL2ArchiveIter(
             ...     base_uri="gs://my-bucket/nexrad",
-            ...     start_time=datetime(2024, 3, 15, 0, 0, 0),
-            ...     end_time=datetime(2024, 3, 15, 23, 59, 59),
+            ...     start_time=datetime(2024, 3, 15, 0, 0, 0, tzinfo=timezone.utc),
+            ...     end_time=datetime(2024, 3, 16, tzinfo=timezone.utc),
             ...     storage_options={"service_account_path": "/path/to/key.json"}
             ... )
             >>> n_added = stream.add_volumes_from_l2(l2_iter, prefetch=8)
@@ -420,8 +420,8 @@ else:
 
             >>> l2_iter = rrs.NexradL2ArchiveIter(
             ...     base_uri="/data/nexrad",
-            ...     start_time=datetime(2024, 3, 15),
-            ...     end_time=datetime(2024, 3, 16)
+            ...     start_time=datetime(2024, 3, 15, tzinfo=timezone.utc),
+            ...     end_time=datetime(2024, 3, 16, tzinfo=timezone.utc)
             ... )
             >>> n_added = stream.add_volumes_from_l2(l2_iter, prefetch=8)
             """

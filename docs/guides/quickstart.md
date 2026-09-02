@@ -63,17 +63,22 @@ For multi-volume iteration over an archive, pass
 `storage_options={"anon": "true"}` to `NexradL2ArchiveIter`:
 
 ```python
-from datetime import datetime
+from datetime import datetime, timezone
 import radrs
 
 archive = radrs.NexradL2ArchiveIter(
     base_uri="s3://unidata-nexrad-level2",
-    start_time=datetime(2024, 3, 15),
-    end_time=datetime(2024, 3, 16),
+    start_time=datetime(2024, 3, 15, tzinfo=timezone.utc),
+    end_time=datetime(2024, 3, 16, tzinfo=timezone.utc),
     storage_options={"anon": "true"},
     site_filter=["KTLX"],
 )
 ```
+
+Archive bounds are UTC. Pass aware datetimes with `tzinfo=timezone.utc` when
+possible. For compatibility, naive datetimes are interpreted as UTC rather
+than as the machine's local timezone. The interval is half-open:
+`[start_time, end_time)`, so a volume exactly at `end_time` is excluded.
 
 See [S3 archive iteration](s3-archive.md) for the full surface.
 
