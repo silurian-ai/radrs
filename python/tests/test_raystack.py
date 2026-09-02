@@ -331,7 +331,12 @@ class TestFromXradarDatatree:
         # xradar >= 0.12 drops /radar_parameters, /georeferencing_correction and
         # /radar_calibration unless optional_groups=True. This test exists to prove
         # from_xradar_datatree skips non-sweep children, so ask for them explicitly.
-        xrad_dt = xd.io.open_nexradlevel2_datatree(test_file_path, optional_groups=True)
+        # It also defaults to incomplete_sweep="drop", which discards the compact
+        # fixture's only (force-closed) sweep and yields an empty DataTree, so keep
+        # the sweep with NaN-filled rays instead.
+        xrad_dt = xd.io.open_nexradlevel2_datatree(
+            test_file_path, optional_groups=True, incomplete_sweep="pad"
+        )
         non_sweep = [k for k in xrad_dt.children.keys() if not k.startswith("sweep_")]
         assert len(non_sweep) > 0
 
