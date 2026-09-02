@@ -5,10 +5,12 @@ use crate::error::{RadrsError, Result};
 use crate::fetch::{RUNTIME, default_open_datatree_storage_options, fetch_bytes_from_url};
 use crate::metadata::{ScanMeta, extract_scan_meta};
 use crate::metadata_build::{build_root_attrs, build_root_vars, set_sweep_mode_scalars};
+use crate::range::{
+    RangeGeometry, canonical_lattice, gate_center_m, geometry, map_gate_to_lattice,
+};
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{
-    CFPMomentData, CFPMomentValue, DataMoment, ElevationCut, MomentData, MomentValue, Radial, Scan,
-    Sweep,
+    CFPMomentData, CFPMomentValue, ElevationCut, MomentData, MomentValue, Radial, Scan, Sweep,
 };
 use numpy::IntoPyArray;
 use pyo3::PyErr;
@@ -81,7 +83,8 @@ pub fn open_datatree_async_py(
             .await
             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
 
-        Python::attach(|py| scan_to_datatree(py, &scan, &meta, sort_by_azimuth))})?;
+        Python::attach(|py| scan_to_datatree(py, &scan, &meta, sort_by_azimuth))
+    })?;
 
     Ok(awaitable.into())
 }
@@ -289,40 +292,31 @@ fn sweep_to_dataset<'py>(
         (0..n_rays).collect()
     };
 
-    // Determine range info for each moment type and find the max range
-    let mut moment_info: HashMap<&str, (usize, f64, f64)> = HashMap::new();
-    let mut max_n_gates = 0usize;
-    let mut max_range_info: Option<(f64, f64)> = None;
+    // Build one exact physical lattice containing every moment's gate centers.
+    // Values are placed by physical gate center rather than by source index.
+    let mut moment_info: HashMap<&str, ()> = HashMap::new();
+    let mut geometries = Vec::<RangeGeometry>::new();
 
     for radial in radials {
         for (moment_getter, cf_name) in &XRADAR_MOMENT_NAMES {
             if let Some(moment) = get_moment_data(radial, moment_getter) {
-                let n_gates = moment.gate_count() as usize;
-                let first_range = moment.first_gate_range_km();
-                let gate_interval = moment.gate_interval_km();
-
-                let entry = moment_info
-                    .entry(*cf_name)
-                    .or_insert((0, first_range, gate_interval));
-                if n_gates > entry.0 {
-                    *entry = (n_gates, first_range, gate_interval);
-                }
-
-                // Track the moment with the maximum gate count for range coordinate
-                if n_gates > max_n_gates {
-                    max_n_gates = n_gates;
-                    max_range_info = Some((first_range, gate_interval));
-                }
+                moment_info.insert(*cf_name, ());
+                geometries.push(moment.geometry()?);
             }
         }
     }
 
     // If no moment data, return empty dataset
-    if moment_info.is_empty() || max_range_info.is_none() {
+    if moment_info.is_empty() {
         return xr.call_method1("Dataset", (PyDict::new(py),));
     }
 
-    let (range_first, range_interval) = max_range_info.unwrap();
+    let range_grid = canonical_lattice(&geometries)?
+        .ok_or_else(|| RadrsError::MissingData("sweep has no moment data".into()))?;
+    let range_data_m: Vec<u32> = (0..range_grid.gate_count)
+        .map(|gate| gate_center_m(range_grid, gate))
+        .collect::<Result<Vec<_>>>()?;
+    let n_range = range_grid.gate_count;
 
     // Build coordinate arrays (using sorted order if requested)
     let mut azimuth_data: Vec<f32> = Vec::with_capacity(n_rays);
@@ -359,10 +353,8 @@ fn sweep_to_dataset<'py>(
     let time_arr_ns = time_arr_ms.call_method1("astype", ("datetime64[ns]",))?;
     coords.set_item("time", ((ray_dim,), time_arr_ns))?;
 
-    // Build range coordinate using max_n_gates (in meters)
-    let range_data: Vec<f64> = (0..max_n_gates)
-        .map(|i| (range_first + i as f64 * range_interval) * 1000.0)
-        .collect();
+    // Build range coordinate from physical gate centers (in metres).
+    let range_data: Vec<f64> = range_data_m.iter().map(|range| *range as f64).collect();
     let range_arr = range_data.into_pyarray(py);
     coords.set_item("range", (("range",), range_arr))?;
     if let Some(lat) = meta.latitude {
@@ -379,17 +371,16 @@ fn sweep_to_dataset<'py>(
     for (moment_getter, cf_name) in &XRADAR_MOMENT_NAMES {
         if moment_info.contains_key(*cf_name) {
             // Create 2D data array (time, range) filled with NaN, padded to max_n_gates
-            let mut moment_data: Vec<f32> = vec![f32::NAN; n_rays * max_n_gates];
+            let mut moment_data: Vec<f32> = vec![f32::NAN; n_rays * n_range];
 
             for (out_idx, &radial_idx) in sorted_indices.iter().enumerate() {
                 let radial = &radials[radial_idx];
                 if let Some(moment) = get_moment_data(radial, moment_getter) {
+                    let moment_geometry = moment.geometry()?;
                     let values = moment.values_f32();
                     for (gate_idx, value) in values.iter().enumerate() {
-                        if gate_idx >= max_n_gates {
-                            break;
-                        }
-                        let flat_idx = out_idx * max_n_gates + gate_idx;
+                        let range_idx = map_gate_to_lattice(moment_geometry, gate_idx, range_grid)?;
+                        let flat_idx = out_idx * n_range + range_idx;
                         moment_data[flat_idx] = *value;
                     }
                 }
@@ -397,7 +388,7 @@ fn sweep_to_dataset<'py>(
 
             // Create numpy array and reshape to 2D
             let flat_arr = moment_data.into_pyarray(py);
-            let arr_2d = flat_arr.call_method1("reshape", ((n_rays, max_n_gates),))?;
+            let arr_2d = flat_arr.call_method1("reshape", ((n_rays, n_range),))?;
 
             // Add to data_vars with dimensions
             let dims = (ray_dim, "range");
@@ -437,24 +428,10 @@ enum MomentRef<'a> {
 }
 
 impl MomentRef<'_> {
-    fn gate_count(&self) -> u16 {
+    fn geometry(&self) -> Result<RangeGeometry> {
         match self {
-            Self::Standard(moment) => moment.gate_count(),
-            Self::Cfp(moment) => moment.gate_count(),
-        }
-    }
-
-    fn first_gate_range_km(&self) -> f64 {
-        match self {
-            Self::Standard(moment) => moment.first_gate_range_km(),
-            Self::Cfp(moment) => moment.first_gate_range_km(),
-        }
-    }
-
-    fn gate_interval_km(&self) -> f64 {
-        match self {
-            Self::Standard(moment) => moment.gate_interval_km(),
-            Self::Cfp(moment) => moment.gate_interval_km(),
+            Self::Standard(moment) => geometry(*moment),
+            Self::Cfp(moment) => geometry(*moment),
         }
     }
 

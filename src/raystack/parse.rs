@@ -5,6 +5,7 @@
 
 use crate::error::{RadrsError, Result};
 use crate::fetch::{RUNTIME, default_open_datatree_storage_options, fetch_bytes_from_url};
+use crate::range::{RangeGeometry, canonical_lattice, geometry};
 use crate::raystack::batch::{add_activity_to_dict, compute_batch_activity, parse_single_volume};
 use nexrad_model::data::{DataMoment, Scan};
 use pyo3::PyErr;
@@ -306,24 +307,18 @@ fn qc_op_from_name(
     }
 }
 
-fn update_grid_from_moment<M: DataMoment>(
+fn collect_moment_geometry<M: DataMoment>(
     moment: Option<&M>,
-    max_gates: &mut usize,
-    range_first_km: &mut f64,
-    gate_interval_km: &mut f64,
-) {
+    geometries: &mut Vec<RangeGeometry>,
+) -> Result<()> {
     if let Some(moment) = moment {
-        let gates = moment.gate_count() as usize;
-        if gates > *max_gates {
-            *max_gates = gates;
-            *range_first_km = moment.first_gate_range_km();
-            *gate_interval_km = moment.gate_interval_km();
-        }
+        geometries.push(geometry(moment)?);
     }
+    Ok(())
 }
 
 /// First pass: collect metadata without allocating moment data.
-pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
+pub fn collect_metadata(scan: &Scan) -> Result<VolumeMeta> {
     let mut vcp_min_time = i64::MAX;
     let mut vcp_max_time = i64::MIN;
     let mut sweeps = Vec::new();
@@ -340,59 +335,33 @@ pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
 
         let first_radial = &radials[0];
 
-        let mut max_gates = 0usize;
-        let mut range_first_km = 0.0f64;
-        let mut gate_interval_km = 0.0f64;
+        let mut geometries = Vec::new();
 
         for radial in radials {
-            update_grid_from_moment(
-                radial.reflectivity(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.velocity(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.spectrum_width(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.differential_reflectivity(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.differential_phase(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.correlation_coefficient(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.clutter_filter_power(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
+            collect_moment_geometry(radial.reflectivity(), &mut geometries)?;
+            collect_moment_geometry(radial.velocity(), &mut geometries)?;
+            collect_moment_geometry(radial.spectrum_width(), &mut geometries)?;
+            collect_moment_geometry(radial.differential_reflectivity(), &mut geometries)?;
+            collect_moment_geometry(radial.differential_phase(), &mut geometries)?;
+            collect_moment_geometry(radial.correlation_coefficient(), &mut geometries)?;
+            collect_moment_geometry(radial.clutter_filter_power(), &mut geometries)?;
 
             vcp_min_time = vcp_min_time.min(radial.collection_timestamp());
             vcp_max_time = vcp_max_time.max(radial.collection_timestamp());
             sweep_min_time = sweep_min_time.min(radial.collection_timestamp());
             sweep_max_time = sweep_max_time.max(radial.collection_timestamp());
         }
+
+        let lattice = canonical_lattice(&geometries)?;
+        let (max_gates, range_first_km, gate_interval_km) = lattice
+            .map(|grid| {
+                (
+                    grid.gate_count,
+                    grid.first_gate_m as f64 * 0.001,
+                    grid.gate_spacing_m as f64 * 0.001,
+                )
+            })
+            .unwrap_or((0, 0.0, 0.0));
 
         sweeps.push(SweepMeta {
             elevation_number: sweep.elevation_number(),
@@ -406,11 +375,11 @@ pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
         });
     }
 
-    VolumeMeta {
+    Ok(VolumeMeta {
         sweeps,
         min_time: vcp_min_time,
         max_time: vcp_max_time,
-    }
+    })
 }
 
 fn finalize_batch_to_dict(
@@ -574,7 +543,8 @@ pub fn open_raystack_datatree_async_py<'py>(
         Python::attach(|py| {
             let dict = finalize_batch_to_dict(py, batch, &qc_ops, include_activity)?;
             crate::raystack::convert::to_raystack_datatree_py(py, dict.bind(py))
-        })})?;
+        })
+    })?;
 
     Ok(awaitable.into())
 }

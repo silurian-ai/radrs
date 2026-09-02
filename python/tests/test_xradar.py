@@ -1,7 +1,11 @@
-"""Tests for radrs.xradar module."""
+import gzip
+import os
+from pathlib import Path
 
-import pytest
 import numpy as np
+import pytest
+
+import radrs.raystack as rrs
 import radrs.xradar as rxr
 
 
@@ -198,6 +202,40 @@ class TestOpenDatatree:
                 elevation = sweep["elevation"].values
                 assert np.nanmin(elevation) >= -5.0, f"{key}: elevation min too low"
                 assert np.nanmax(elevation) <= 90.0, f"{key}: elevation max too high"
+
+    def test_mixed_moment_geometry_uses_physical_gate_centers(self):
+        """Exercise the legacy volume with 1 km REF and 250 m Doppler gates.
+
+        The fixture is kept outside the repository because it is a historical
+        11 MB volume. Set RADRS_MIXED_GEOMETRY_TEST_FILE to run this regression.
+        """
+        path = os.environ.get("RADRS_MIXED_GEOMETRY_TEST_FILE")
+        if not path or not Path(path).exists():
+            pytest.skip(
+                "set RADRS_MIXED_GEOMETRY_TEST_FILE to the historical mixed-grid volume"
+            )
+
+        with gzip.open(path, "rb") as source:
+            dt = rxr.open_datatree(source.read())
+
+        for sweep_number in (4, 5, 6):
+            ds = dt[f"sweep_{sweep_number}"].dataset
+            ranges = ds["range"].values
+            assert ranges[0] == pytest.approx(2125.0)
+            assert np.diff(ranges).min() == pytest.approx(125.0)
+            assert ranges[-1] == pytest.approx(335500.0)
+
+            dbzh_ranges = ranges[np.isfinite(ds["DBZH"].values).any(axis=0)]
+            vradh_ranges = ranges[np.isfinite(ds["VRADH"].values).any(axis=0)]
+            assert np.allclose((dbzh_ranges - 2500.0) % 1000.0, 0.0)
+            assert np.allclose((vradh_ranges - 2125.0) % 250.0, 0.0)
+
+        with gzip.open(path, "rb") as source:
+            raystack = rrs.parse(source.read(), fold_size=128)
+        sweeps = raystack["sweeps"]
+        assert np.allclose(sweeps["range_start"][4:7], 2125.0)
+        assert np.allclose(sweeps["range_step"][4:7], 125.0)
+        assert np.all(sweeps["max_gates"][4:7] == 2668)
 
 
 class TestXradarCompatibility:
