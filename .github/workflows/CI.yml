@@ -17,48 +17,112 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  changes:
+    name: Detect native-code changes
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      native: ${{ steps.filter.outputs.native }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Detect changes that need native CI
+        id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          predicate-quantifier: 'some-with-excludes'
+          filters: |
+            native:
+              - '**'
+              - '!**/*.md'
+              - '!docs/**'
+              - '!mkdocs.yml'
+
   clippy:
+    needs: changes
+    if: ${{ needs.changes.outputs.native == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
         with:
+          cache: false
           components: clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
+          workspaces: '. -> target'
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   test:
+    needs: changes
+    if: ${{ needs.changes.outputs.native == 'true' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@150fca883cd4034361b621bd4e6a9d34e5143606 # v1.15.4
+        with:
+          cache: false
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
+          workspaces: '. -> target'
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-      - name: Build and install
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Install locked CI dependencies
+        run: uv sync --locked --no-install-project --no-default-groups --group ci
+      - name: Build and install radrs
+        run: uv run --no-sync maturin develop --profile ci
+      - name: Run hermetic tests
+        run: >-
+          uv run --no-sync pytest python/tests/ -v
+          --ignore=python/tests/test_ray.py -x
+          -m 'not slow and not network' --benchmark-disable
+      - name: Download and verify the full integration fixture
         run: |
-          uv venv
-          uv tool install maturin
-          uv run maturin develop --release
-      - name: Install test dependencies
-        run: |
-          uv add pytest pytest-benchmark xradar arm-pyart fsspec s3fs
-      - name: Run tests
-        run: |
-          uv run pytest python/tests/ -v --ignore=python/tests/test_ray.py -x
+          uv run --no-sync python - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+
+          import fsspec
+
+          uri = "s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06"
+          destination = Path(os.environ["RUNNER_TEMP"]) / "KABR20240702_000016_V06"
+          expected_size = 14_153_899
+          expected_sha256 = "ce8c2428d4ed93dbc8959cc4cba8ac6e10a2d3acd79ec91cedd6baf7308e1671"
+
+          with fsspec.open(uri, "rb", anon=True) as source:
+              payload = source.read()
+
+          actual_sha256 = hashlib.sha256(payload).hexdigest()
+          if len(payload) != expected_size or actual_sha256 != expected_sha256:
+              raise SystemExit(
+                  "Full integration fixture failed verification: "
+                  f"size={len(payload)}, sha256={actual_sha256}"
+              )
+
+          destination.write_bytes(payload)
+          PY
+      - name: Run full integration tests
+        env:
+          RADRS_FULL_TEST_FILE: ${{ runner.temp }}/KABR20240702_000016_V06
+        run: >-
+          uv run --no-sync pytest python/tests/ -v
+          --ignore=python/tests/test_ray.py -x
+          -m 'slow or network' --benchmark-disable

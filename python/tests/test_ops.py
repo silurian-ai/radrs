@@ -3,11 +3,10 @@ import pytest
 import xarray as xr
 
 import radrs.ops as ops
-import radrs.xradar as rxr
 
 try:
     import pyart
-except Exception:  # pragma: no cover - optional dependency
+except ImportError:  # pragma: no cover - dependency failure is reported by integration tests
     pyart = None
 
 
@@ -130,7 +129,7 @@ def test_velocity_texture_constant():
 
 def _build_single_sweep_pyart_radar(dt: xr.DataTree, sweep_ds: xr.Dataset):
     if pyart is None:
-        pytest.skip("pyart not installed")
+        pytest.fail("The declared arm-pyart dev dependency is not installed")
 
     sweep_ds = sweep_ds.copy()
     sweep_ds["sweep_number"] = 0
@@ -153,7 +152,7 @@ def _select_sweep_with_vradh(dt: xr.DataTree) -> xr.Dataset:
         sweep_ds = dt[name].dataset
         if "VRADH" in sweep_ds and "DBZH" in sweep_ds:
             return sweep_ds
-    raise pytest.skip("No sweep with VRADH/DBZH found")
+    pytest.fail("Full velocity fixture has no sweep with VRADH/DBZH")
 
 
 def _symmetric_index(idx: int, length: int) -> int:
@@ -251,33 +250,29 @@ def test_velocity_texture_reference_small():
 
 
 @pytest.mark.slow
-def test_velocity_texture_matches_pyart(available_test_files):
+def test_velocity_texture_matches_pyart(full_radrs_datatree):
     if pyart is None:
-        pytest.skip("pyart not installed")
+        pytest.fail("The declared arm-pyart dev dependency is not installed")
 
-    for test_file_path in available_test_files:
-        dt = rxr.open_datatree(test_file_path)
-        sweep_ds = _select_sweep_with_vradh(dt)
-        sweep_ds = sweep_ds.assign(VRADH=_clean_vradh(sweep_ds))
+    sweep_ds = _select_sweep_with_vradh(full_radrs_datatree)
+    sweep_ds = sweep_ds.assign(VRADH=_clean_vradh(sweep_ds))
 
-        radar = _build_single_sweep_pyart_radar(dt, sweep_ds)
-        nyq = np.nanmax(np.abs(sweep_ds["VRADH"].values))
-        if not np.isfinite(nyq) or nyq <= 0:
-            pytest.skip("Invalid Nyquist velocity")
+    radar = _build_single_sweep_pyart_radar(full_radrs_datatree, sweep_ds)
+    nyq = np.nanmax(np.abs(sweep_ds["VRADH"].values))
+    assert np.isfinite(nyq) and nyq > 0, "Full velocity fixture has invalid Nyquist velocity"
 
-        expected_field = pyart.retrieve.calculate_velocity_texture(
-            radar, vel_field="VRADH", nyq=nyq
-        )
-        expected = np.ma.filled(expected_field["data"], np.nan)
-        actual = ops.velocity_texture(sweep_ds["VRADH"].values, nyquist=nyq, wind_size=3)
+    expected_field = pyart.retrieve.calculate_velocity_texture(
+        radar, vel_field="VRADH", nyq=nyq
+    )
+    expected = np.ma.filled(expected_field["data"], np.nan)
+    actual = ops.velocity_texture(sweep_ds["VRADH"].values, nyquist=nyq, wind_size=3)
 
-        mask = np.isfinite(expected) & np.isfinite(actual)
-        if not np.any(mask):
-            continue
+    mask = np.isfinite(expected) & np.isfinite(actual)
+    assert np.any(mask), "Full velocity fixture produced no finite values to compare"
 
-        diff = np.abs(expected[mask] - actual[mask])
-        mean_abs = float(np.mean(diff))
-        p99 = float(np.quantile(diff, 0.99))
-        # Py-ART uses slightly different edge/median handling; allow modest tail differences.
-        assert mean_abs < 0.3
-        assert p99 < 4.0
+    diff = np.abs(expected[mask] - actual[mask])
+    mean_abs = float(np.mean(diff))
+    p99 = float(np.quantile(diff, 0.99))
+    # Py-ART uses slightly different edge/median handling; allow modest tail differences.
+    assert mean_abs < 0.3
+    assert p99 < 4.0
