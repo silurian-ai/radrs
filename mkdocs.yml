@@ -99,6 +99,7 @@ nav:
   - Guides:
       - Quickstart: guides/quickstart.md
       - S3 archive iteration: guides/s3-archive.md
+      - Batch iteration and folding: guides/batching.md
       - Raystack format: guides/raystack-format.md
       - Quality control: guides/qc.md
       - xradar interop: guides/xradar-interop.md

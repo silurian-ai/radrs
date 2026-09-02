@@ -50,8 +50,12 @@ rdt["returns"]["DBZH"].shape  # (n_returns, 128)
 ```
 
 `fold_size` chunks each radial along the range axis: a radial with
-`n_gates > fold_size` becomes multiple returns of `fold_size` gates each. See
-[Raystack format](raystack-format.md) for the array layout.
+`n_gates > fold_size` becomes `ceil(n_gates / fold_size)` returns of
+`fold_size` gates each, NaN-padded past the last real gate. The `range`
+coordinate is the gate's index within its fold, not a distance — see
+[Batch iteration and folding](batching.md#folding) for the trade-off and for
+recovering physical range, and [Raystack format](raystack-format.md) for the
+array layout.
 
 ## Anonymous S3 access
 
@@ -77,10 +81,32 @@ archive = radrs.NexradL2ArchiveIter(
 
 See [S3 archive iteration](s3-archive.md) for the full surface.
 
+## Accumulate a time range into one array
+
+`BatchedRaystack` fills pre-allocated buffers from an archive iterator, so a
+whole time range becomes a single returns matrix:
+
+```python
+import radrs.raystack as rrs
+
+batch = rrs.BatchedRaystack(
+    max_vcps=20, max_sweeps=20 * 32, max_returns=20 * 90_000,
+    fold_size=256, drop_empty_returns=True,
+)
+n_added = batch.add_volumes_from_l2(archive, prefetch=8)
+rs_dt = batch.finalize_to_rs_dt()
+```
+
+Capacity is allocated up front, so `max_returns` has to be estimated before the
+first fetch and `n_added` has to be checked afterwards. See
+[Batch iteration and folding](batching.md) for the sizing arithmetic.
+
 ## What's next
 
 - [S3 archive iteration](s3-archive.md) — `NexradL2ArchiveIter` for
   time-bounded multi-cloud slices.
+- [Batch iteration and folding](batching.md) — `BatchedRaystack` capacity
+  sizing, `prefetch`, `drop_empty_returns`, and fixed-shape output.
 - [Raystack format](raystack-format.md) — what `vcps`, `sweeps`, `returns`,
   and `activity` actually contain.
 - [Quality control](qc.md) — `RhohvThreshold`, `SunSpike`, and

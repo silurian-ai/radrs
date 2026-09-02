@@ -380,13 +380,23 @@ else:
             RuntimeError
                 If batch is already finalized
 
+            Notes
+            -----
+            Running out of capacity is not an error. A volume that does not fit
+            is rejected whole — adds are atomic, so a partial volume never lands
+            — and iteration continues, so an undersized batch quietly yields a
+            truncated time range. Compare the returned count against the number
+            of volumes you expected. Fetch and parse failures are skipped the
+            same way; set ``RADRS_LOG=warn`` to see the reason for each skip.
+
             Examples
             --------
             S3 with anonymous access (time range within a single day):
 
+            >>> import radrs
             >>> import radrs.raystack as rrs
             >>> from datetime import datetime
-            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="s3://noaa-nexrad-level2",
             ...     start_time=datetime(2024, 3, 15, 10, 0, 0),
             ...     end_time=datetime(2024, 3, 15, 14, 0, 0),
@@ -398,7 +408,7 @@ else:
 
             Time range spanning multiple days:
 
-            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="s3://noaa-nexrad-level2",
             ...     start_time=datetime(2024, 3, 15, 20, 0, 0),
             ...     end_time=datetime(2024, 3, 16, 4, 0, 0),
@@ -408,7 +418,7 @@ else:
 
             GCS with service account:
 
-            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="gs://my-bucket/nexrad",
             ...     start_time=datetime(2024, 3, 15, 0, 0, 0),
             ...     end_time=datetime(2024, 3, 15, 23, 59, 59),
@@ -418,7 +428,7 @@ else:
 
             Local filesystem:
 
-            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="/data/nexrad",
             ...     start_time=datetime(2024, 3, 15),
             ...     end_time=datetime(2024, 3, 16)
@@ -429,6 +439,17 @@ else:
 
         def progress(self):
             """Get current fill progress.
+
+            Call this before finalizing — ``finalize()`` trims the arrays, after
+            which the capacity figures no longer describe what was reserved.
+
+            Notes
+            -----
+            ``returns_filled`` counts the returns that survived
+            ``drop_empty_returns``, while ``returns_capacity`` is checked against
+            the uncompacted count. With compaction on, ``fill_fraction`` is
+            therefore a lower bound on real capacity pressure — use the volume
+            count returned by ``add_volumes_from_l2`` to confirm everything fit.
 
             Returns
             -------
