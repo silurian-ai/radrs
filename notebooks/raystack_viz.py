@@ -22,6 +22,7 @@ def _(mo):
     # Raystack Viz
 
     Volume viewer with multiple visualization modes:
+    - **PPI**: one sweep in radar-native polar coordinates (default)
     - **Ray 3D**: one endpoint per return ray (sweep-independent)
     - **Gate cloud 3D**: all finite gates in a rotating 3D projection
     - **CAPPI**: constant-altitude horizontal slice through the volume
@@ -31,7 +32,9 @@ def _(mo):
     3D modes: drag rotate, wheel zoom, double-click reset.
     2D modes: hover for coordinates and values.
 
-    **Sample cap** applies to 3D modes (deterministic downsampling).
+    Every payload sizes itself to `viz.DEFAULT_BYTE_BUDGET`, so the widget stays
+    under marimo's output limit without any tuning here. **Sample cap** is a
+    ceiling on top of that for the 3D modes, where cost is per point.
     """)
     return
 
@@ -198,10 +201,10 @@ def _(dtree, mo, returns, sweeps, volume_selector):
 
 
 @app.cell
-def _(mo, returns, viz):
+def _(mo, returns, sweeps, viz):
     mode_selector = mo.ui.dropdown(
-        options=["Ray 3D", "Gate cloud 3D", "CAPPI", "Cross-section", "Waterfall"],
-        value="Ray 3D",
+        options=["PPI", "Ray 3D", "Gate cloud 3D", "CAPPI", "Cross-section", "Waterfall"],
+        value="PPI",
         label="Mode",
     )
 
@@ -222,7 +225,18 @@ def _(mo, returns, viz):
         show_value=True,
     )
 
-    # 3D mode controls
+    # PPI controls — one sweep at a time, so the sweep picker lives here.
+    ppi_sweep_infos = viz.sweep_infos(sweeps)
+    mo.stop(len(ppi_sweep_infos) == 0, mo.md("*No sweeps in the sweeps dataset.*"))
+    ppi_sweep = mo.ui.dropdown(
+        options={info.label: info.index for info in ppi_sweep_infos},
+        value=ppi_sweep_infos[0].label,
+        label="Sweep",
+        searchable=True,
+    )
+
+    # 3D mode controls. The PPI has none: a whole sweep fits the byte budget,
+    # so there is nothing left for a slider to express.
     sample_cap = mo.ui.slider(
         start=25_000,
         stop=300_000,
@@ -300,6 +314,8 @@ def _(mo, returns, viz):
         grid_resolution,
         mode_selector,
         moment_selector,
+        ppi_sweep,
+        ppi_sweep_infos,
         sample_cap,
         wf_max_range,
         wf_max_returns,
@@ -317,6 +333,7 @@ def _(
     mo,
     mode_selector,
     moment_selector,
+    ppi_sweep,
     sample_cap,
     wf_max_range,
     wf_max_returns,
@@ -324,7 +341,9 @@ def _(
     xsec_tolerance,
 ):
     _mode = str(mode_selector.value)
-    if _mode in ("Ray 3D", "Gate cloud 3D"):
+    if _mode == "PPI":
+        controls_row = mo.hstack([ppi_sweep, canvas_size], widths=[6, 2])
+    elif _mode in ("Ray 3D", "Gate cloud 3D"):
         controls_row = mo.hstack([sample_cap, canvas_size], widths=[4, 3])
     elif _mode == "CAPPI":
         controls_row = mo.hstack(
@@ -360,6 +379,8 @@ def _(
     mo,
     mode_selector,
     moment_selector,
+    ppi_sweep,
+    ppi_sweep_infos,
     returns,
     sample_cap,
     sweeps,
@@ -371,22 +392,31 @@ def _(
 ):
     mode = str(mode_selector.value)
     moment = str(moment_selector.value)
-    requested_points = int(sample_cap.value)
-    # Keep widget output under marimo's default byte limit.
-    max_points = min(requested_points, 180_000)
+    # A drawing ceiling for the 3D modes, not a transport limit: every payload
+    # already sizes itself to viz.DEFAULT_BYTE_BUDGET.
+    sample_ceiling = int(sample_cap.value)
+    # PolarPayload carries no fixed elevation, so keep the selected sweep around.
+    ppi_info = ppi_sweep_infos[int(ppi_sweep.value)]
 
     try:
-        if mode == "Ray 3D":
+        if mode == "PPI":
+            payload = viz.prepare_polar_payload(
+                returns=returns,
+                sweeps=sweeps,
+                sweep_index=ppi_info.index,
+                moment=moment,
+            )
+        elif mode == "Ray 3D":
             payload = viz.prepare_ray_payload(
                 returns=returns,
                 moment=moment,
-                max_points=max_points,
+                max_points=sample_ceiling,
             )
         elif mode == "Gate cloud 3D":
             payload = viz.prepare_volume_payload(
                 returns=returns,
                 moment=moment,
-                max_points=max_points,
+                max_points=sample_ceiling,
             )
         elif mode == "CAPPI":
             payload = viz.prepare_cappi_payload(
@@ -398,19 +428,11 @@ def _(
                 grid_size=int(grid_resolution.value),
             )
         elif mode == "Waterfall":
-            # Cap grid cells to ~3 MB of float32 (marimo default output limit is 5 MB).
-            _wf_ret = int(wf_max_returns.value)
-            _wf_rng = int(wf_max_range.value)
-            _max_cells = 750_000
-            if _wf_ret * _wf_rng > _max_cells:
-                _scale = (_max_cells / (_wf_ret * _wf_rng)) ** 0.5
-                _wf_ret = max(256, int(_wf_ret * _scale))
-                _wf_rng = max(256, int(_wf_rng * _scale))
             payload = viz.prepare_waterfall_payload(
                 returns=returns,
                 moment=moment,
-                max_returns=_wf_ret,
-                max_range=_wf_rng,
+                max_returns=int(wf_max_returns.value),
+                max_range=int(wf_max_range.value),
             )
         else:
             payload = viz.prepare_xsec_payload(
@@ -430,7 +452,7 @@ def _(
             ),
         )
         raise RuntimeError("unreachable")
-    return max_points, mode, payload, requested_points
+    return mode, payload, ppi_info, sample_ceiling
 
 
 @app.cell
@@ -451,16 +473,34 @@ def _(canvas_size, mo, payload, viz):
 
 
 @app.cell
-def _(max_points, mo, mode, payload, requested_points, viz, widget_ui):
+def _(mo, mode, payload, ppi_info, sample_ceiling, viz, widget_ui):
     hover = widget_ui.hover if isinstance(widget_ui.hover, dict) else {}
 
-    if isinstance(payload, viz.WaterfallPayload):
+    # The library decides how much to ship; this makes that decision visible.
+    size_note = (
+        f"`payload={payload.nbytes / 1e6:.2f} MB`  "
+        f"`budget={viz.DEFAULT_BYTE_BUDGET / 1e6:.2f} MB`"
+    )
+
+    if isinstance(payload, viz.PolarPayload):
+        header = (
+            f"`mode={mode}`  `sweep={payload.sweep_number}`  "
+            f"`elev={ppi_info.elevation_deg:.2f}deg`  "
+            f"`grid={payload.n_returns}x{payload.n_gates}`  "
+            f"`gates={payload.point_count:,}`  `moment={payload.moment}`  "
+            f"`max_range={payload.max_range_m / 1000.0:.2f} km`"
+        )
+        if payload.return_stride > 1 or payload.gate_stride > 1:
+            size_note += (
+                f"  `stride={payload.return_stride}x{payload.gate_stride}"
+                f" of {payload.n_returns_orig}x{payload.n_gates_orig}`"
+            )
+    elif isinstance(payload, viz.WaterfallPayload):
         header = (
             f"`mode={mode}`  `grid={payload.n_returns}x{payload.n_range}`  "
             f"`moment={payload.moment}`  "
             f"`from {payload.n_returns_orig}x{payload.n_range_orig}`"
         )
-        cap_note = ""
     elif isinstance(payload, viz.GridPayload):
         header = (
             f"`mode={mode}`  `grid={payload.n_rows}x{payload.n_cols}`  "
@@ -470,7 +510,6 @@ def _(max_points, mo, mode, payload, requested_points, viz, widget_ui):
             header += f"  `alt={payload.cappi_altitude_m / 1000.0:.1f}km`  `tol={payload.cappi_tolerance_m / 1000.0:.1f}km`"
         else:
             header += f"  `az={payload.xsec_azimuth_deg:.1f}deg`"
-        cap_note = ""
     else:
         render_mode = getattr(payload, "render_mode", "points")
         item_label = "rays" if render_mode == "rays" else "gates"
@@ -478,14 +517,20 @@ def _(max_points, mo, mode, payload, requested_points, viz, widget_ui):
             f"`mode={mode}`  `{item_label}={payload.point_count:,}`  "
             f"`moment={payload.moment}`  `max_abs={payload.max_abs_m / 1000.0:.2f} km`"
         )
-        cap_note = (
-            f"`requested_cap={requested_points:,}`  `effective_cap={max_points:,}`"
-            if requested_points != max_points
-            else f"`cap={max_points:,}`"
-        )
+        size_note += f"  `cap={sample_ceiling:,}`"
 
     if hover:
-        if isinstance(payload, viz.WaterfallPayload):
+        if isinstance(payload, viz.PolarPayload):
+            hover_block = (
+                f"hover idx={hover.get('index', -1)} "
+                f"value={hover.get('value', float('nan')):.2f} "
+                f"az={hover.get('azimuth_deg', float('nan')):.2f}deg "
+                f"el={hover.get('elevation_deg', float('nan')):.2f}deg "
+                f"range={hover.get('range_m', 0.0) / 1000.0:.2f}km "
+                f"ret={hover.get('return_index', -1)} gate={hover.get('gate_index', -1)} "
+                f"time={hover.get('return_time_iso', '')}"
+            )
+        elif isinstance(payload, viz.WaterfallPayload):
             hover_block = (
                 f"hover value={hover.get('value', float('nan')):.2f} "
                 f"ret={hover.get('return_index', -1)} gate={hover.get('gate_index', -1)} "
@@ -520,10 +565,7 @@ def _(max_points, mo, mode, payload, requested_points, viz, widget_ui):
     else:
         hover_block = "hover: move cursor over a point"
 
-    info_parts = [header]
-    if cap_note:
-        info_parts.append(cap_note)
-    info_parts.append(hover_block)
+    info_parts = [header, size_note, hover_block]
 
     mo.md("\n\n".join(f"    {p}" for p in info_parts))
     return

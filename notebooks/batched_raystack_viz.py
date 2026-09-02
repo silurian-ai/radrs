@@ -26,11 +26,15 @@ def _(mo):
 
     - **Waterfall**: raw (return_time, range) matrix, so volumes stack along the time axis
     - **Gate cloud 3D**: every finite gate in the batch, overlaid in radar-relative space
+    - **PPI**: a single sweep from the batch in radar-native polar coordinates
 
     3D: drag rotate, wheel zoom, double-click reset.
     2D: hover for coordinates and values.
 
-    **Sample cap** applies to the gate cloud (deterministic downsampling).
+    Every payload sizes itself to `viz.DEFAULT_BYTE_BUDGET`, so the folded
+    waterfall's row window follows the fold size on its own and the widget stays
+    under marimo's output limit. **Sample cap** is a ceiling on top of that for
+    the gate cloud, where cost is per point.
     The waterfall defaults to a canvas tall enough to label every sweep — expect to scroll.
     """)
     return
@@ -316,7 +320,7 @@ def _(
 @app.cell
 def _(mo, returns, sweeps, viz):
     mode_selector = mo.ui.dropdown(
-        options=["Folded waterfall", "Gate cloud 3D"],
+        options=["Folded waterfall", "Gate cloud 3D", "PPI"],
         value="Folded waterfall",
         label="Mode",
     )
@@ -362,7 +366,29 @@ def _(mo, returns, sweeps, viz):
         show_value=True,
     )
 
-    # Gate cloud controls
+    # PPI controls. A batch holds every sweep of every volume, so the stock
+    # SweepInfo label is ambiguous across volumes — prefix each with its time.
+    ppi_sweep_infos = viz.sweep_infos(sweeps)
+    mo.stop(len(ppi_sweep_infos) == 0, mo.md("*No sweeps in the batch.*"))
+    try:
+        _sweep_stamps = [
+            str(s) for s in sweeps["sweep_time"].dt.strftime("%Y-%m-%d %H:%M:%S").values
+        ]
+    except (KeyError, AttributeError, TypeError, ValueError):
+        _sweep_stamps = []
+    ppi_sweep_labels = {
+        (f"{_sweep_stamps[_i]} | {_info.label}" if _i < len(_sweep_stamps) else _info.label): _i
+        for _i, _info in enumerate(ppi_sweep_infos)
+    }
+    ppi_sweep = mo.ui.dropdown(
+        options=ppi_sweep_labels,
+        value=next(iter(ppi_sweep_labels)),
+        label="Sweep",
+        searchable=True,
+        full_width=True,
+    )
+
+    # Gate cloud controls. The PPI has none: a whole sweep fits the byte budget.
     sample_cap = mo.ui.slider(
         start=25_000,
         stop=300_000,
@@ -391,20 +417,10 @@ def _(mo, returns, sweeps, viz):
         show_value=True,
     )
 
-    # Folded-waterfall controls. Rows are drawn verbatim, so the window is bounded by
-    # payload size rather than pixels: fold_size * 4 B of grid plus ~40 B of per-row
-    # metadata, kept under ~3 MB (marimo's output limit is 5 MB).
+    # Folded-waterfall controls. Rows are drawn verbatim, so the window is bounded
+    # by payload size rather than pixels; prepare_folded_waterfall_payload works
+    # that out from the fold size, leaving only *where* the window sits to choose.
     _n_rows_total = int(returns.sizes.get("return_time", 0))
-    _fold = int(returns.sizes.get("range", 1)) or 1
-    _budget_rows = max(256, int(3_000_000 / (_fold * 4 + 40)))
-    fw_row_count = mo.ui.slider(
-        start=256,
-        stop=max(512, min(16384, _budget_rows)),
-        step=256,
-        value=max(256, min(_budget_rows, _n_rows_total)),
-        label="Rows in window",
-        show_value=True,
-    )
     fw_row_offset = mo.ui.slider(
         start=0,
         stop=max(1, _n_rows_total - 1),
@@ -416,10 +432,11 @@ def _(mo, returns, sweeps, viz):
     return (
         canvas_height,
         canvas_width,
-        fw_row_count,
         fw_row_offset,
         mode_selector,
         moment_selector,
+        ppi_sweep,
+        ppi_sweep_infos,
         sample_cap,
         wf_height_note,
         wf_max_range,
@@ -431,11 +448,11 @@ def _(mo, returns, sweeps, viz):
 def _(
     canvas_height,
     canvas_width,
-    fw_row_count,
     fw_row_offset,
     mo,
     mode_selector,
     moment_selector,
+    ppi_sweep,
     sample_cap,
     wf_height_note,
     wf_max_range,
@@ -443,8 +460,12 @@ def _(
 ):
     rows = [mo.hstack([mode_selector, moment_selector], widths=[2, 2])]
     if str(mode_selector.value) == "Folded waterfall":
-        # Height is driven by the row count (1 px per row), so no height slider here.
-        rows.append(mo.hstack([fw_row_offset, fw_row_count, canvas_width], widths=[3, 3, 2]))
+        # Height is driven by the row count (1 px per row), so no height slider
+        # here; the row count itself comes from the payload's byte budget.
+        rows.append(mo.hstack([fw_row_offset, canvas_width], widths=[6, 2]))
+    elif str(mode_selector.value) == "PPI":
+        # The PPI is square, so height follows width — no height slider here either.
+        rows.append(mo.hstack([ppi_sweep, canvas_width], widths=[6, 2]))
     elif str(mode_selector.value) == "Waterfall":
         rows.append(
             mo.hstack(
@@ -464,34 +485,45 @@ def _(
 
 @app.cell
 def _(
-    fw_row_count,
     fw_row_offset,
     mo,
     mode_selector,
     moment_selector,
+    ppi_sweep,
+    ppi_sweep_infos,
     returns,
     sample_cap,
+    sweeps,
     viz,
 ):
     mode = str(mode_selector.value)
     moment = str(moment_selector.value)
-    requested_points = int(sample_cap.value)
-    # Keep widget output under marimo's default byte limit.
-    max_points = min(requested_points, 180_000)
+    # A drawing ceiling for the gate cloud, not a transport limit: every payload
+    # already sizes itself to viz.DEFAULT_BYTE_BUDGET.
+    sample_ceiling = int(sample_cap.value)
+    # PolarPayload carries no fixed elevation, so keep the selected sweep around.
+    ppi_info = ppi_sweep_infos[int(ppi_sweep.value)]
 
     try:
         if mode == "Folded waterfall":
+            # row_count omitted: the budget takes as many rows as the fold allows.
             payload = viz.prepare_folded_waterfall_payload(
                 returns,
                 moment,
                 row_offset=int(fw_row_offset.value),
-                row_count=int(fw_row_count.value),
+            )
+        elif mode == "PPI":
+            payload = viz.prepare_polar_payload(
+                returns=returns,
+                sweeps=sweeps,
+                sweep_index=ppi_info.index,
+                moment=moment,
             )
         else:
             payload = viz.prepare_volume_payload(
                 returns=returns,
                 moment=moment,
-                max_points=max_points,
+                max_points=sample_ceiling,
             )
     except ImportError as exc:
         mo.stop(
@@ -502,7 +534,7 @@ def _(
             ),
         )
         raise RuntimeError("unreachable")
-    return max_points, mode, payload, requested_points
+    return mode, payload, ppi_info, sample_ceiling
 
 
 @app.cell
@@ -513,6 +545,9 @@ def _(canvas_height, canvas_width, mo, payload, viz):
         widget = viz.FoldedWaterfallWidget(width=width, height=payload.n_rows + 68)
     elif isinstance(payload, viz.WaterfallPayload):
         widget = viz.WaterfallWidget(width=width, height=int(canvas_height.value))
+    elif isinstance(payload, viz.PolarPayload):
+        # The polar canvas draws into an inscribed circle, so keep it square.
+        widget = viz.PolarWidget(width=width, height=width)
     else:
         widget = viz.VolumeWidget(width=width, height=width)
     widget.set_payload(payload)
@@ -522,16 +557,43 @@ def _(canvas_height, canvas_width, mo, payload, viz):
 
 
 @app.cell
-def _(max_points, mo, mode, payload, requested_points, viz, widget_ui):
+def _(mo, mode, payload, ppi_info, sample_ceiling, viz, widget_ui):
     hover = widget_ui.hover if isinstance(widget_ui.hover, dict) else {}
 
-    if isinstance(payload, viz.FoldedWaterfallPayload):
+    # The library decides how much to ship; this makes that decision visible.
+    size_note = (
+        f"`payload={payload.nbytes / 1e6:.2f} MB`  "
+        f"`budget={viz.DEFAULT_BYTE_BUDGET / 1e6:.2f} MB`"
+    )
+
+    if isinstance(payload, viz.PolarPayload):
+        header = (
+            f"`mode={mode}`  `sweep={payload.sweep_number}`  "
+            f"`elev={ppi_info.elevation_deg:.2f}deg`  "
+            f"`grid={payload.n_returns}x{payload.n_gates}`  "
+            f"`gates={payload.point_count:,}`  `moment={payload.moment}`  "
+            f"`max_range={payload.max_range_m / 1000.0:.2f} km`"
+        )
+        if payload.return_stride > 1 or payload.gate_stride > 1:
+            size_note += (
+                f"  `stride={payload.return_stride}x{payload.gate_stride}"
+                f" of {payload.n_returns_orig}x{payload.n_gates_orig}`"
+            )
+        hover_block = (
+            f"hover idx={hover.get('index', -1)} "
+            f"value={hover.get('value', float('nan')):.2f} "
+            f"az={hover.get('azimuth_deg', float('nan')):.2f}deg "
+            f"el={hover.get('elevation_deg', float('nan')):.2f}deg "
+            f"range={hover.get('range_m', 0.0) / 1000.0:.2f}km "
+            f"ret={hover.get('return_index', -1)} gate={hover.get('gate_index', -1)} "
+            f"time={hover.get('return_time_iso', '')}"
+        )
+    elif isinstance(payload, viz.FoldedWaterfallPayload):
         header = (
             f"`mode={mode}`  `rows={payload.row_offset}-{payload.row_offset + payload.n_rows - 1}"
             f" of {payload.row_total:,}`  `fold_sets={payload.n_groups:,}`  "
             f"`moment={payload.moment}`"
         )
-        cap_note = ""
         hover_block = (
             f"hover value={hover.get('value', float('nan')):.2f} "
             f"vcp={hover.get('vcp_index', -1)} sweep={hover.get('sweep_number', -1)} "
@@ -546,7 +608,6 @@ def _(max_points, mo, mode, payload, requested_points, viz, widget_ui):
             f"`moment={payload.moment}`  "
             f"`from {payload.n_returns_orig}x{payload.n_range_orig}`"
         )
-        cap_note = ""
         hover_block = (
             f"hover value={hover.get('value', float('nan')):.2f} "
             f"ret={hover.get('return_index', -1)} gate={hover.get('gate_index', -1)} "
@@ -560,11 +621,7 @@ def _(max_points, mo, mode, payload, requested_points, viz, widget_ui):
             f"`mode={mode}`  `gates={payload.point_count:,}`  "
             f"`moment={payload.moment}`  `max_abs={payload.max_abs_m / 1000.0:.2f} km`"
         )
-        cap_note = (
-            f"`requested_cap={requested_points:,}`  `effective_cap={max_points:,}`"
-            if requested_points != max_points
-            else f"`cap={max_points:,}`"
-        )
+        size_note += f"  `cap={sample_ceiling:,}`"
         hover_block = (
             f"hover idx={hover.get('index', -1)} "
             f"value={hover.get('value', float('nan')):.2f} "
@@ -577,10 +634,7 @@ def _(max_points, mo, mode, payload, requested_points, viz, widget_ui):
     if not hover:
         hover_block = "hover: move cursor over a point"
 
-    info_parts = [header]
-    if cap_note:
-        info_parts.append(cap_note)
-    info_parts.append(hover_block)
+    info_parts = [header, size_note, hover_block]
 
     mo.md("\n\n".join(f"    {p}" for p in info_parts))
     return
