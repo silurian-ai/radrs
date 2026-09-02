@@ -424,6 +424,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Raystack format
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="././" class="md-nav__link md-nav__link--active">
         
   
@@ -440,6 +458,92 @@
   
 
       </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#returns-and-folding" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Returns and folding
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-four-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The four datasets
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opening-a-volume" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Opening a volume
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#slicing-by-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Slicing by sweep
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checking-data-availability" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Checking data availability
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#visual-walkthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Visual walkthrough
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -817,6 +921,11 @@
                       
                     
                     
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
                   
                   <div class="md-sidebar__inner">
                     
@@ -828,6 +937,80 @@
   
     
   
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#returns-and-folding" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Returns and folding
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-four-datasets" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The four datasets
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#opening-a-volume" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Opening a volume
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#slicing-by-sweep" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Slicing by sweep
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#checking-data-availability" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Checking data availability
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#visual-walkthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Visual walkthrough
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -846,13 +1029,135 @@
 
 
 <h1 id="raystack-format">Raystack format<a class="headerlink" href="#raystack-format" title="Permanent link">&para;</a></h1>
-<div class="admonition note">
-<p class="admonition-title">Under construction</p>
-<p>Reference for the flat raystack layout — <code>vcps</code>, <code>sweeps</code>, <code>returns</code>,
-<code>activity</code>, and <code>fold_size</code> semantics — is being written.</p>
-</div>
-<p>See the <a href="../../reference/raystack/"><code>radrs.raystack</code> API reference</a> for the
-current API surface.</p>
+<p><code>radrs.raystack</code> opens a NEXRAD Level 2 volume as four flat, aligned tables
+instead of an xradar-style tree of per-sweep datasets. It targets workloads
+that want to operate on whole volumes — or many volumes at once — as
+fixed-shape tensors: ML training pipelines, batched feature extraction,
+vectorized analysis across moments.</p>
+<p>The physical structure is preserved:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>volume coverage pattern -&gt; sweeps -&gt; radials -&gt; range gates
+</span></code></pre></div>
+<p>But each level lives in its own table, with a single row per VCP, sweep, or
+return. Moment data (<code>DBZH</code>, <code>VRADH</code>, <code>RHOHV</code>, …) lives in the <code>returns</code>
+table as 2-D arrays whose first axis matches the return-level metadata
+row-for-row.</p>
+<p><img alt="Overview of the raystack format: physical volume, folding a radial, flat schema, and the resulting tensor." src="../../assets/raystack-explainer.png" /></p>
+<h2 id="returns-and-folding">Returns and folding<a class="headerlink" href="#returns-and-folding" title="Permanent link">&para;</a></h2>
+<p>A <em>return</em> is a fixed-width chunk of range gates from a single radial. The
+width is set by <code>fold_size</code>. If a radial has more gates than <code>fold_size</code>,
+raystack splits it into multiple return rows; the final row is padded
+where the radial runs out of gates.</p>
+<p>With <code>fold_size=128</code>, a radial with 1,832 gates becomes 15 returns: gates
+0–127, 128–255, and so on. This is why the number of returns in a volume
+is typically several times the number of physical radials.</p>
+<p>Each return row carries the metadata needed to place it back in radar
+space: azimuth, elevation, time, base range, and range step.</p>
+<h2 id="the-four-datasets">The four datasets<a class="headerlink" href="#the-four-datasets" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Dataset</th>
+<th>Main dimension</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vcps</code></td>
+<td><code>vcp_time</code></td>
+<td>One row per volume coverage pattern: VCP number, site location, volume timing.</td>
+</tr>
+<tr>
+<td><code>sweeps</code></td>
+<td><code>sweep_time</code></td>
+<td>One row per sweep: elevation angle, range geometry, return count.</td>
+</tr>
+<tr>
+<td><code>returns</code></td>
+<td><code>return_time</code>, <code>range</code></td>
+<td>One row per return: azimuth, elevation, time, range metadata, plus moment arrays (<code>DBZH</code>, <code>VRADH</code>, <code>RHOHV</code>, …).</td>
+</tr>
+<tr>
+<td><code>activity</code></td>
+<td><code>moment</code> × ray/sweep/volume</td>
+<td>Valid-count and valid-fraction summaries per moment.</td>
+</tr>
+</tbody>
+</table>
+<p>Sweep boundaries are recorded in <code>sweeps["num_returns"]</code>: each entry says
+how many rows of <code>returns</code> belong to that sweep. That single column is what
+keeps the flat layout aligned with the original sweep structure.</p>
+<h2 id="opening-a-volume">Opening a volume<a class="headerlink" href="#opening-a-volume" title="Permanent link">&para;</a></h2>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.raystack</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rrs</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">src</span> <span class="o">=</span> <span class="s2">&quot;s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06&quot;</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">rdt</span> <span class="o">=</span> <span class="n">rrs</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">fold_size</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">vcps</span>     <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;vcps&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">sweeps</span>   <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;sweeps&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">returns</span>  <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;returns&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">activity</span> <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;activity&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
+</span></code></pre></div>
+<p>Moment variables come back as <code>(n_returns, fold_size)</code> matrices; the
+return-level metadata arrays are 1-D and align with the first axis:</p>
+<div class="language-pycon highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">returns</span><span class="p">[</span><span class="s2">&quot;DBZH&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="go">(114840, 128)</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">returns</span><span class="p">[</span><span class="s2">&quot;azimuth&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;return_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="go">((114840,), (114840,))</span>
+</span></code></pre></div>
+<p>That alignment is the contract the format is built around. A model can
+consume <code>DBZH</code> as a dense tensor; analysis code can map any row back to
+radar geometry by indexing the metadata arrays the same way.</p>
+<h2 id="slicing-by-sweep">Slicing by sweep<a class="headerlink" href="#slicing-by-sweep" title="Permanent link">&para;</a></h2>
+<p><code>sweeps["num_returns"]</code> is a count per sweep; the cumulative sum gives
+slice offsets into every return-level array.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">offsets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">r_</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">sweeps</span><span class="p">[</span><span class="s2">&quot;num_returns&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)]</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">start</span><span class="p">,</span> <span class="n">stop</span> <span class="o">=</span> <span class="n">offsets</span><span class="p">[</span><span class="n">sweep_index</span><span class="p">],</span> <span class="n">offsets</span><span class="p">[</span><span class="n">sweep_index</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">dbzh</span>    <span class="o">=</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;DBZH&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">stop</span><span class="p">]</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">azimuth</span> <span class="o">=</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;azimuth&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">stop</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The same <code>start:stop</code> slice applies to every column in <code>returns</code>.</p>
+<h2 id="checking-data-availability">Checking data availability<a class="headerlink" href="#checking-data-availability" title="Permanent link">&para;</a></h2>
+<p>The <code>activity</code> dataset summarizes how much valid data each moment has,
+already computed over the folded representation. It is the cheap way to
+filter or weight volumes before sampling training batches.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">activity</span><span class="p">[</span><span class="s2">&quot;ray_valid_fraction&quot;</span><span class="p">]</span>      <span class="c1"># per (moment, return)</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">activity</span><span class="p">[</span><span class="s2">&quot;sweep_valid_fraction&quot;</span><span class="p">]</span>    <span class="c1"># per (moment, sweep)</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">activity</span><span class="p">[</span><span class="s2">&quot;volume_valid_fraction&quot;</span><span class="p">]</span>   <span class="c1"># per (moment, vcp)</span>
+</span></code></pre></div>
+<p><code>*_valid_count</code> variants give raw counts instead of fractions. A return
+with all-NaN moments has fraction <code>0.0</code>; a fully populated one has <code>1.0</code>.</p>
+<h2 id="visual-walkthrough">Visual walkthrough<a class="headerlink" href="#visual-walkthrough" title="Permanent link">&para;</a></h2>
+<p>The panels below trace the same KABR volume from physical geometry to the
+final arrays.</p>
+<p><strong>A NEXRAD volume.</strong> A volume is a VCP made of sweeps at different
+elevations; each sweep is a sequence of radials, and each radial carries
+moment values along its range gates.</p>
+<p><img alt="Physical scan panel showing a VCP with several sweeps from a KABR NEXRAD Level 2 volume." src="../../assets/raystack-explainer-panels/physical-scan.png" /></p>
+<p><strong>Folding a radial.</strong> Raystack splits each radial into fixed-width rows
+and keeps the metadata needed to place each row back in radar space. The
+1,832 gates of this radial fill returns 0–13 completely and the first 40
+gates of return 14; the hatched region is the trailing padding that fills
+return 14 out to <code>fold_size</code>. Padding is NaN, but so are gates that are
+missing or below the detection threshold — those are the gray cells
+scattered through the real part of the radial. Nothing in the moment array
+distinguishes the two, so use <code>sweeps["max_gates"]</code> when you need to know
+where the real gates end.</p>
+<p><img alt="Radial folding panel showing range gates split into fixed-size return rows, with the trailing padding of the last row hatched." src="../../assets/raystack-explainer-panels/fold-radial.png" /></p>
+<p><strong>Flat schema.</strong> The hierarchy lives in three aligned tables —
+<code>vcps</code>, <code>sweeps</code>, <code>returns</code> — linked by <code>sweeps["num_returns"]</code>.</p>
+<p><img alt="Flat schema panel showing vcps, sweeps, and returns datasets." src="../../assets/raystack-explainer-panels/flat-schema.png" /></p>
+<p><strong>Tensor view.</strong> Each moment is a <code>(n_returns, fold_size)</code> matrix. The
+panel below shows a 320-row window of <code>DBZH</code> centred on the end of sweep 0
+(row 10,800): the orange line is that sweep boundary, and the faint lines
+are radial boundaries — every 15 rows in sweep 0, every 10 in sweep 1,
+because the two sweeps have different <code>max_gates</code>. The 1-D metadata arrays
+line up row-for-row, so the same matrix is consumable as a tensor and
+interpretable as radar data.</p>
+<p><img alt="ML tensor panel showing a window of the DBZH return-by-range matrix straddling the sweep 0 / sweep 1 boundary, with aligned metadata." src="../../assets/raystack-explainer-panels/ml-tensor.png" /></p>
 
 
 
