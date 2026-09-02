@@ -79,7 +79,9 @@ archive = radrs.NexradL2ArchiveIter(
 )
 ```
 
-See [S3 archive iteration](s3-archive.md) for the full surface.
+See
+[Iterating an S3 archive](batching.md#iterating-an-s3-archive)
+for the full surface.
 
 ## Accumulate a time range into one array
 
@@ -97,19 +99,20 @@ n_added = batch.add_volumes_from_l2(archive, prefetch=8)
 rs_dt = batch.finalize_to_rs_dt()
 ```
 
-Capacity is allocated up front, so `max_returns` has to be estimated before the
+Capacity is reserved up front, so `max_returns` has to be estimated before the
 first fetch and `n_added` has to be checked afterwards. See
 [Batch iteration and folding](batching.md) for the sizing arithmetic.
 
 ## What's next
 
-- [S3 archive iteration](s3-archive.md) — `NexradL2ArchiveIter` for
-  time-bounded multi-cloud slices.
-- [Batch iteration and folding](batching.md) — `BatchedRaystack` capacity
-  sizing, `prefetch`, `drop_empty_returns`, and fixed-shape output.
 - [Raystack format](raystack-format.md) — what `vcps`, `sweeps`, `returns`,
-  and `activity` actually contain.
+  and `activity` actually contain, with a visual folding walkthrough.
+- [Batch iteration and folding](batching.md) — `NexradL2ArchiveIter`,
+  `BatchedRaystack` capacity sizing, `prefetch`, `drop_empty_returns`, and
+  fixed-shape output.
 - [Quality control](qc.md) — `RhohvThreshold`, `SunSpike`, and
   `VradhWindingNumber` applied during raystack parsing.
-- [xradar interop](xradar-interop.md) — sweep ordering, NaN semantics for
+- [XRadar interop](xradar-interop.md) — sweep ordering, NaN semantics for
   below-threshold gates, and the `sort_by_azimuth` flag.
+- [Visualization](visualization.md) — the marimo viewers for a single volume
+  and for a whole batch.

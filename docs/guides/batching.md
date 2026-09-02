@@ -12,20 +12,15 @@ therefore has to be estimated before the first fetch.
 
 ## Folding
 
-`fold_size` chunks each radial along the range axis. A radial with `n_gates`
-becomes `ceil(n_gates / fold_size)` returns of exactly `fold_size` gates each:
+[Raystack format](raystack-format.md#returns-and-folding) covers what folding
+does to a single volume: `fold_size` chunks each radial along the range axis,
+so a radial with `n_gates` becomes `ceil(n_gates / fold_size)` returns of
+exactly `fold_size` gates each, and `returns` is a 2-D
+`(return_time, range)` matrix whose `range` dimension equals `fold_size`.
 
-```python
-import radrs.raystack as rrs
-
-rdt = rrs.open_datatree(src, fold_size=256)
-rdt["returns"]["DBZH"].shape  # (n_returns, 256)
-```
-
-The `returns` node is always a 2-D `(return_time, range)` matrix whose `range`
-dimension equals `fold_size`. Folding trades rows against columns — the gate
-count is fixed by the radar, so a smaller `fold_size` means more, narrower
-returns:
+What matters for a batch is the row count that falls out of that choice. The
+gate count is fixed by the radar, so folding only trades rows against columns —
+a smaller `fold_size` means more, narrower returns:
 
 | `fold_size` | returns per volume | compacted | `range` dim |
 |---|---:|---:|---:|
@@ -40,32 +35,12 @@ radials, 15.7M physical gate cells. The "compacted" column is
 `fold_size=1832` every radial fits in a single return, which is why nothing is
 dropped and why the row count equals the radial count.
 
-!!! warning "`range` is a gate index, not a distance"
-
-    The `range` coordinate runs `0 … fold_size - 1` — it is the gate's offset
-    *within its fold*, not a physical range. Two returns at the same `range`
-    index sit at completely different distances if they came from different
-    folds or different sweeps.
-
-    Physical range lives on the per-return `base_range` and `range_step`
-    variables (both metres), so reconstruct it explicitly:
-
-    ```python
-    returns = rdt["returns"].dataset
-    gate_index = returns["range"].values                       # (fold_size,)
-    range_m = (
-        returns["base_range"].values[:, None]
-        + gate_index[None, :] * returns["range_step"].values[:, None]
-    )                                                          # (n_returns, fold_size)
-    ```
-
-    `base_range` already accounts for the fold offset, so this is correct for
-    trailing folds too.
-
-Because `fold_size` rarely divides the gate count evenly, the last fold of each
-radial is padded with NaN past the final real gate. Those tail gates are
-indistinguishable from below-threshold gates, which are also NaN — both are
-"no data", so most pipelines do not need to tell them apart.
+Two folding details bite hardest at batch scale, both covered in the format
+guide: the `range` coordinate is a
+[gate index rather than a distance](raystack-format.md#returns-and-folding), so
+rows from different folds and sweeps are not comparable along that axis; and
+the last fold of each radial is NaN-padded past the final real gate, which is
+what makes the compacted column above so much smaller.
 
 ## Pre-allocating a batch
 
@@ -132,25 +107,101 @@ memory, which is why generous headroom is the right default — undershooting
 loses data, overshooting mostly does not. Size it so the *filled* result fits
 in RAM, not so the ceiling does.
 
-## Filling from an archive
+## Iterating an S3 archive
 
-`add_volumes_from_l2` takes a `NexradL2ArchiveIter` and fetches volumes
-concurrently, adding each one as it arrives:
+A batch is fed by `NexradL2ArchiveIter`, which walks the standard NEXRAD
+Level 2 archive layout — `YYYY/MM/DD/SITE/SITE<YYYYMMDD>_<HHMMSS>_V06` — and
+yields one entry per volume in the requested window:
 
 ```python
 from datetime import datetime, timezone
 import radrs
 
-n_added = batch.add_volumes_from_l2(
-    radrs.NexradL2ArchiveIter(
-        "s3://unidata-nexrad-level2",
-        start_time=datetime(2024, 7, 2, 0, 0, tzinfo=timezone.utc),
-        end_time=datetime(2024, 7, 2, 2, 0, tzinfo=timezone.utc),
-        storage_options={"anon": "true"},
-        site_filter=["KABR"],
-    ),
-    prefetch=8,
+archive = radrs.NexradL2ArchiveIter(
+    "s3://unidata-nexrad-level2",
+    start_time=datetime(2024, 7, 2, 0, 0, tzinfo=timezone.utc),
+    end_time=datetime(2024, 7, 2, 2, 0, tzinfo=timezone.utc),
+    storage_options={"anon": "true"},
+    site_filter=["KABR"],
 )
+for info in archive:
+    print(info.instrument_name, info.vcp_time, info.uri)
+```
+
+| Parameter | Meaning |
+|---|---|
+| `base_uri` | Archive root — `s3://`, `gs://`, `az://`, or a local path. Not a path to one volume. |
+| `start_time`, `end_time` | Window bounds, **half-open** `[start, end)`. `end_time < start_time` raises. |
+| `storage_options` | Backend config, forwarded to object_store. |
+| `site_filter` | List of 4-letter ICAO codes. Omit to take every site in range — usually far more than you want. |
+| `max_concurrent_ls` | Parallel directory listings, default 10. Raise it for wide date ranges, where listing dominates. |
+
+Iteration is lazy: directories are listed as it goes, and nothing is fetched
+until a volume is actually consumed. `radrs.list_nexrad_l2_archive_volumes`
+takes the same arguments and returns the whole listing eagerly as a list, which
+is what you want when you need a count or a sorted range up front.
+
+Each entry is a `NexradL2ArchiveInfo` with `uri`, `instrument_name`,
+`vcp_time`, and `size`. Only listing metadata is populated — no volume bytes
+are read — so it is cheap to enumerate a day and then decide what to fetch.
+
+!!! note "`size` may be `None`"
+
+    `size` is optional: it is whatever the backend reported during listing, and
+    not every store returns it. Guard before doing arithmetic on it.
+
+The public buckets `s3://unidata-nexrad-level2` and `s3://noaa-nexrad-level2`
+both need `storage_options={"anon": "true"}` for unsigned access. Other
+backends take their own keys:
+
+=== "S3"
+
+    ```python
+    storage_options={"anon": "true", "region": "us-east-1"}
+    ```
+
+=== "GCS"
+
+    ```python
+    storage_options={"service_account_path": "/path/to/key.json"}
+    ```
+
+=== "Azure"
+
+    ```python
+    storage_options={"account_name": "...", "access_key": "..."}
+    ```
+
+=== "Local"
+
+    ```python
+    radrs.NexradL2ArchiveIter("/data/nexrad", start_time=..., end_time=...)
+    ```
+
+!!! warning "`vcp_time` is naive local time"
+
+    `info.vcp_time` carries no `tzinfo` and is expressed in the *local*
+    timezone, even though NEXRAD names volumes in UTC. Under
+    `TZ=America/Chicago` the volume `KABR20240702_000016_V06` reports
+    `2024-07-01 19:00:16`.
+
+    Naive bounds passed to `NexradL2ArchiveIter` are interpreted the same way,
+    so feeding `vcp_time` straight back in as `start_time`/`end_time`
+    round-trips correctly on any host. But to display it, or compare it against
+    the UTC bounds you started from, convert rather than relabel:
+
+    ```python
+    info.vcp_time.astimezone(timezone.utc)     # correct — shifts local to UTC
+    info.vcp_time.replace(tzinfo=timezone.utc) # wrong — off by the UTC offset
+    ```
+
+## Filling from an archive
+
+`add_volumes_from_l2` takes that iterator and fetches volumes concurrently,
+adding each one as it arrives:
+
+```python
+n_added = batch.add_volumes_from_l2(archive, prefetch=8)
 ```
 
 `prefetch` is how many volumes are in flight at once; 8 saturates a typical
@@ -327,28 +378,14 @@ print(f"{n_added}/{len(selected)} volumes, {returns.sizes['return_time']:,} retu
 print(f"reserved {prog['returns_filled']:,}/{prog['returns_capacity']:,}")
 ```
 
-!!! warning "`vcp_time` is naive local time"
-
-    `info.vcp_time` carries no `tzinfo` and is expressed in the *local*
-    timezone, even though NEXRAD names volumes in UTC. Under `TZ=America/Chicago`
-    the volume `KABR20240702_000016_V06` reports `2024-07-01 19:00:16`.
-
-    Naive bounds passed to `NexradL2ArchiveIter` are read the same way, so
-    feeding `vcp_time` straight back in as `start_time`/`end_time` — as above —
-    round-trips correctly on any host. But to display it, or compare it against
-    the UTC bounds you started from, convert rather than relabel:
-
-    ```python
-    info.vcp_time.astimezone(timezone.utc)     # correct — shifts local to UTC
-    info.vcp_time.replace(tzinfo=timezone.utc) # wrong — off by the UTC offset
-    ```
+Feeding `selected[…].vcp_time` back in as a bound is safe because both sides
+use naive local time — see
+[the timezone note above](#iterating-an-s3-archive).
 
 ## What's next
 
-- [S3 archive iteration](s3-archive.md) — the `NexradL2ArchiveIter` surface
-  that feeds a batch.
 - [Raystack format](raystack-format.md) — what `vcps`, `sweeps`, `returns`,
-  and `activity` contain.
+  and `activity` contain, and the folding walkthrough.
 - [Quality control](qc.md) — the QC steps `add_qc_outputs` accepts.
-- `notebooks/batched_raystack_viz.py` — an interactive marimo viewer built on
-  this API, with capacity and compaction wired to live controls.
+- [Visualization](visualization.md) — `batched_raystack_viz.py`, an interactive
+  viewer built on this API with capacity and compaction wired to live controls.
