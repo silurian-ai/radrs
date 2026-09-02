@@ -41,8 +41,8 @@ rdt = rrs.open_datatree(src, fold_size=128, qc=[qc.RhohvThreshold(threshold=0.8)
 For lower-level use over already-loaded bytes, see ``parse``.
 """
 
-import xarray as xr
 import numpy as np
+import xarray as xr
 
 from radrs._source_format import DEFAULT_SOURCE_FORMAT, require_supported_format
 from radrs.qc import compile_qc_steps

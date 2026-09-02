@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from io import BytesIO
+from io import BytesIO, StringIO
 from pathlib import Path
 
 import pytest
 import xarray as xr
-
 from radrs import backends
+from radrs import raystack as radrs_raystack
+from radrs import xradar as radrs_xradar
 from radrs._source_format import DEFAULT_SOURCE_FORMAT
 
 
@@ -18,8 +19,16 @@ def _clear_engine_cache() -> None:
         cache_clear()
 
 
-def _assert_dataset_content_equal(actual: xr.Dataset, expected: xr.Dataset) -> None:
+def _assert_dataset_equal(actual: xr.Dataset, expected: xr.Dataset) -> None:
     xr.testing.assert_equal(actual.drop_encoding(), expected.drop_encoding())
+
+
+def _open_direct(engine: str, source: str | bytes) -> xr.DataTree:
+    if engine == "radrs-xradar":
+        return radrs_xradar.open_datatree(source)
+    if engine == "radrs-raystack":
+        return radrs_raystack.open_datatree(source)
+    raise AssertionError(f"Unexpected test engine: {engine}")
 
 
 @pytest.fixture(autouse=True)
@@ -27,81 +36,11 @@ def clear_xarray_engine_cache() -> None:
     _clear_engine_cache()
 
 
-@pytest.fixture
-def xradar_tree() -> xr.DataTree:
-    return xr.DataTree.from_dict(
-        {
-            "/": xr.Dataset({"volume_number": 1}),
-            "/sweep_0": xr.Dataset(
-                data_vars={
-                    "DBZH": (("azimuth", "range"), [[1.0, 2.0]]),
-                    "VRADH": (("azimuth", "range"), [[3.0, 4.0]]),
-                    "sweep_number": 0,
-                },
-                coords={
-                    "azimuth": ("azimuth", [10.0]),
-                    "range": ("range", [0.0, 1000.0]),
-                },
-            ),
-            "/radar_parameters": xr.Dataset(),
-            "/georeferencing_correction": xr.Dataset(),
-            "/radar_calibration": xr.Dataset(),
-        }
-    )
-
-
-@pytest.fixture
-def raystack_tree() -> xr.DataTree:
-    return xr.DataTree.from_dict(
-        {
-            "/": xr.Dataset(),
-            "/vcps": xr.Dataset({"vcp_number": ("vcp_time", [212])}),
-            "/sweeps": xr.Dataset({"sweep_number": ("sweep_time", [0])}),
-            "/returns": xr.Dataset(
-                data_vars={
-                    "azimuth": ("return_time", [10.0]),
-                    "DBZH": (("return_time", "range"), [[1.0, 2.0]]),
-                    "VRADH": (("return_time", "range"), [[3.0, 4.0]]),
-                },
-                coords={
-                    "return_time": ("return_time", [1]),
-                    "range": ("range", [0, 1]),
-                },
-            ),
-            "/activity": xr.Dataset({"volume_valid_count": ("moment", [2])}),
-        }
-    )
-
-
-@pytest.fixture
-def backend_calls(
-    monkeypatch: pytest.MonkeyPatch,
-    xradar_tree: xr.DataTree,
-    raystack_tree: xr.DataTree,
-) -> dict[str, list[tuple[object, dict[str, object]]]]:
-    calls: dict[str, list[tuple[object, dict[str, object]]]] = {
-        "xradar": [],
-        "raystack": [],
-    }
-
-    def open_xradar(source: object, **kwargs: object) -> xr.DataTree:
-        calls["xradar"].append((source, kwargs))
-        return xradar_tree.copy(deep=True)
-
-    def open_raystack(source: object, **kwargs: object) -> xr.DataTree:
-        calls["raystack"].append((source, kwargs))
-        return raystack_tree.copy(deep=True)
-
-    monkeypatch.setattr(backends.radrs_xradar, "open_datatree", open_xradar)
-    monkeypatch.setattr(backends.radrs_raystack, "open_datatree", open_raystack)
-    return calls
-
-
 def test_xarray_lists_radrs_engines() -> None:
     engines = xr.backends.list_engines()
 
-    assert "radrs-xradar" in engines
-    assert "radrs-raystack" in engines
+    assert isinstance(engines["radrs-xradar"], backends.RadrsXradarBackend)
+    assert isinstance(engines["radrs-raystack"], backends.RadrsRaystackBackend)
 
 
 @pytest.mark.parametrize(
@@ -111,13 +50,15 @@ def test_xarray_lists_radrs_engines() -> None:
         ("radrs-raystack", "returns"),
     ],
 )
-def test_open_datatree_reads_real_volume(
+def test_open_datatree_matches_direct_reader(
     test_file_path: str,
     engine: str,
     expected_group: str,
 ) -> None:
     actual = xr.open_datatree(test_file_path, engine=engine)
+    expected = _open_direct(engine, test_file_path)
 
+    xr.testing.assert_equal(actual, expected)
     assert expected_group in actual.children
 
 
@@ -128,250 +69,161 @@ def test_open_datatree_reads_real_volume(
         ("radrs-raystack", "returns", "DBZH"),
     ],
 )
-def test_open_datatree_reads_real_group(
+def test_group_selection_matches_direct_reader(
     test_file_path: str,
     engine: str,
     group: str,
     expected_variable: str,
 ) -> None:
-    actual = xr.open_datatree(test_file_path, engine=engine, group=group)
+    expected = _open_direct(engine, test_file_path)[group].dataset
 
-    assert not actual.children
-    assert expected_variable in actual.dataset
+    for group_alias in (group, f"/{group}"):
+        actual_dataset = xr.open_dataset(
+            test_file_path,
+            engine=engine,
+            group=group_alias,
+        )
+        actual_tree = xr.open_datatree(
+            test_file_path,
+            engine=engine,
+            group=group_alias,
+        )
+
+        _assert_dataset_equal(actual_dataset, expected)
+        _assert_dataset_equal(actual_tree.dataset, expected)
+        assert not actual_tree.children
+        assert expected_variable in actual_dataset
 
 
-def test_xradar_engine_forwards_options(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-    xradar_tree: xr.DataTree,
+@pytest.mark.parametrize("engine", ["radrs-xradar", "radrs-raystack"])
+def test_open_dataset_defaults_to_root_group(
+    test_file_path: str,
+    engine: str,
 ) -> None:
+    expected = _open_direct(engine, test_file_path).dataset
+
+    for group in (None, "", ".", "/"):
+        actual = xr.open_dataset(test_file_path, engine=engine, group=group)
+        _assert_dataset_equal(actual, expected)
+
+
+def test_xradar_engine_options_match_direct_reader(test_file_path: str) -> None:
     actual = xr.open_datatree(
-        "volume.ar2v",
+        test_file_path,
         engine="radrs-xradar",
         sort_by_azimuth=True,
-        storage_options={"anon": "true"},
+        storage_options={},
+        format=DEFAULT_SOURCE_FORMAT,
+    )
+    expected = radrs_xradar.open_datatree(
+        test_file_path,
+        sort_by_azimuth=True,
+        storage_options={},
         format=DEFAULT_SOURCE_FORMAT,
     )
 
-    xr.testing.assert_equal(actual, xradar_tree)
-    assert backend_calls["xradar"] == [
-        (
-            "volume.ar2v",
-            {
-                "sort_by_azimuth": True,
-                "format": DEFAULT_SOURCE_FORMAT,
-                "storage_options": {"anon": "true"},
-            },
-        )
-    ]
+    xr.testing.assert_equal(actual, expected)
 
 
-def test_raystack_engine_forwards_options(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-    raystack_tree: xr.DataTree,
-) -> None:
-    default_actual = xr.open_datatree("volume.ar2v", engine="radrs-raystack")
+def test_raystack_engine_options_match_direct_reader(test_file_path: str) -> None:
     actual = xr.open_datatree(
-        "volume.ar2v",
+        test_file_path,
         engine="radrs-raystack",
-        fold_size=256,
-        qc=["qc-step"],
+        fold_size=128,
         include_activity=False,
-        storage_options={"anon": "true"},
+        storage_options={},
+        format=DEFAULT_SOURCE_FORMAT,
+    )
+    expected = radrs_raystack.open_datatree(
+        test_file_path,
+        fold_size=128,
+        include_activity=False,
+        storage_options={},
         format=DEFAULT_SOURCE_FORMAT,
     )
 
-    xr.testing.assert_equal(default_actual, raystack_tree)
-    xr.testing.assert_equal(actual, raystack_tree)
-    assert backend_calls["raystack"] == [
-        (
-            "volume.ar2v",
-            {
-                "fold_size": None,
-                "qc": None,
-                "include_activity": True,
-                "format": DEFAULT_SOURCE_FORMAT,
-            },
-        ),
-        (
-            "volume.ar2v",
-            {
-                "fold_size": 256,
-                "qc": ["qc-step"],
-                "include_activity": False,
-                "format": DEFAULT_SOURCE_FORMAT,
-                "storage_options": {"anon": "true"},
-            },
-        )
-    ]
-
-
-def test_open_dataset_forwards_storage_options(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-) -> None:
-    storage_options = {"account_name": "radar", "access_key": "secret"}
-
-    xr.open_dataset(
-        "az://private/volume.ar2v",
-        engine="radrs-xradar",
-        group="sweep_0",
-        storage_options=storage_options,
-    )
-    xr.open_dataset(
-        "az://private/volume.ar2v",
-        engine="radrs-raystack",
-        group="returns",
-        storage_options=storage_options,
-    )
-
-    assert backend_calls["xradar"][-1] == (
-        "az://private/volume.ar2v",
-        {
-            "sort_by_azimuth": False,
-            "format": DEFAULT_SOURCE_FORMAT,
-            "storage_options": storage_options,
-        },
-    )
-    assert backend_calls["raystack"][-1] == (
-        "az://private/volume.ar2v",
-        {
-            "fold_size": None,
-            "qc": None,
-            "include_activity": True,
-            "format": DEFAULT_SOURCE_FORMAT,
-            "storage_options": storage_options,
-        },
-    )
-
-
-def test_open_dataset_extracts_group(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-    xradar_tree: xr.DataTree,
-    raystack_tree: xr.DataTree,
-) -> None:
-    xradar_ds = xr.open_dataset(
-        "volume.ar2v",
-        engine="radrs-xradar",
-        group="sweep_0",
-    )
-    raystack_ds = xr.open_dataset(
-        "volume.ar2v",
-        engine="radrs-raystack",
-        group="returns",
-    )
-
-    _assert_dataset_content_equal(xradar_ds, xradar_tree["sweep_0"].dataset)
-    _assert_dataset_content_equal(raystack_ds, raystack_tree["returns"].dataset)
-
-
-def test_open_datatree_extracts_group_as_root(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-    xradar_tree: xr.DataTree,
-    raystack_tree: xr.DataTree,
-) -> None:
-    xradar_dt = xr.open_datatree(
-        "volume.ar2v",
-        engine="radrs-xradar",
-        group="sweep_0",
-    )
-    raystack_dt = xr.open_datatree(
-        "volume.ar2v",
-        engine="radrs-raystack",
-        group="returns",
-    )
-
-    assert not xradar_dt.children
-    assert not raystack_dt.children
-    _assert_dataset_content_equal(xradar_dt.dataset, xradar_tree["sweep_0"].dataset)
-    _assert_dataset_content_equal(raystack_dt.dataset, raystack_tree["returns"].dataset)
-
-
-def test_open_groups_returns_all_groups(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-) -> None:
-    xradar_groups = xr.open_groups("volume.ar2v", engine="radrs-xradar")
-    raystack_groups = xr.open_groups("volume.ar2v", engine="radrs-raystack")
-
-    assert set(xradar_groups) == {
-        "/",
-        "/sweep_0",
-        "/radar_parameters",
-        "/georeferencing_correction",
-        "/radar_calibration",
-    }
-    assert set(raystack_groups) == {"/", "/vcps", "/sweeps", "/returns", "/activity"}
-
-
-def test_open_groups_extracts_relative_group(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-    xradar_tree: xr.DataTree,
-    raystack_tree: xr.DataTree,
-) -> None:
-    xradar_groups = xr.open_groups(
-        "volume.ar2v",
-        engine="radrs-xradar",
-        group="sweep_0",
-    )
-    raystack_groups = xr.open_groups(
-        "volume.ar2v",
-        engine="radrs-raystack",
-        group="returns",
-    )
-
-    assert set(xradar_groups) == {"."}
-    assert set(raystack_groups) == {"."}
-    _assert_dataset_content_equal(xradar_groups["."], xradar_tree["sweep_0"].dataset)
-    _assert_dataset_content_equal(raystack_groups["."], raystack_tree["returns"].dataset)
-
-
-def test_drop_variables_applies_to_each_schema(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-) -> None:
-    xradar_dt = xr.open_datatree(
-        "volume.ar2v",
-        engine="radrs-xradar",
-        drop_variables="DBZH",
-    )
-    raystack_dt = xr.open_datatree(
-        "volume.ar2v",
-        engine="radrs-raystack",
-        drop_variables="DBZH",
-    )
-
-    assert "DBZH" not in xradar_dt["sweep_0"].dataset
-    assert "DBZH" not in raystack_dt["returns"].dataset
+    xr.testing.assert_equal(actual, expected)
+    assert "activity" not in actual.children
+    assert actual["returns"].sizes["range"] == 128
 
 
 @pytest.mark.parametrize(
-    ("source", "expected"),
+    ("engine", "selected_group"),
     [
-        (b"data", b"data"),
-        (memoryview(b"data"), b"data"),
-        (Path("volume.ar2v"), "volume.ar2v"),
-        (BytesIO(b"data"), b"data"),
+        ("radrs-xradar", "sweep_0"),
+        ("radrs-raystack", "returns"),
     ],
 )
-def test_source_normalization(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-    source: object,
-    expected: object,
+def test_open_groups_matches_direct_reader(
+    test_file_path: str,
+    engine: str,
+    selected_group: str,
 ) -> None:
-    backends.RadrsXradarBackend().open_datatree(source)
+    expected_tree = _open_direct(engine, test_file_path)
+    actual_groups = xr.open_groups(test_file_path, engine=engine)
+    expected_groups = {
+        "/" if key == "." else f"/{key}": node.dataset
+        for key, node in expected_tree.subtree_with_keys
+    }
 
-    assert backend_calls["xradar"][-1][0] == expected
+    assert set(actual_groups) == set(expected_groups)
+    for group, expected in expected_groups.items():
+        _assert_dataset_equal(actual_groups[group], expected)
+
+    selected = xr.open_groups(
+        test_file_path,
+        engine=engine,
+        group=selected_group,
+    )
+    assert set(selected) == {"."}
+    _assert_dataset_equal(selected["."], expected_tree[selected_group].dataset)
+
+
+@pytest.mark.parametrize(
+    ("engine", "group"),
+    [
+        ("radrs-xradar", "sweep_0"),
+        ("radrs-raystack", "returns"),
+    ],
+)
+def test_drop_variables_applies_to_selected_group(
+    test_file_path: str,
+    engine: str,
+    group: str,
+) -> None:
+    actual = xr.open_dataset(
+        test_file_path,
+        engine=engine,
+        group=group,
+        drop_variables=["DBZH", "VRADH"],
+    )
+
+    assert "DBZH" not in actual
+    assert "VRADH" not in actual
+
+
+def test_supported_source_types_match(test_file_path: str, test_file_bytes: bytes) -> None:
+    expected = radrs_xradar.open_datatree(test_file_path)
+    sources = (
+        Path(test_file_path),
+        test_file_bytes,
+        memoryview(test_file_bytes),
+        BytesIO(test_file_bytes),
+    )
+
+    for source in sources:
+        actual = xr.open_datatree(source, engine="radrs-xradar")
+        xr.testing.assert_equal(actual, expected)
 
 
 def test_file_like_inputs_must_be_binary() -> None:
     with pytest.raises(TypeError, match="binary mode"):
-        backends.RadrsXradarBackend().open_datatree(BytesIOText("text"))
+        backends.RadrsXradarBackend().open_datatree(StringIO("text"))
 
 
-@pytest.mark.parametrize("engine", ["radrs-xradar", "radrs-raystack"])
-def test_open_dataset_requires_group(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-    engine: str,
-) -> None:
-    with pytest.raises(ValueError, match="Use xr.open_datatree"):
-        xr.open_dataset("volume.ar2v", engine=engine)
+def test_unsupported_source_type_is_rejected() -> None:
+    with pytest.raises(TypeError, match="accept str"):
+        backends.RadrsXradarBackend().open_datatree(object())
 
 
 @pytest.mark.parametrize(
@@ -382,53 +234,61 @@ def test_open_dataset_requires_group(
     ],
 )
 def test_invalid_group_error_lists_valid_groups(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
+    test_file_path: str,
     engine: str,
     group: str,
 ) -> None:
     with pytest.raises(ValueError, match="Valid groups"):
-        xr.open_dataset("volume.ar2v", engine=engine, group=group)
+        xr.open_dataset(test_file_path, engine=engine, group=group)
 
-
-@pytest.mark.parametrize(
-    ("engine", "group"),
-    [
-        ("radrs-xradar", "returns"),
-        ("radrs-raystack", "sweep_0"),
-    ],
-)
-def test_open_datatree_invalid_group_error_lists_valid_groups(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-    engine: str,
-    group: str,
-) -> None:
     with pytest.raises(ValueError, match="Valid groups"):
-        xr.open_datatree("volume.ar2v", engine=engine, group=group)
-
-
-def test_decoder_kwargs_are_rejected(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-) -> None:
-    with pytest.raises(ValueError, match="already return decoded"):
-        xr.open_datatree(
-            "volume.ar2v",
-            engine="radrs-xradar",
-            mask_and_scale=False,
-        )
+        xr.open_datatree(test_file_path, engine=engine, group=group)
 
 
 @pytest.mark.parametrize("engine", ["radrs-xradar", "radrs-raystack"])
-def test_invalid_format_is_rejected(
-    backend_calls: dict[str, list[tuple[object, dict[str, object]]]],
-    engine: str,
-) -> None:
+def test_decoder_kwargs_are_rejected(engine: str) -> None:
+    with pytest.raises(ValueError, match="already return decoded"):
+        xr.open_datatree(b"", engine=engine, mask_and_scale=False)
+
+
+@pytest.mark.parametrize("engine", ["radrs-xradar", "radrs-raystack"])
+def test_unknown_backend_kwargs_are_rejected(engine: str) -> None:
+    with pytest.raises(TypeError, match="Unsupported radrs-"):
+        xr.open_datatree(b"", engine=engine, unsupported_option=True)
+
+
+@pytest.mark.parametrize("engine", ["radrs-xradar", "radrs-raystack"])
+def test_invalid_format_is_rejected(engine: str) -> None:
     with pytest.raises(ValueError, match="Supported formats: nexrad-level2"):
-        xr.open_datatree("volume.ar2v", engine=engine, format="odim")
+        xr.open_datatree(b"", engine=engine, format="odim")
 
 
-class BytesIOText:
-    def __init__(self, value: str) -> None:
-        self._value = value
+def test_nested_group_helpers_reroot_subtrees() -> None:
+    tree = xr.DataTree.from_dict(
+        {
+            "/": xr.Dataset({"root": 1}),
+            "/parent": xr.Dataset({"parent": 2}),
+            "/parent/child": xr.Dataset({"child": 3}),
+        }
+    )
 
-    def read(self) -> str:
-        return self._value
+    subtree = backends._subtree_for_group(tree, "/parent", "test-engine")
+    groups = backends._groups_as_dict(subtree, relative=True)
+
+    assert set(groups) == {".", "child"}
+    _assert_dataset_equal(subtree.dataset, tree["parent"].dataset)
+    _assert_dataset_equal(subtree["child"].dataset, tree["parent/child"].dataset)
+    _assert_dataset_equal(
+        backends._dataset_for_group(tree, None, "test-engine"),
+        tree.dataset,
+    )
+
+
+def test_nested_group_helpers_report_valid_groups() -> None:
+    tree = xr.DataTree.from_dict({"/": xr.Dataset(), "/known": xr.Dataset()})
+
+    with pytest.raises(ValueError, match="Valid groups: /, known"):
+        backends._subtree_for_group(tree, "missing", "test-engine")
+
+    with pytest.raises(ValueError, match="Valid groups: /, known"):
+        backends._dataset_for_group(tree, "missing", "test-engine")

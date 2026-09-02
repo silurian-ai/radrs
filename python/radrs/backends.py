@@ -8,10 +8,9 @@ from collections.abc import Iterable
 import xarray as xr
 from xarray.backends import BackendEntrypoint
 
-from radrs._source_format import DEFAULT_SOURCE_FORMAT, require_supported_format
 from radrs import raystack as radrs_raystack
 from radrs import xradar as radrs_xradar
-
+from radrs._source_format import DEFAULT_SOURCE_FORMAT, require_supported_format
 
 _DECODER_KWARGS = {
     "mask_and_scale",
@@ -106,12 +105,10 @@ def _subtree_for_group(
 
 
 def _dataset_for_group(tree: xr.DataTree, group: str | None, engine_name: str) -> xr.Dataset:
-    if group is None:
-        raise ValueError(
-            f"{engine_name} opens a multi-group radar volume. Use xr.open_datatree(...) "
-            "or pass group=... to xr.open_dataset(...)."
-        )
+    if _is_root_group(group):
+        return tree.dataset.copy()
 
+    assert group is not None
     try:
         return tree[group].dataset.copy()
     except KeyError as exc:
