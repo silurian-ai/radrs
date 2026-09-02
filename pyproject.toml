@@ -78,7 +78,7 @@ dev = [
     "ray>=2.53.0",
     "s3fs>=2026.1.0",
     "traitlets>=5.14.3",
-    "xradar>=0.11.0",
+    "xradar>=0.12",
     "zizmor>=1.24.1",
 ]
 docs = [

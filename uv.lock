@@ -2837,7 +2837,7 @@ dev = [
     { name = "ray", specifier = ">=2.53.0" },
     { name = "s3fs", specifier = ">=2026.1.0" },
     { name = "traitlets", specifier = ">=5.14.3" },
-    { name = "xradar", specifier = ">=0.11.0" },
+    { name = "xradar", specifier = ">=0.12" },
     { name = "zizmor", specifier = ">=1.24.1" },
 ]
 docs = [

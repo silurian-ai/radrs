@@ -300,6 +300,106 @@ class WaterfallPayload:
         return _payload_to_html(self.to_widget_state(), _WATERFALL_WIDGET_ESM, _WIDGET_CSS, width, height)
 
 
+@dataclass(frozen=True)
+class FoldedWaterfallPayload:
+    """Row-per-return view of the folded returns matrix.
+
+    Unlike :class:`WaterfallPayload`, rows are *not* strided: a window of
+    consecutive returns is shown verbatim so every fold is visible. Returns
+    chunked from one radial share a ``return_time``, and ``group_starts``
+    marks where each such set of folds begins.
+    """
+
+    grid: np.ndarray  # float32 (n_rows, n_range), NaN = no data
+    vcp_index: np.ndarray  # uint16 (n_rows,) — volume ordinal within the batch
+    vcp_time_ms: np.ndarray  # float64 (n_rows,)
+    sweep_number: np.ndarray  # uint16 (n_rows,)
+    azimuth_deg: np.ndarray  # float32 (n_rows,)
+    elevation_deg: np.ndarray  # float32 (n_rows,)
+    return_time_ms: np.ndarray  # float64 (n_rows,)
+    base_range_m: np.ndarray  # float32 (n_rows,) — first gate of this fold
+    range_step_m: np.ndarray  # float32 (n_rows,)
+    fold_index: np.ndarray  # uint16 (n_rows,) — position within its fold set
+    group_starts: np.ndarray  # int32 — rows beginning a new return_time
+    moment: str
+    vmin: float
+    vmax: float
+    row_offset: int
+    row_total: int
+    range_stride: int
+    n_range_orig: int
+
+    @property
+    def n_rows(self) -> int:
+        return int(self.grid.shape[0]) if self.grid.ndim == 2 else 0
+
+    @property
+    def n_range(self) -> int:
+        return int(self.grid.shape[1]) if self.grid.ndim == 2 else 0
+
+    @property
+    def n_groups(self) -> int:
+        """Number of fold sets in the window."""
+        return int(self.group_starts.size) + (1 if self.n_rows else 0)
+
+    def to_widget_state(self) -> dict[str, object]:
+        """Serialize payload to binary traits for widget transport."""
+
+        return {
+            "grid_bytes": np.ascontiguousarray(
+                self.grid.ravel(), dtype=np.float32
+            ).tobytes(),
+            "vcp_index_bytes": np.ascontiguousarray(
+                self.vcp_index, dtype=np.uint16
+            ).tobytes(),
+            "vcp_time_ms_bytes": np.ascontiguousarray(
+                self.vcp_time_ms, dtype=np.float64
+            ).tobytes(),
+            "sweep_number_bytes": np.ascontiguousarray(
+                self.sweep_number, dtype=np.uint16
+            ).tobytes(),
+            "azimuth_bytes": np.ascontiguousarray(
+                self.azimuth_deg, dtype=np.float32
+            ).tobytes(),
+            "elevation_bytes": np.ascontiguousarray(
+                self.elevation_deg, dtype=np.float32
+            ).tobytes(),
+            "return_time_ms_bytes": np.ascontiguousarray(
+                self.return_time_ms, dtype=np.float64
+            ).tobytes(),
+            "base_range_bytes": np.ascontiguousarray(
+                self.base_range_m, dtype=np.float32
+            ).tobytes(),
+            "range_step_bytes": np.ascontiguousarray(
+                self.range_step_m, dtype=np.float32
+            ).tobytes(),
+            "fold_index_bytes": np.ascontiguousarray(
+                self.fold_index, dtype=np.uint16
+            ).tobytes(),
+            "group_start_bytes": np.ascontiguousarray(
+                self.group_starts, dtype=np.int32
+            ).tobytes(),
+            "meta": {
+                "n_rows": self.n_rows,
+                "n_range": self.n_range,
+                "n_groups": self.n_groups,
+                "moment": self.moment,
+                "vmin": float(self.vmin),
+                "vmax": float(self.vmax),
+                "row_offset": self.row_offset,
+                "row_total": self.row_total,
+                "range_stride": self.range_stride,
+                "n_range_orig": self.n_range_orig,
+            },
+        }
+
+    def to_html(self, width: int = 900, height: int = 900) -> str:
+        """Render as a self-contained HTML document."""
+        return _payload_to_html(
+            self.to_widget_state(), _FOLDED_WATERFALL_WIDGET_ESM, _WIDGET_CSS, width, height
+        )
+
+
 def get_returns_and_sweeps(dt: xr.DataTree) -> tuple[xr.Dataset, xr.Dataset]:
     """Extract returns/sweeps datasets from a raystack DataTree."""
 
@@ -1056,6 +1156,124 @@ def prepare_waterfall_payload(
         range_start_m=range_start_m,
         range_step_m=range_step_m,
         range_end_m=range_end_m,
+    )
+
+
+def prepare_folded_waterfall_payload(
+    returns: xr.Dataset,
+    moment: str,
+    *,
+    row_offset: int = 0,
+    row_count: int = 512,
+    max_range: int | None = None,
+) -> FoldedWaterfallPayload:
+    """Create a row-per-return payload over a window of the returns matrix.
+
+    Rows are taken verbatim (no striding), so every fold in the window is drawn.
+    Folds chunked from one radial share a ``return_time``; the boundaries between
+    those sets are returned in ``group_starts`` for the renderer to divide on.
+
+    Parameters
+    ----------
+    row_offset, row_count
+        Window into the ``return_time`` dimension, clamped to the dataset.
+    max_range
+        Cap on drawn range columns; ``None`` (default) keeps every gate. Folds
+        are usually narrow enough to draw whole.
+    """
+
+    if moment not in returns.data_vars:
+        raise KeyError(f"moment '{moment}' not found in returns dataset")
+
+    moment_matrix = np.asarray(returns[moment].values, dtype=np.float32)
+    if moment_matrix.ndim != 2:
+        raise ValueError(f"moment '{moment}' must be 2D on (return_time, range)")
+
+    row_total, n_range_orig = moment_matrix.shape
+    start = max(0, min(int(row_offset), row_total))
+    stop = min(row_total, start + max(0, int(row_count)))
+
+    def _empty() -> FoldedWaterfallPayload:
+        return FoldedWaterfallPayload(
+            grid=np.empty((0, 0), dtype=np.float32),
+            vcp_index=np.empty(0, dtype=np.uint16),
+            vcp_time_ms=np.empty(0, dtype=np.float64),
+            sweep_number=np.empty(0, dtype=np.uint16),
+            azimuth_deg=np.empty(0, dtype=np.float32),
+            elevation_deg=np.empty(0, dtype=np.float32),
+            return_time_ms=np.empty(0, dtype=np.float64),
+            base_range_m=np.empty(0, dtype=np.float32),
+            range_step_m=np.empty(0, dtype=np.float32),
+            fold_index=np.empty(0, dtype=np.uint16),
+            group_starts=np.empty(0, dtype=np.int32),
+            moment=moment,
+            vmin=0.0,
+            vmax=1.0,
+            row_offset=start,
+            row_total=row_total,
+            range_stride=1,
+            n_range_orig=n_range_orig,
+        )
+
+    if stop <= start or n_range_orig == 0:
+        return _empty()
+
+    range_stride = 1
+    if max_range is not None and max_range > 0 and n_range_orig > max_range:
+        range_stride = int(np.ceil(n_range_orig / max_range))
+    grid = moment_matrix[start:stop, ::range_stride]
+
+    rows = slice(start, stop)
+    return_time_raw = returns["return_time"].values[rows]
+    return_time_ms = return_time_raw.astype("datetime64[ms]").astype(np.float64)
+
+    # Volume ordinal is resolved against the whole batch so it does not shift with the window.
+    vcp_time_all = returns["vcp_time"].values
+    vcp_uniq = np.unique(vcp_time_all)
+    vcp_index = np.searchsorted(vcp_uniq, vcp_time_all[rows]).astype(np.uint16)
+    vcp_time_ms = vcp_time_all[rows].astype("datetime64[ms]").astype(np.float64)
+
+    # A fold set is one radial's chunks, which share a return_time.
+    group_starts = (np.where(np.diff(return_time_ms) != 0)[0] + 1).astype(np.int32)
+
+    # Position within the fold set: rows since the last group start.
+    n_rows = stop - start
+    starts_incl = np.concatenate([[0], group_starts]).astype(np.int64)
+    group_of_row = np.searchsorted(starts_incl, np.arange(n_rows), side="right") - 1
+    fold_index = (np.arange(n_rows) - starts_incl[group_of_row]).astype(np.uint16)
+
+    finite = grid[np.isfinite(grid)]
+    vmin, vmax = _value_bounds(finite) if finite.size else (0.0, 1.0)
+
+    return FoldedWaterfallPayload(
+        grid=np.ascontiguousarray(grid, dtype=np.float32),
+        vcp_index=np.ascontiguousarray(vcp_index, dtype=np.uint16),
+        vcp_time_ms=np.ascontiguousarray(vcp_time_ms, dtype=np.float64),
+        sweep_number=np.ascontiguousarray(
+            np.asarray(returns["sweep_number"].values[rows]), dtype=np.uint16
+        ),
+        azimuth_deg=np.ascontiguousarray(
+            np.asarray(returns["azimuth"].values[rows]), dtype=np.float32
+        ),
+        elevation_deg=np.ascontiguousarray(
+            np.asarray(returns["elevation"].values[rows]), dtype=np.float32
+        ),
+        return_time_ms=np.ascontiguousarray(return_time_ms, dtype=np.float64),
+        base_range_m=np.ascontiguousarray(
+            np.asarray(returns["base_range"].values[rows]), dtype=np.float32
+        ),
+        range_step_m=np.ascontiguousarray(
+            np.asarray(returns["range_step"].values[rows]), dtype=np.float32
+        ),
+        fold_index=fold_index,
+        group_starts=group_starts,
+        moment=moment,
+        vmin=vmin,
+        vmax=vmax,
+        row_offset=start,
+        row_total=row_total,
+        range_stride=range_stride,
+        n_range_orig=n_range_orig,
     )
 
 
@@ -2827,6 +3045,373 @@ export default {
 };
 """
 
+_FOLDED_WATERFALL_WIDGET_ESM: Final[str] = r"""
+function toArrayBuffer(raw) {
+  if (!raw) return new ArrayBuffer(0);
+  if (raw instanceof ArrayBuffer) return raw;
+  if (ArrayBuffer.isView(raw)) {
+    return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+  }
+  return new Uint8Array(raw).buffer;
+}
+
+function decodeArray(raw, ctor) {
+  const buffer = toArrayBuffer(raw);
+  if (buffer.byteLength === 0) return new ctor(0);
+  const bytesPerElement = ctor.BYTES_PER_ELEMENT;
+  const trimmed = buffer.byteLength - (buffer.byteLength % bytesPerElement);
+  return new ctor(buffer.slice(0, trimmed));
+}
+
+function clamp01(x) {
+  if (x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function colorMap(t) {
+  const x = clamp01(t);
+  const stops = [
+    [68, 1, 84],
+    [59, 82, 139],
+    [33, 145, 140],
+    [94, 201, 98],
+    [253, 231, 37],
+  ];
+  const scaled = x * (stops.length - 1);
+  const lo = Math.floor(scaled);
+  const hi = Math.min(stops.length - 1, lo + 1);
+  const local = scaled - lo;
+  return [
+    Math.round(lerp(stops[lo][0], stops[hi][0], local)),
+    Math.round(lerp(stops[lo][1], stops[hi][1], local)),
+    Math.round(lerp(stops[lo][2], stops[hi][2], local)),
+  ];
+}
+
+function niceTicks(lo, hi, maxTicks) {
+  const range = hi - lo;
+  if (range <= 0) return [];
+  const rough = range / maxTicks;
+  const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+  let step = mag;
+  if (rough / mag >= 5) step = mag * 5;
+  else if (rough / mag >= 2) step = mag * 2;
+  const ticks = [];
+  const start = Math.ceil(lo / step) * step;
+  for (let v = start; v <= hi; v += step) {
+    ticks.push(v);
+  }
+  return ticks;
+}
+
+export default {
+  render({ model, el }) {
+    const root = document.createElement("div");
+    root.className = "radrs-viz-root";
+    const canvas = document.createElement("canvas");
+    canvas.className = "radrs-viz-canvas";
+    const tooltip = document.createElement("div");
+    tooltip.className = "radrs-viz-tooltip";
+    tooltip.style.display = "none";
+
+    root.appendChild(canvas);
+    root.appendChild(tooltip);
+    el.appendChild(root);
+
+    let grid = new Float32Array(0);
+    let vcpIndex = new Uint16Array(0);
+    let vcpTimeMs = new Float64Array(0);
+    let sweepNumber = new Uint16Array(0);
+    let azimuth = new Float32Array(0);
+    let elevation = new Float32Array(0);
+    let returnTimeMs = new Float64Array(0);
+    let baseRange = new Float32Array(0);
+    let rangeStep = new Float32Array(0);
+    let foldIndex = new Uint16Array(0);
+    let groupStarts = new Int32Array(0);
+
+    function formatTimeUTC(ms) {
+      const d = new Date(ms);
+      const hh = String(d.getUTCHours()).padStart(2, "0");
+      const mm = String(d.getUTCMinutes()).padStart(2, "0");
+      const ss = String(d.getUTCSeconds()).padStart(2, "0");
+      const ms3 = String(d.getUTCMilliseconds()).padStart(3, "0");
+      return `${hh}:${mm}:${ss}.${ms3}`;
+    }
+
+    let lastHoverKey = "";
+
+    // Label gutter columns: VCP | SWP | TIME. Range is per-gate, not per-row, so it
+    // would be misleading as a row label — it lives in the tooltip instead.
+    const colVcp = 6;
+    const colSwp = 34;
+    const colTime = 62;
+    const marginLeft = 148;
+    const marginTop = 34;
+    const marginRight = 16;
+    const marginBottom = 34;
+    const rowFont = "10px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+
+    /** Physical range of a gate: base_range + gate * range_step. */
+    function gateRangeM(row, gateIdx) {
+      return baseRange[row] + gateIdx * rangeStep[row];
+    }
+
+    function redraw() {
+      const width = Number(model.get("width")) || 900;
+      const height = Number(model.get("height")) || 900;
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, width, height);
+
+      const meta = model.get("meta") || {};
+      grid = decodeArray(model.get("grid_bytes"), Float32Array);
+      vcpIndex = decodeArray(model.get("vcp_index_bytes"), Uint16Array);
+      vcpTimeMs = decodeArray(model.get("vcp_time_ms_bytes"), Float64Array);
+      sweepNumber = decodeArray(model.get("sweep_number_bytes"), Uint16Array);
+      azimuth = decodeArray(model.get("azimuth_bytes"), Float32Array);
+      elevation = decodeArray(model.get("elevation_bytes"), Float32Array);
+      returnTimeMs = decodeArray(model.get("return_time_ms_bytes"), Float64Array);
+      baseRange = decodeArray(model.get("base_range_bytes"), Float32Array);
+      rangeStep = decodeArray(model.get("range_step_bytes"), Float32Array);
+      foldIndex = decodeArray(model.get("fold_index_bytes"), Uint16Array);
+      groupStarts = decodeArray(model.get("group_start_bytes"), Int32Array);
+
+      const nRows = Number(meta.n_rows) || 0;
+      const nRange = Number(meta.n_range) || 0;
+      const vmin = Number(meta.vmin);
+      const vmax = Number(meta.vmax);
+      const rangeStride = Number(meta.range_stride) || 1;
+      const rowOffset = Number(meta.row_offset) || 0;
+      const rowTotal = Number(meta.row_total) || nRows;
+
+      const plotW = width - marginLeft - marginRight;
+      const plotH = height - marginTop - marginBottom;
+      if (nRows === 0 || nRange === 0 || plotW <= 0 || plotH <= 0) return;
+
+      const rowH = plotH / nRows;
+
+      // --- Heatmap: one grid row per screen band, no row resampling loss ---
+      if (grid.length >= nRows * nRange) {
+        const denom = vmax > vmin ? (vmax - vmin) : 1.0;
+        const image = ctx.createImageData(plotW, plotH);
+        const pixels = image.data;
+        for (let py = 0; py < plotH; py++) {
+          const row = Math.min(nRows - 1, Math.floor(py / rowH));
+          for (let px = 0; px < plotW; px++) {
+            const col = Math.min(nRange - 1, Math.floor((px / plotW) * nRange));
+            const val = grid[row * nRange + col];
+            const off = (py * plotW + px) * 4;
+            if (!Number.isFinite(val)) {
+              pixels[off + 3] = 0;
+              continue;
+            }
+            const [r, g, b] = colorMap((val - vmin) / denom);
+            pixels[off] = r;
+            pixels[off + 1] = g;
+            pixels[off + 2] = b;
+            pixels[off + 3] = 255;
+          }
+        }
+        ctx.putImageData(image, marginLeft, marginTop);
+      }
+
+      // --- Row labels: one per row when there is room, else on a period ---
+      // Greedy 11 px spacing (a 10 px glyph plus leading). At 1 px per row this
+      // degrades to every 11th row rather than overprinting.
+      const labelPeriod = Math.max(1, Math.ceil(11 / Math.max(rowH, 0.001)));
+      let lastLabelY = -1e9;
+      let labelsDrawn = 0;
+
+      ctx.save();
+      ctx.font = rowFont;
+      ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
+
+      for (let row = 0; row < nRows; row++) {
+        const py = marginTop + row * rowH + Math.min(rowH, 9) * 0.85;
+        if (py - lastLabelY < 11) continue;
+        if (py < marginTop || py > marginTop + plotH) continue;
+
+        ctx.fillText(String(vcpIndex[row]), colVcp, py);
+        ctx.fillText(String(sweepNumber[row]), colSwp, py);
+        ctx.fillText(formatTimeUTC(returnTimeMs[row]), colTime, py);
+        lastLabelY = py;
+        labelsDrawn++;
+      }
+      ctx.restore();
+
+      // --- Thin divider between every set of folded returns ---
+      // Confined to the plot area: drawing across the gutter would mask the labels.
+      ctx.save();
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.6)";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < groupStarts.length; i++) {
+        const py = Math.round(marginTop + groupStarts[i] * rowH) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(marginLeft, py);
+        ctx.lineTo(marginLeft + plotW, py);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // --- X-axis: gate index within the fold ---
+      ctx.save();
+      ctx.strokeStyle = "rgba(110, 118, 129, 0.5)";
+      ctx.fillStyle = "rgba(17, 24, 39, 0.85)";
+      ctx.font = "10px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+      ctx.lineWidth = 1;
+      for (const gate of niceTicks(0, (nRange - 1) * rangeStride, 8)) {
+        const px = marginLeft + (gate / rangeStride / nRange) * plotW;
+        if (px < marginLeft || px > marginLeft + plotW) continue;
+        ctx.beginPath();
+        ctx.moveTo(px, marginTop + plotH);
+        ctx.lineTo(px, marginTop + plotH + 4);
+        ctx.stroke();
+        ctx.fillText(String(Math.round(gate)), px - 8, marginTop + plotH + 14);
+      }
+      ctx.fillText(
+        "Gate index within fold (hover for unfolded range)",
+        marginLeft,
+        height - 6,
+      );
+
+      // Gutter column headers
+      ctx.fillText("VCP", colVcp, 14);
+      ctx.fillText("SWP", colSwp, 14);
+      ctx.fillText("TIME", colTime, 14);
+      ctx.strokeRect(marginLeft, marginTop, plotW, plotH);
+      ctx.restore();
+
+      // --- Overlay text ---
+      const moment = String(meta.moment || "");
+      const nGroups = Number(meta.n_groups) || 0;
+      const periodNote = labelPeriod > 1 ? ` | ${labelsDrawn}/${nRows} rows labelled` : "";
+      const label =
+        `Folded waterfall | moment=${moment} | rows ${rowOffset}-${rowOffset + nRows - 1}` +
+        ` of ${rowTotal} | ${nGroups} fold sets | ${rowH.toFixed(2)} px/row${periodNote}`;
+      ctx.save();
+      ctx.font = "11px ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = "rgba(17, 24, 39, 0.75)";
+      ctx.fillRect(marginLeft, 4, tw + 12, 20);
+      ctx.fillStyle = "#f9fafb";
+      ctx.fillText(label, marginLeft + 6, 18);
+      ctx.restore();
+    }
+
+    function hideTooltip() {
+      tooltip.style.display = "none";
+      if (lastHoverKey !== "") {
+        lastHoverKey = "";
+        model.set("hover", {});
+        model.save_changes();
+      }
+    }
+
+    function onMove(event) {
+      const meta = model.get("meta") || {};
+      const nRows = Number(meta.n_rows) || 0;
+      const nRange = Number(meta.n_range) || 0;
+      const rangeStride = Number(meta.range_stride) || 1;
+      const rowOffset = Number(meta.row_offset) || 0;
+      if (nRows === 0 || nRange === 0 || grid.length === 0) {
+        hideTooltip();
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const px = event.clientX - rect.left;
+      const py = event.clientY - rect.top;
+      const plotW = canvas.width - marginLeft - marginRight;
+      const plotH = canvas.height - marginTop - marginBottom;
+
+      if (px < marginLeft || px > marginLeft + plotW || py < marginTop || py > marginTop + plotH) {
+        hideTooltip();
+        return;
+      }
+
+      const row = Math.floor(((py - marginTop) / plotH) * nRows);
+      const col = Math.floor(((px - marginLeft) / plotW) * nRange);
+      if (row < 0 || row >= nRows || col < 0 || col >= nRange) {
+        hideTooltip();
+        return;
+      }
+
+      const val = grid[row * nRange + col];
+      const gateIdx = col * rangeStride;
+      const rangeKm = gateRangeM(row, gateIdx) / 1000;
+      const valStr = Number.isFinite(val) ? val.toFixed(2) : "NaN";
+      const timeStr = formatTimeUTC(returnTimeMs[row]);
+      const vcpStr = row < vcpTimeMs.length ? formatTimeUTC(vcpTimeMs[row]) : "";
+
+      tooltip.style.display = "block";
+      tooltip.style.left = `${px + 12}px`;
+      tooltip.style.top = `${py + 12}px`;
+      tooltip.textContent =
+        `value=${valStr} vcp=${vcpIndex[row]}@${vcpStr} sweep=${sweepNumber[row]} ` +
+        `fold=${foldIndex[row]} gate=${gateIdx} range=${rangeKm.toFixed(2)}km ` +
+        `az=${azimuth[row].toFixed(2)}° el=${elevation[row].toFixed(2)}° time=${timeStr}Z`;
+
+      const hoverKey = `${row},${col}`;
+      if (hoverKey !== lastHoverKey) {
+        lastHoverKey = hoverKey;
+        model.set("hover", {
+          row,
+          col,
+          value: Number(val),
+          return_index: rowOffset + row,
+          vcp_index: Number(vcpIndex[row]),
+          vcp_time_utc: vcpStr,
+          sweep_number: Number(sweepNumber[row]),
+          fold_index: Number(foldIndex[row]),
+          gate_index: gateIdx,
+          range_km: rangeKm,
+          azimuth_deg: Number(azimuth[row]),
+          elevation_deg: Number(elevation[row]),
+          time_utc: timeStr,
+        });
+        model.save_changes();
+      }
+    }
+
+    function onLeave() {
+      hideTooltip();
+    }
+
+    const watched = [
+      "width", "height", "meta", "grid_bytes", "vcp_index_bytes",
+      "vcp_time_ms_bytes", "sweep_number_bytes", "azimuth_bytes",
+      "elevation_bytes", "return_time_ms_bytes", "base_range_bytes",
+      "range_step_bytes", "fold_index_bytes", "group_start_bytes",
+    ];
+    for (const key of watched) {
+      model.on(`change:${key}`, redraw);
+    }
+
+    canvas.addEventListener("mousemove", onMove);
+    canvas.addEventListener("mouseleave", onLeave);
+
+    redraw();
+
+    return () => {
+      for (const key of watched) {
+        model.off(`change:${key}`, redraw);
+      }
+      canvas.removeEventListener("mousemove", onMove);
+      canvas.removeEventListener("mouseleave", onLeave);
+    };
+  },
+};
+"""
+
 _WIDGET_CSS: Final[str] = """
 .radrs-viz-root {
   position: relative;
@@ -3252,6 +3837,98 @@ if _anywidget is not None and _traitlets is not None:
             w.set_payload(payload)
             return w
 
+    class FoldedWaterfallWidget(_anywidget.AnyWidget):
+        """Binary anywidget renderer for the row-per-return folded view."""
+
+        _esm = _FOLDED_WATERFALL_WIDGET_ESM
+        _css = _WIDGET_CSS
+
+        width = _traitlets.Int(900).tag(sync=True)
+        height = _traitlets.Int(900).tag(sync=True)
+        grid_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        vcp_index_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        vcp_time_ms_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        sweep_number_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        azimuth_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        elevation_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        return_time_ms_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        base_range_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        range_step_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        fold_index_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        group_start_bytes = _traitlets.Bytes(b"").tag(sync=True)
+        meta = _traitlets.Dict(default_value={}).tag(sync=True)
+        hover = _traitlets.Dict(default_value={}).tag(sync=True)
+
+        def __init__(self, width: int = 900, height: int = 900):
+            super().__init__()
+            self.width = int(width)
+            self.height = int(height)
+
+        def set_payload(self, payload: FoldedWaterfallPayload) -> None:
+            state = payload.to_widget_state()
+            for trait in (
+                "grid_bytes",
+                "vcp_index_bytes",
+                "vcp_time_ms_bytes",
+                "sweep_number_bytes",
+                "azimuth_bytes",
+                "elevation_bytes",
+                "return_time_ms_bytes",
+                "base_range_bytes",
+                "range_step_bytes",
+                "fold_index_bytes",
+                "group_start_bytes",
+            ):
+                setattr(self, trait, _state_bytes(state, trait))
+
+            meta = state.get("meta")
+            if not isinstance(meta, dict):
+                raise TypeError("widget state meta must be a dict")
+            self.meta = meta
+
+        def clear(self) -> None:
+            for trait in (
+                "grid_bytes",
+                "vcp_index_bytes",
+                "vcp_time_ms_bytes",
+                "sweep_number_bytes",
+                "azimuth_bytes",
+                "elevation_bytes",
+                "return_time_ms_bytes",
+                "base_range_bytes",
+                "range_step_bytes",
+                "fold_index_bytes",
+                "group_start_bytes",
+            ):
+                setattr(self, trait, b"")
+            self.meta = {"n_rows": 0, "n_range": 0, "moment": ""}
+            self.hover = {}
+
+        @classmethod
+        def from_datatree(
+            cls,
+            dt: xr.DataTree,
+            moment: str,
+            *,
+            row_offset: int = 0,
+            row_count: int = 512,
+            max_range: int | None = None,
+            width: int = 900,
+            height: int = 900,
+        ) -> "FoldedWaterfallWidget":
+            returns, _sweeps = get_returns_and_sweeps(dt)
+            payload = prepare_folded_waterfall_payload(
+                returns,
+                moment,
+                row_offset=row_offset,
+                row_count=row_count,
+                max_range=max_range,
+            )
+            w = cls(width=width, height=height)
+            w.set_payload(payload)
+            return w
+
+
 else:
 
     class PolarWidget:  # pragma: no cover - runtime guard for optional deps
@@ -3309,7 +3986,9 @@ else:
             )
 
 
-Payload = PolarPayload | VolumePayload | GridPayload | WaterfallPayload
+Payload = (
+    PolarPayload | VolumePayload | GridPayload | WaterfallPayload | FoldedWaterfallPayload
+)
 
 __all__ = [
     "MOMENT_NAMES",
@@ -3318,6 +3997,7 @@ __all__ = [
     "VolumePayload",
     "GridPayload",
     "WaterfallPayload",
+    "FoldedWaterfallPayload",
     "Payload",
     "available_moments",
     "get_returns_and_sweeps",
@@ -3329,8 +4009,10 @@ __all__ = [
     "prepare_cappi_payload",
     "prepare_xsec_payload",
     "prepare_waterfall_payload",
+    "prepare_folded_waterfall_payload",
     "PolarWidget",
     "VolumeWidget",
     "GridWidget",
     "WaterfallWidget",
+    "FoldedWaterfallWidget",
 ]

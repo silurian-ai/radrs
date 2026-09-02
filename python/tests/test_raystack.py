@@ -326,7 +326,10 @@ class TestFromXradarDatatree:
         except ImportError:
             pytest.skip("xradar not installed")
 
-        xrad_dt = xd.io.open_nexradlevel2_datatree(test_file_path)
+        # xradar >= 0.12 drops /radar_parameters, /georeferencing_correction and
+        # /radar_calibration unless optional_groups=True. This test exists to prove
+        # from_xradar_datatree skips non-sweep children, so ask for them explicitly.
+        xrad_dt = xd.io.open_nexradlevel2_datatree(test_file_path, optional_groups=True)
         non_sweep = [k for k in xrad_dt.children.keys() if not k.startswith("sweep_")]
         assert len(non_sweep) > 0
 

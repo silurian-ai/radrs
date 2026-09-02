@@ -20,7 +20,7 @@ pub mod archive;
 pub mod realtime;
 
 pub use archive::fetch_s3_url;
-pub use realtime::poll_realtime_chunks;
+pub use realtime::{ChunkId, poll_realtime_chunks};
 
 /// Public archive bucket for complete NEXRAD Level 2 volumes.
 pub const ARCHIVE_BUCKET: &str = "unidata-nexrad-level2";

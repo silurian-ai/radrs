@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare radrs.xradar output against xradar for a single file.
+"""Benchmark radrs.xradar output against xradar for a single file.
 
 Examples:
   python python/tools/compare_xradar.py /path/to/file.ar2v
