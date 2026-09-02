@@ -383,8 +383,8 @@ else:
             Notes
             -----
             Running out of capacity is not an error. A volume that does not fit
-            is rejected whole — adds are atomic, so a partial volume never lands
-            — and iteration continues, so an undersized batch quietly yields a
+            is rejected whole (adds are atomic, so a partial volume never lands)
+            and iteration continues, so an undersized batch quietly yields a
             truncated time range. Compare the returned count against the number
             of volumes you expected. Fetch and parse failures are skipped the
             same way; set ``RADRS_LOG=warn`` to see the reason for each skip.
@@ -440,7 +440,7 @@ else:
         def progress(self):
             """Get current fill progress.
 
-            Call this before finalizing — ``finalize()`` trims the arrays, after
+            Call this before finalizing. ``finalize()`` trims the arrays, after
             which the capacity figures no longer describe what was reserved.
 
             Notes

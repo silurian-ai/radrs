@@ -52,10 +52,11 @@ rdt["returns"]["DBZH"].shape  # (n_returns, 128)
 `fold_size` chunks each radial along the range axis: a radial with
 `n_gates > fold_size` becomes `ceil(n_gates / fold_size)` returns of
 `fold_size` gates each, NaN-padded past the last real gate. The `range`
-coordinate is the gate's index within its fold, not a distance — see
-[Batch iteration and folding](batching.md#folding) for the trade-off and for
-recovering physical range, and [Raystack format](raystack-format.md) for the
-array layout.
+coordinate is the gate's index within its fold, not a distance. See
+[Raystack format](raystack-format.md#returns-and-folding) for the array layout
+and for recovering physical range, and
+[Batch iteration and folding](batching.md#folding) for how `fold_size` trades
+rows against columns.
 
 ## Anonymous S3 access
 
@@ -79,9 +80,8 @@ archive = radrs.NexradL2ArchiveIter(
 )
 ```
 
-See
-[Iterating an S3 archive](batching.md#iterating-an-s3-archive)
-for the full surface.
+See [Iterating an archive](batching.md#iterating-an-archive) for the full
+surface.
 
 ## Accumulate a time range into one array
 
@@ -112,7 +112,7 @@ first fetch and `n_added` has to be checked afterwards. See
   fixed-shape output.
 - [Quality control](qc.md) — `RhohvThreshold`, `SunSpike`, and
   `VradhWindingNumber` applied during raystack parsing.
-- [XRadar interop](xradar-interop.md) — sweep ordering, NaN semantics for
+- [xradar interop](xradar-interop.md) — sweep ordering, NaN semantics for
   below-threshold gates, and the `sort_by_azimuth` flag.
 - [Visualization](visualization.md) — the marimo viewers for a single volume
   and for a whole batch.
