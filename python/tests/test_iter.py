@@ -4,26 +4,6 @@ import pytest
 import radrs
 
 
-class TestStreamArchive:
-    """Tests for stream_archive function."""
-
-    def test_stream_archive_returns_async_iterator(self):
-        """Test that stream_archive returns an async iterator."""
-
-        stream = radrs.stream_archive("KTLX")
-
-        # Should be async iterable
-        assert hasattr(stream, "__aiter__")
-        assert hasattr(stream, "__anext__")
-
-    def test_stream_archive_with_poll_interval(self):
-        """Test that stream_archive accepts poll_interval parameter."""
-
-        stream = radrs.stream_archive("KTLX", poll_interval=60)
-
-        assert hasattr(stream, "__aiter__")
-
-
 class TestStreamRealtime:
     """Tests for stream_realtime function."""
 
@@ -32,6 +12,11 @@ class TestStreamRealtime:
 
         with pytest.raises(NotImplementedError):
             radrs.stream_realtime("KTLX")
+
+
+def test_stream_archive_is_not_exported():
+    assert not hasattr(radrs, "stream_archive")
+    assert not hasattr(radrs._radrs, "stream_archive")
 
 
 class TestNexradL2ArchiveIter:
