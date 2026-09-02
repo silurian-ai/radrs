@@ -14,7 +14,10 @@ class VerifyReleaseTagTests(unittest.TestCase):
         self.metadata = load_metadata(REPOSITORY)
 
     def test_current_release_tag_matches_all_metadata(self) -> None:
-        self.assertEqual(verify_release_tag("radrs-v0.3.7", self.metadata), "0.3.7")
+        tag = f"radrs-v{self.metadata.cargo_version}"
+        self.assertEqual(
+            verify_release_tag(tag, self.metadata), self.metadata.cargo_version
+        )
 
     def test_rejects_non_release_tag(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported release tag"):
@@ -29,7 +32,7 @@ class VerifyReleaseTagTests(unittest.TestCase):
             manifest_version=self.metadata.manifest_version,
         )
         with self.assertRaisesRegex(ValueError, "Cargo.toml=0.3.6"):
-            verify_release_tag("radrs-v0.3.7", mismatched)
+            verify_release_tag(f"radrs-v{self.metadata.cargo_version}", mismatched)
 
     def test_rejects_static_python_version(self) -> None:
         static_version = self.metadata.__class__(
@@ -40,7 +43,9 @@ class VerifyReleaseTagTests(unittest.TestCase):
             manifest_version=self.metadata.manifest_version,
         )
         with self.assertRaisesRegex(ValueError, "derive its version"):
-            verify_release_tag("radrs-v0.3.7", static_version)
+            verify_release_tag(
+                f"radrs-v{self.metadata.cargo_version}", static_version
+            )
 
 
 if __name__ == "__main__":
