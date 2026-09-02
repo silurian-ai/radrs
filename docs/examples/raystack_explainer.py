@@ -30,6 +30,7 @@ from numpy.typing import NDArray
 
 DEFAULT_SOURCE = "s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06"
 MOMENT_NAMES = ("DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH")
+PAD_COLOR = "#b45309"
 
 
 @dataclass(frozen=True)
@@ -228,18 +229,25 @@ def draw_radial_folding(
     cmap = plt.get_cmap("viridis").copy()
     cmap.set_bad(color="#e6ebe9")
 
+    n_total = flattened.shape[1]
+    # Gates >= actual_gates exist only to pad the final return row to fold_size.
+    pad_start_col = actual_gates % fold_size
+    has_padding = actual_gates < n_total
+
     strip_y0, strip_h = 0.78, 0.10
+    x_strip_pad = 0.05 + actual_gates / n_total * 0.9
     ax.imshow(
-        flattened,
-        extent=(0.05, 0.95, strip_y0, strip_y0 + strip_h),
+        flattened[:, :actual_gates],
+        extent=(0.05, x_strip_pad, strip_y0, strip_y0 + strip_h),
         aspect="auto",
         cmap=cmap,
         interpolation="nearest",
         zorder=2,
     )
-    n_total = flattened.shape[1]
     for chunk in range(1, n_chunks):
         x_pos = 0.05 + (chunk * fold_size) / n_total * 0.9
+        if x_pos >= x_strip_pad:
+            continue
         ax.plot(
             [x_pos, x_pos],
             [strip_y0, strip_y0 + strip_h],
@@ -247,6 +255,28 @@ def draw_radial_folding(
             linewidth=0.6,
             alpha=0.85,
             zorder=3,
+        )
+    if has_padding:
+        ax.add_patch(
+            Rectangle(
+                (x_strip_pad, strip_y0),
+                0.95 - x_strip_pad,
+                strip_h,
+                linewidth=1.0,
+                edgecolor=PAD_COLOR,
+                facecolor="none",
+                hatch="///",
+                zorder=4,
+            )
+        )
+        ax.text(
+            (x_strip_pad + 0.95) / 2,
+            strip_y0 - 0.04,
+            "pad",
+            fontsize=7,
+            color=PAD_COLOR,
+            ha="center",
+            va="top",
         )
     ax.add_patch(
         Rectangle(
@@ -256,7 +286,7 @@ def draw_radial_folding(
             linewidth=1.0,
             edgecolor="#315452",
             facecolor="none",
-            zorder=4,
+            zorder=5,
         )
     )
     ax.text(
@@ -268,9 +298,9 @@ def draw_radial_folding(
     )
     ax.text(0.05, strip_y0 - 0.04, "gate 0", fontsize=7, color="#50615f", ha="left", va="top")
     ax.text(
-        0.95,
+        x_strip_pad,
         strip_y0 - 0.04,
-        f"gate {n_total - 1}",
+        f"gate {actual_gates - 1:,}",
         fontsize=7,
         color="#50615f",
         ha="right",
@@ -287,10 +317,11 @@ def draw_radial_folding(
         va="center",
     )
 
-    stack_top, stack_h = 0.50, 0.40
+    stack_top, stack_h = 0.50, 0.36
+    stack_bottom = stack_top - stack_h
     ax.imshow(
         radial,
-        extent=(0.05, 0.95, stack_top - stack_h, stack_top),
+        extent=(0.05, 0.95, stack_bottom, stack_top),
         aspect="auto",
         cmap=cmap,
         interpolation="nearest",
@@ -328,13 +359,39 @@ def draw_radial_folding(
         fontsize=9,
         color="#203332",
     )
+
+    if has_padding:
+        x_pad = 0.05 + pad_start_col / fold_size * 0.9
+        ax.add_patch(
+            Rectangle(
+                (x_pad, stack_bottom),
+                0.95 - x_pad,
+                cell_h,
+                linewidth=1.0,
+                edgecolor=PAD_COLOR,
+                facecolor="none",
+                hatch="///",
+                zorder=5,
+            )
+        )
+        ax.annotate(
+            f"padding: last {n_total - actual_gates} cells of return {n_chunks - 1}",
+            xy=((x_pad + 0.95) / 2, stack_bottom),
+            xytext=((x_pad + 0.95) / 2, stack_bottom - 0.06),
+            ha="center",
+            va="top",
+            fontsize=7,
+            color=PAD_COLOR,
+            arrowprops={"arrowstyle": "-|>", "color": PAD_COLOR, "linewidth": 0.9},
+        )
     ax.text(
-        0.95,
-        stack_top - stack_h - 0.04,
-        "trailing pad cells (NaN) shown in gray",
+        0.05,
+        stack_bottom - 0.115,
+        "hatched: trailing padding past the last real gate; "
+        "gray: NaN gates (missing or below threshold)",
         fontsize=7,
         color="#7a8a87",
-        ha="right",
+        ha="left",
         va="top",
         style="italic",
     )
@@ -395,27 +452,74 @@ def draw_flat_schema(
 
 def draw_ml_tensor(
     ax: Axes,
+    sweeps: xr.Dataset,
     returns: xr.Dataset,
     moment: str,
     offsets: NDArray[np.int64],
     *,
     show_title: bool = True,
+    window_rows: int = 320,
 ) -> None:
-    """Draw a real moment matrix sample and its aligned metadata."""
+    """Draw a real moment matrix window straddling a sweep boundary."""
     if show_title:
         ax.set_title("4. ML tensor", loc="left", fontsize=12, fontweight="bold")
     data = np.asarray(returns[moment].values, dtype=np.float32)
-    sample_rows = min(320, data.shape[0])
-    sample_cols = min(returns.sizes["range"], data.shape[1])
-    sample = data[:sample_rows, :sample_cols]
+    n_rows = data.shape[0]
+    fold_size = min(returns.sizes["range"], data.shape[1])
 
-    im = ax.imshow(sample, aspect="auto", interpolation="nearest", cmap="viridis")
-    for offset in offsets:
-        if 0 < offset < sample_rows:
-            ax.axhline(offset - 0.5, color="white", linewidth=0.6, alpha=0.8)
+    # Centre the window on a real sweep boundary so the panel shows one.
+    boundary = next(
+        (int(off) for off in offsets[1:-1] if 0 < int(off) < n_rows),
+        None,
+    )
+    window = min(window_rows, n_rows)
+    if boundary is None:
+        row_start = 0
+    else:
+        row_start = min(max(0, boundary - window // 2), n_rows - window)
+    row_stop = row_start + window
+    sample = data[row_start:row_stop, :fold_size]
+
+    im = ax.imshow(
+        sample,
+        aspect="auto",
+        interpolation="nearest",
+        cmap="viridis",
+        extent=(-0.5, fold_size - 0.5, row_stop - 0.5, row_start - 0.5),
+    )
+
+    # Faint lines every ceil(max_gates / fold_size) rows: one physical radial.
+    max_gates = np.asarray(sweeps["max_gates"].values, dtype=np.int64)
+    for s_idx in range(max_gates.size):
+        chunks = max(1, int(np.ceil(max_gates[s_idx] / fold_size)))
+        s_start, s_stop = int(offsets[s_idx]), int(offsets[s_idx + 1])
+        first = s_start + chunks * int(np.ceil(max(row_start - s_start, 0) / chunks))
+        for row in range(first, min(s_stop, row_stop), chunks):
+            if row_start < row < row_stop:
+                ax.axhline(row - 0.5, color="#94a3b8", linewidth=0.4, alpha=0.55)
+
+    sweep_idx = None
+    if boundary is not None:
+        sweep_idx = int(np.searchsorted(offsets, boundary)) - 1
+        ax.axhline(boundary - 0.5, color="#f97316", linewidth=1.8)
+        for label, row_offset, valign in (
+            (f"sweep {sweep_idx}", -3, "bottom"),
+            (f"sweep {sweep_idx + 1}", 3, "top"),
+        ):
+            ax.text(
+                fold_size - 3,
+                boundary + row_offset,
+                label,
+                ha="right",
+                va=valign,
+                fontsize=8,
+                fontweight="bold",
+                color="#7c2d12",
+                bbox={"boxstyle": "round,pad=0.2", "facecolor": "white", "edgecolor": "none"},
+            )
 
     ax.set_xlabel("gate within fold_size")
-    ax.set_ylabel("return row")
+    ax.set_ylabel("return row (absolute index)")
     ax.text(
         1.02,
         0.92,
@@ -425,6 +529,23 @@ def draw_ml_tensor(
         va="top",
         fontsize=8,
         color="#203332",
+    )
+    boundary_note = (
+        f"orange line: sweep {sweep_idx} | sweep {sweep_idx + 1} boundary; "
+        if sweep_idx is not None
+        else ""
+    )
+    ax.text(
+        0.0,
+        -0.16,
+        f"window: rows {row_start:,}–{row_stop - 1:,} of {n_rows:,}; "
+        f"{boundary_note}faint lines: radial boundaries",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=7,
+        color="#7a8a87",
+        style="italic",
     )
     ax.text(
         0.02,
@@ -476,7 +597,7 @@ def create_raystack_explainer(parts: RaystackParts, *, fold_size: int = 128) -> 
         fold_size,
     )
     draw_flat_schema(flat_axes[2], parts.vcps, parts.sweeps, parts.returns)
-    draw_ml_tensor(flat_axes[3], parts.returns, parts.moment, parts.offsets)
+    draw_ml_tensor(flat_axes[3], parts.sweeps, parts.returns, parts.moment, parts.offsets)
     fig.suptitle("Raystack: from NEXRAD L2 volume to flat training arrays", fontsize=16)
     return fig
 
@@ -486,12 +607,10 @@ def create_panel_figures(parts: RaystackParts, *, fold_size: int = 128) -> list[
     panel_specs = [
         (
             "physical-scan",
-            "1. Physical scan",
             lambda ax: draw_physical_scan(ax, parts.vcps, parts.sweeps, show_title=False),
         ),
         (
             "fold-radial",
-            "2. Fold one radial",
             lambda ax: draw_radial_folding(
                 ax,
                 parts.sweeps,
@@ -504,7 +623,6 @@ def create_panel_figures(parts: RaystackParts, *, fold_size: int = 128) -> list[
         ),
         (
             "flat-schema",
-            "3. Flat schema",
             lambda ax: draw_flat_schema(
                 ax,
                 parts.vcps,
@@ -515,9 +633,9 @@ def create_panel_figures(parts: RaystackParts, *, fold_size: int = 128) -> list[
         ),
         (
             "ml-tensor",
-            "4. ML tensor",
             lambda ax: draw_ml_tensor(
                 ax,
+                parts.sweeps,
                 parts.returns,
                 parts.moment,
                 parts.offsets,
@@ -527,7 +645,7 @@ def create_panel_figures(parts: RaystackParts, *, fold_size: int = 128) -> list[
     ]
 
     figures: list[tuple[str, Figure]] = []
-    for slug, _title, draw in panel_specs:
+    for slug, draw in panel_specs:
         fig, ax = plt.subplots(figsize=(8, 4.8), constrained_layout=True)
         draw(ax)
         figures.append((slug, fig))

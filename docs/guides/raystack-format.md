@@ -17,6 +17,8 @@ return. Moment data (`DBZH`, `VRADH`, `RHOHV`, …) lives in the `returns`
 table as 2-D arrays whose first axis matches the return-level metadata
 row-for-row.
 
+![Overview of the raystack format: physical volume, folding a radial, flat schema, and the resulting tensor.](../assets/raystack-explainer.png)
+
 ## Returns and folding
 
 A *return* is a fixed-width chunk of range gates from a single radial. The
@@ -116,18 +118,28 @@ moment values along its range gates.
 ![Physical scan panel showing a VCP with several sweeps from a KABR NEXRAD Level 2 volume.](../assets/raystack-explainer-panels/physical-scan.png)
 
 **Folding a radial.** Raystack splits each radial into fixed-width rows
-and keeps the metadata needed to place each row back in radar space.
+and keeps the metadata needed to place each row back in radar space. The
+1,832 gates of this radial fill returns 0–13 completely and the first 40
+gates of return 14; the hatched region is the trailing padding that fills
+return 14 out to `fold_size`. Padding is NaN, but so are gates that are
+missing or below the detection threshold — those are the gray cells
+scattered through the real part of the radial. Nothing in the moment array
+distinguishes the two, so use `sweeps["max_gates"]` when you need to know
+where the real gates end.
 
-![Radial folding panel showing range gates split into fixed-size return rows.](../assets/raystack-explainer-panels/fold-radial.png)
+![Radial folding panel showing range gates split into fixed-size return rows, with the trailing padding of the last row hatched.](../assets/raystack-explainer-panels/fold-radial.png)
 
 **Flat schema.** The hierarchy lives in three aligned tables —
 `vcps`, `sweeps`, `returns` — linked by `sweeps["num_returns"]`.
 
 ![Flat schema panel showing vcps, sweeps, and returns datasets.](../assets/raystack-explainer-panels/flat-schema.png)
 
-**Tensor view.** Each moment is a `(n_returns, fold_size)` matrix.
-Horizontal lines mark sweep boundaries. The 1-D metadata arrays line up
-row-for-row, so the same matrix is consumable as a tensor and
+**Tensor view.** Each moment is a `(n_returns, fold_size)` matrix. The
+panel below shows a 320-row window of `DBZH` centred on the end of sweep 0
+(row 10,800): the orange line is that sweep boundary, and the faint lines
+are radial boundaries — every 15 rows in sweep 0, every 10 in sweep 1,
+because the two sweeps have different `max_gates`. The 1-D metadata arrays
+line up row-for-row, so the same matrix is consumable as a tensor and
 interpretable as radar data.
 
-![ML tensor panel showing a DBZH return-by-range matrix and aligned metadata.](../assets/raystack-explainer-panels/ml-tensor.png)
+![ML tensor panel showing a window of the DBZH return-by-range matrix straddling the sweep 0 / sweep 1 boundary, with aligned metadata.](../assets/raystack-explainer-panels/ml-tensor.png)
