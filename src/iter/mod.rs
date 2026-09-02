@@ -13,7 +13,6 @@ pub use peek::{
     PEEK_FAST_INITIAL, PEEK_MAX_RECORDS, PEEK_SCAN_MAX, VOLUME_HEADER_SIZE, VolumeMeta,
     peek_volume, peek_volume_bytes, peek_volume_with_mode,
 };
-pub use realtime::stream_archive;
 
 use pyo3::prelude::*;
 
@@ -24,10 +23,6 @@ pub fn register_functions(parent_module: &Bound<'_, PyModule>) -> PyResult<()> {
     parent_module.add_class::<l2_archive::NexradL2ArchiveIter>()?;
     parent_module.add_function(wrap_pyfunction!(l2_archive::list_nexrad_l2_archive_volumes_py, parent_module)?)?;
     parent_module.add_function(wrap_pyfunction!(peek::peek_volume_py, parent_module)?)?;
-    parent_module.add_function(wrap_pyfunction!(
-        realtime::stream_archive_py,
-        parent_module
-    )?)?;
     parent_module.add_function(wrap_pyfunction!(
         realtime::stream_realtime_py,
         parent_module
