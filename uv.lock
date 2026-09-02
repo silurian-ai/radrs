@@ -2778,7 +2778,7 @@ requires-dist = [
     { name = "pytest-benchmark", marker = "extra == 'test'" },
     { name = "ray", marker = "extra == 'ray'" },
     { name = "xarray", specifier = ">=2024.10.0" },
-    { name = "xradar", marker = "extra == 'test'" },
+    { name = "xradar", marker = "extra == 'test'", specifier = ">=0.12" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3" },
 ]
 provides-extras = ["ray", "test", "zarr"]

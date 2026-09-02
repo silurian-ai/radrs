@@ -257,6 +257,7 @@ fn create_metadata_dataset<'py>(
 }
 
 /// Convert a Sweep to an xarray Dataset
+#[allow(clippy::too_many_arguments)]
 fn sweep_to_dataset<'py>(
     py: Python<'py>,
     xr: &Bound<'py, PyModule>,
