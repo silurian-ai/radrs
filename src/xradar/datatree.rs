@@ -7,7 +7,8 @@ use crate::metadata::{ScanMeta, extract_scan_meta};
 use crate::metadata_build::{build_root_attrs, build_root_vars, set_sweep_mode_scalars};
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{
-    CFPMomentData, CFPMomentValue, DataMoment, MomentData, MomentValue, Radial, Scan, Sweep,
+    CFPMomentData, CFPMomentValue, DataMoment, ElevationCut, MomentData, MomentValue, Radial, Scan,
+    Sweep,
 };
 use numpy::IntoPyArray;
 use pyo3::PyErr;
@@ -185,10 +186,22 @@ pub(crate) fn scan_to_datatree(
     let tree_dict = PyDict::new(py);
     tree_dict.set_item("/", root_ds)?;
 
+    // Nominal sweep angles live in the VCP's elevation-cut table, not in the radials
+    let elevation_cuts = scan.coverage_pattern().elevation_cuts();
+
     // Add sweep datasets
     for (sweep_idx, sweep) in scan.sweeps().iter().enumerate() {
         let sweep_name = format!("/sweep_{}", sweep_idx);
-        let dataset = sweep_to_dataset(py, &xr, &np, sweep, sweep_idx, meta, sort_by_azimuth)?;
+        let dataset = sweep_to_dataset(
+            py,
+            &xr,
+            &np,
+            sweep,
+            sweep_idx,
+            meta,
+            sort_by_azimuth,
+            elevation_cuts,
+        )?;
         tree_dict.set_item(&sweep_name, dataset)?;
     }
 
@@ -244,6 +257,7 @@ fn create_metadata_dataset<'py>(
 }
 
 /// Convert a Sweep to an xarray Dataset
+#[allow(clippy::too_many_arguments)]
 fn sweep_to_dataset<'py>(
     py: Python<'py>,
     xr: &Bound<'py, PyModule>,
@@ -252,6 +266,7 @@ fn sweep_to_dataset<'py>(
     sweep_idx: usize,
     meta: &ScanMeta,
     sort_by_azimuth: bool,
+    elevation_cuts: &[ElevationCut],
 ) -> PyResult<Bound<'py, PyAny>> {
     let radials = sweep.radials();
     if radials.is_empty() {
@@ -392,8 +407,16 @@ fn sweep_to_dataset<'py>(
 
     // Add sweep-level scalar variables (xradar-compatible)
     data_vars.set_item("sweep_number", sweep_idx)?;
-    if let Some(first_radial) = radials.first() {
-        data_vars.set_item("sweep_fixed_angle", first_radial.elevation_angle_degrees())?;
+    // `sweep_fixed_angle` is the sweep's *nominal* target angle (CF/FM301).  Falls back to the first radial's
+    // measured elevation when the cut table does not cover this elevation number.
+    let elevation_number = sweep.elevation_number() as usize;
+    let nominal_angle = elevation_cuts
+        .get(elevation_number.wrapping_sub(1))
+        .map(|cut| cut.elevation_angle_degrees() as f32);
+    if let Some(angle) =
+        nominal_angle.or_else(|| radials.first().map(|r| r.elevation_angle_degrees()))
+    {
+        data_vars.set_item("sweep_fixed_angle", angle)?;
     }
     set_sweep_mode_scalars(&data_vars)?;
 

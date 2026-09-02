@@ -950,7 +950,7 @@ name = "importlib-metadata"
 version = "8.7.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "zipp", marker = "python_full_version < '3.14'" },
+    { name = "zipp" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f3/49/3b30cad09e7771a4982d9975a8cbf64f00d4a1ececb53297f1d9a7be1b10/importlib_metadata-8.7.1.tar.gz", hash = "sha256:49fef1ae6440c182052f407c8d34a68f72efc36db9ca90dc0113398f2fdde8bb", size = 57107, upload-time = "2025-12-21T10:00:19.278Z" }
 wheels = [
@@ -2134,7 +2134,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -2724,6 +2724,7 @@ ray = [
     { name = "ray" },
 ]
 test = [
+    { name = "fsspec" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-benchmark" },
@@ -2770,13 +2771,14 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fsspec", marker = "extra == 'test'" },
     { name = "numpy", specifier = ">=1.20" },
     { name = "pytest", marker = "extra == 'test'" },
     { name = "pytest-asyncio", marker = "extra == 'test'" },
     { name = "pytest-benchmark", marker = "extra == 'test'" },
     { name = "ray", marker = "extra == 'ray'" },
     { name = "xarray", specifier = ">=2024.10.0" },
-    { name = "xradar", marker = "extra == 'test'" },
+    { name = "xradar", marker = "extra == 'test'", specifier = ">=0.12" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3" },
 ]
 provides-extras = ["ray", "test", "zarr"]
@@ -2807,7 +2809,7 @@ dev = [
     { name = "ray", specifier = ">=2.53.0" },
     { name = "s3fs", specifier = ">=2026.1.0" },
     { name = "traitlets", specifier = ">=5.14.3" },
-    { name = "xradar", specifier = ">=0.11.0" },
+    { name = "xradar", specifier = ">=0.12" },
     { name = "zizmor", specifier = ">=1.24.1" },
 ]
 docs = [
@@ -3478,16 +3480,16 @@ wheels = [
 
 [[package]]
 name = "xarray"
-version = "2025.12.0"
+version = "2026.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "packaging" },
     { name = "pandas" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d3/af/7b945f331ba8911fdfff2fdfa092763156119f124be1ba4144615c540222/xarray-2025.12.0.tar.gz", hash = "sha256:73f6a6fadccc69c4d45bdd70821a47c72de078a8a0313ff8b1e97cd54ac59fed", size = 3082244, upload-time = "2025-12-05T21:51:22.432Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ea/96/3f7bdd00e505ec3698903415b30135024703e017b28c6b61f98da3193b0d/xarray-2026.7.0.tar.gz", hash = "sha256:361b495928fdbf5b58d0969bb6775339019da5e93ca74d61ddf4eb5edd6ce604", size = 3145348, upload-time = "2026-07-09T17:38:26.515Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d5/e4/62a677feefde05b12a70a4fc9bdc8558010182a801fbcab68cb56c2b0986/xarray-2025.12.0-py3-none-any.whl", hash = "sha256:9e77e820474dbbe4c6c2954d0da6342aa484e33adaa96ab916b15a786181e970", size = 1381742, upload-time = "2025-12-05T21:51:20.841Z" },
+    { url = "https://files.pythonhosted.org/packages/57/5b/28365212062939d213802e5e5fe855cdb231e1c2a93254ba1690066504e3/xarray-2026.7.0-py3-none-any.whl", hash = "sha256:bf9dd130b93806dc78e90c1b7ac24851b31557b888674c53622235691cf21824", size = 1426778, upload-time = "2026-07-09T17:38:24.224Z" },
 ]
 
 [[package]]
@@ -3501,7 +3503,7 @@ wheels = [
 
 [[package]]
 name = "xradar"
-version = "0.11.0"
+version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cmweather" },
@@ -3516,9 +3518,9 @@ dependencies = [
     { name = "xarray" },
     { name = "xmltodict" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/3f/eb/d9ef15de79d891f2e2dc4ccfa960c2a52bc4e433ec3d78a09eaf0fb3d5a9/xradar-0.11.0.tar.gz", hash = "sha256:f61d6ab8977042ca08d1c956cfe23f8a495b7e702e859b79ef532641267192a9", size = 217713, upload-time = "2026-01-12T08:31:17.821Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/32/df/40dd63aac217dba22256a9ab60596904e651dd22f03b58408ec79ceaf78b/xradar-0.12.0.tar.gz", hash = "sha256:72fb38a91437ef66d0272c0ebad39496cc13c6a64c47a4a648e755cc9b4caa21", size = 245907, upload-time = "2026-04-21T13:12:43.13Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/e7/07cef6768fad56e7bebb489da5f17c738f3eaf5c5f5a936f97d51f3f3185/xradar-0.11.0-py3-none-any.whl", hash = "sha256:a206d5d93ccf03596e30d4ebf5377e2b0b39b09acfb88bc2ef520c00598fb299", size = 145613, upload-time = "2026-01-12T08:31:16.439Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/20/3e3b012ee0032f688f0965404822b6ca5d8a9ee6b72966fd6cd5d8d6c08c/xradar-0.12.0-py3-none-any.whl", hash = "sha256:2d017c50ace46b3a872e652c6d65fadff5b56b9fd8f8746a1333f93fb856218e", size = 157783, upload-time = "2026-04-21T13:12:41.194Z" },
 ]
 
 [[package]]
