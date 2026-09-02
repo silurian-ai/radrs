@@ -19,21 +19,22 @@ from datetime import datetime, timedelta
 
 import radrs
 
+BASE_ARCHIVE_URL="s3://unidata-nexrad-level2"
 
 def list_volumes_for_day(site: str, date: str) -> list[str]:
-    """Return volume URIs for a single site/date via NexradL2ArchiveIter.
+    """Return volume URLs for a single site/date via NexradL2ArchiveIter.
 
     `date` is an ISO date string "YYYY-MM-DD".
     """
     day = datetime.strptime(date, "%Y-%m-%d")
     archive = radrs.NexradL2ArchiveIter(
-        base_uri="s3://unidata-nexrad-level2",
+        base_uri=BASE_ARCHIVE_URL,
         start_time=day,
         end_time=day + timedelta(days=1),
         storage_options={"anon": "true", "region": "us-east-1"},
         site_filter=[site],
     )
-    return [info.uri for info in archive]
+    return [BASE_ARCHIVE_URL + "/" + info.uri for info in archive]
 
 # Target sites and dates for different VCP types
 SEARCH_TARGETS = [
