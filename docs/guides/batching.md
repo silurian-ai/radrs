@@ -41,6 +41,12 @@ for info in archive:
 | `site_filter` | List of 4-letter ICAO codes. Omit to take every site in range, which is usually far more than you want. |
 | `max_concurrent_ls` | Parallel directory listings, default 10. Raise it for wide date ranges, where listing dominates. |
 
+Bounds are UTC. An aware datetime is interpreted by instant and normalized to
+UTC; a naive one is interpreted as UTC rather than as the machine's local
+timezone, so the same code selects the same volumes on any host. `vcp_time`
+comes back as an aware UTC datetime, which is why it can be fed straight back
+in as a bound.
+
 Iteration is lazy. Directories are listed as it goes, and nothing is fetched
 until a volume is actually consumed. `radrs.list_nexrad_l2_archive_volumes`
 takes the same arguments and returns the whole listing eagerly as a list, which
@@ -267,21 +273,25 @@ link without much memory cost, since only the fetched bytes are held.
     `add_volumes_from_l2` returns the number of volumes it actually added, and
     it does not raise when the batch fills up. A volume whose reservation does
     not fit is rejected whole (adds are atomic, so a partial volume never
-    lands) and iteration continues, so an undersized batch quietly yields a
-    truncated time range.
+    lands) and iteration continues, so a later, smaller volume can still be
+    admitted: an undersized batch quietly yields a time range with holes in it
+    rather than a clean prefix. Iteration stops early only once a dimension is
+    exactly full.
 
     ```python
     if n_added < len(expected_volumes):
         raise RuntimeError(f"only {n_added} volumes fit; raise max_returns")
     ```
 
-    Fetch and parse failures are skipped the same way. Set `RADRS_LOG=warn` to
-    see the reason for each skip.
+    Fetch failures are skipped the same way, as are parse failures on the
+    default `include_sweeps=True` path. Set `RADRS_LOG=warn` to see the reason
+    for each skip. With `include_sweeps=False`, a volume that cannot be peeked
+    raises instead of being skipped.
 
 Archive bounds are half-open, `[start_time, end_time)`, so pad past the last
 volume's start time when you are driving the range off a listing from
 `radrs.list_nexrad_l2_archive_volumes`. Feeding `vcp_time` back in as a bound
-is safe because both sides use naive local time, as described
+is safe because both sides are UTC-aware, as described
 [above](#iterating-an-archive).
 
 ## Watching capacity
@@ -296,8 +306,10 @@ prog = batch.progress()
 # fill_fraction
 ```
 
-Read it before finalizing. `finalize()` trims the arrays, after which the
-capacity numbers no longer describe what was reserved.
+Read it before `finalize_to_dict()` or `finalize_to_rs_dt()`, which consume
+the batch — `progress()` panics once the buffers have been handed to Python.
+Plain `finalize()` leaves these numbers untouched: it pads the arrays out to
+capacity when `truncate=False` and is a no-op otherwise.
 
 `returns_filled` counts the rows that survived compaction, while
 `returns_capacity` is the uncompacted reservation. With
@@ -399,7 +411,7 @@ n_added = batch.add_volumes_from_l2(
 if n_added < len(selected):
     raise RuntimeError(f"only {n_added} of {len(selected)} volumes fit; raise max_returns")
 
-prog = batch.progress()  # read before finalize trims the arrays
+prog = batch.progress()  # read before finalize_to_rs_dt consumes the batch
 rs_dt = batch.finalize_to_rs_dt()
 returns, sweeps = viz.get_returns_and_sweeps(rs_dt)
 

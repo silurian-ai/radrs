@@ -12,13 +12,13 @@
 use crate::error::{RadrsError, Result};
 use crate::fetch::build_store_from_uri;
 use crate::fetch::extract_base_path;
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Timelike, Utc};
 use futures::stream::{self, StreamExt};
 use object_store::ObjectStore;
 use object_store::ObjectStoreExt;
 use object_store::path::Path as ObjectPath;
 use pyo3::prelude::*;
-use pyo3::types::PyDateTime;
+use pyo3::types::{PyDateAccess, PyDateTime, PyDict, PyTimeAccess, PyTzInfo};
 use regex::Regex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,12 +54,17 @@ impl NexradL2ArchiveInfo {
     /// Get vcp_time as Python datetime
     #[getter]
     fn vcp_time<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDateTime>> {
-        let timestamp = self.vcp_time.timestamp();
-        let microseconds = self.vcp_time.timestamp_subsec_micros();
-        PyDateTime::from_timestamp(
+        let utc = PyTzInfo::utc(py)?;
+        PyDateTime::new(
             py,
-            timestamp as f64 + microseconds as f64 / 1_000_000.0,
-            None,
+            self.vcp_time.year(),
+            self.vcp_time.month() as u8,
+            self.vcp_time.day() as u8,
+            self.vcp_time.hour() as u8,
+            self.vcp_time.minute() as u8,
+            self.vcp_time.second() as u8,
+            self.vcp_time.timestamp_subsec_micros(),
+            Some(&utc),
         )
     }
 
@@ -129,14 +134,37 @@ impl NexradL2ArchiveInfo {
     }
 }
 
-/// Parse Python datetime to UTC DateTime
+/// Parse a Python datetime using the archive's UTC contract.
+///
+/// Naive datetimes are interpreted as UTC, while aware datetimes retain their
+/// represented instant when converted to UTC. Calling `timestamp()` directly
+/// on a naive datetime would instead interpret it in the host's local timezone.
 fn parse_py_datetime(dt: &Bound<'_, PyDateTime>) -> PyResult<DateTime<Utc>> {
-    let ts = dt.call_method0("timestamp")?.extract::<f64>()?;
-    let seconds = ts as i64;
-    let nanos = ((ts - seconds as f64) * 1_000_000_000.0) as u32;
+    let utc = PyTzInfo::utc(dt.py())?;
+    let normalized = if dt.call_method0("utcoffset")?.is_none() {
+        let kwargs = PyDict::new(dt.py());
+        kwargs.set_item("tzinfo", utc)?;
+        dt.call_method("replace", (), Some(&kwargs))?
+    } else {
+        dt.call_method1("astimezone", (&utc,))?
+    };
+    let normalized = normalized.cast::<PyDateTime>()?;
+    let date = NaiveDate::from_ymd_opt(
+        normalized.get_year(),
+        normalized.get_month() as u32,
+        normalized.get_day() as u32,
+    )
+    .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Invalid datetime date"))?;
+    let naive = date
+        .and_hms_micro_opt(
+            normalized.get_hour() as u32,
+            normalized.get_minute() as u32,
+            normalized.get_second() as u32,
+            normalized.get_microsecond(),
+        )
+        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Invalid datetime time"))?;
 
-    DateTime::from_timestamp(seconds, nanos)
-        .ok_or_else(|| pyo3::exceptions::PyValueError::new_err("Invalid timestamp"))
+    Ok(DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
 }
 
 /// Parse NEXRAD L2 filename to extract metadata
@@ -174,7 +202,7 @@ pub struct NexradL2ArchiveIterConfig {
     /// Start time (inclusive) - only volumes with timestamps >= this will be returned
     pub start_time: DateTime<Utc>,
 
-    /// End time (inclusive) - only volumes with timestamps <= this will be returned
+    /// End time (exclusive) - only volumes with timestamps < this will be returned
     pub end_time: DateTime<Utc>,
 
     /// Optional storage options (credentials, region, etc.)
@@ -210,7 +238,7 @@ impl NexradL2ArchiveIterator {
     /// Create a new L2 volume iterator
     ///
     /// Supports S3, GCS, Azure, and local filesystem URIs with configurable storage_options.
-    /// The iterator only returns volumes whose timestamps fall within [start_time, end_time].
+    /// The iterator only returns volumes whose timestamps fall within [start_time, end_time).
     ///
     /// # Examples
     ///
@@ -242,7 +270,7 @@ impl NexradL2ArchiveIterator {
     /// let config = NexradL2ArchiveIterConfig {
     ///     base_uri: "/data/nexrad".to_string(),
     ///     start_time: "2024-03-15T00:00:00Z".parse().unwrap(),
-    ///     end_time: "2024-03-15T23:59:59Z".parse().unwrap(),
+    ///     end_time: "2024-03-16T00:00:00Z".parse().unwrap(),
     ///     storage_options: None,
     ///     site_filter: None,
     /// };
@@ -472,8 +500,14 @@ pub fn list_nexrad_l2_archive_volumes_py(
     site_filter: Option<Vec<String>>,
     max_concurrent_ls: usize,
 ) -> PyResult<Vec<NexradL2ArchiveInfo>> {
-    let mut iter =
-        NexradL2ArchiveIter::new(base_uri, start_time, end_time, storage_options, site_filter, max_concurrent_ls)?;
+    let mut iter = NexradL2ArchiveIter::new(
+        base_uri,
+        start_time,
+        end_time,
+        storage_options,
+        site_filter,
+        max_concurrent_ls,
+    )?;
 
     let mut volumes = Vec::new();
     while let Some(vol) = iter.__next__(py)? {

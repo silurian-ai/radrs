@@ -9,7 +9,16 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Python bindings
-pyo3 = { version = "0.29", features = ["extension-module"] }
+# NOTE: do not add `features = ["extension-module"]` here. That feature tells
+# pyo3 not to link libpython, which is required for the wheel but breaks every
+# target that links a binary -- including `cargo test`. maturin supplies it via
+# `features = ["pyo3/extension-module"]` in pyproject.toml's [tool.maturin].
+#
+# Caveat: a `--features` passed on maturin's command line REPLACES that
+# pyproject list rather than adding to it, so any wheel build that passes
+# --features must repeat `pyo3/extension-module` itself. The Linux and
+# musllinux jobs in .github/workflows/release.yml do exactly that.
+pyo3 = { version = "0.29" }
 numpy = "0.29"
 
 # NEXRAD parsing

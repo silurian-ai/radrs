@@ -1,27 +1,33 @@
 """Tests for radrs iterator functions."""
 
+import json
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import subprocess
+import sys
+import time
+
 import pytest
 import radrs
 
 
-class TestStreamArchive:
-    """Tests for stream_archive function."""
+def _write_local_archive(tmp_path):
+    """Create a local NEXRAD L2 archive tree and return the site directory."""
+    site_dir = tmp_path / "archive" / "2024" / "03" / "15" / "KTLX"
+    site_dir.mkdir(parents=True)
+    for filename in (
+        "KTLX20240315_000000_V06",
+        "KTLX20240315_010000_V06",
+        "KTLX20240315_020000_V06",
+    ):
+        (site_dir / filename).touch()
+    return site_dir
 
-    def test_stream_archive_returns_async_iterator(self):
-        """Test that stream_archive returns an async iterator."""
 
-        stream = radrs.stream_archive("KTLX")
-
-        # Should be async iterable
-        assert hasattr(stream, "__aiter__")
-        assert hasattr(stream, "__anext__")
-
-    def test_stream_archive_with_poll_interval(self):
-        """Test that stream_archive accepts poll_interval parameter."""
-
-        stream = radrs.stream_archive("KTLX", poll_interval=60)
-
-        assert hasattr(stream, "__aiter__")
+def _basename(uri):
+    """Last path component of a URI, independent of the host separator."""
+    return uri.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 class TestStreamRealtime:
@@ -34,8 +40,125 @@ class TestStreamRealtime:
             radrs.stream_realtime("KTLX")
 
 
+def test_stream_archive_is_not_exported():
+    assert not hasattr(radrs, "stream_archive")
+    assert not hasattr(radrs._radrs, "stream_archive")
+
+
 class TestNexradL2ArchiveIter:
     """Tests for NexradL2ArchiveIter."""
+
+    def test_local_archive_utc_contract(self, tmp_path):
+        """Naive and aware bounds agree, and the returned time is aware UTC."""
+        site_dir = _write_local_archive(tmp_path)
+
+        def collect(start, end):
+            return list(
+                radrs.NexradL2ArchiveIter(
+                    str(site_dir.parents[3]), start, end, site_filter=["KTLX"]
+                )
+            )
+
+        naive = collect(datetime(2024, 3, 15), datetime(2024, 3, 15, 2))
+        assert [_basename(info.uri) for info in naive] == [
+            "KTLX20240315_000000_V06",
+            "KTLX20240315_010000_V06",
+        ]
+
+        # start_time is inclusive at sub-second granularity, end_time exclusive.
+        after_first = collect(
+            datetime(2024, 3, 15, 0, 0, 0, 500000), datetime(2024, 3, 15, 2)
+        )
+        assert [_basename(info.uri) for info in after_first] == [
+            "KTLX20240315_010000_V06"
+        ]
+
+        # Aware bounds are interpreted by instant, so a -07:00 window covering
+        # the same range selects the same volumes as the naive (UTC) one.
+        pdt = timezone(timedelta(hours=-7))
+        aware = collect(
+            datetime(2024, 3, 14, 17, tzinfo=pdt),
+            datetime(2024, 3, 14, 19, tzinfo=pdt),
+        )
+        assert [info.uri for info in aware] == [info.uri for info in naive]
+
+        assert [info.vcp_time for info in naive] == [
+            datetime(2024, 3, 15, 0, 0, tzinfo=timezone.utc),
+            datetime(2024, 3, 15, 1, 0, tzinfo=timezone.utc),
+        ]
+        assert all(info.vcp_time.utcoffset() == timedelta(0) for info in naive)
+
+    @pytest.mark.skipif(
+        not hasattr(time, "tzset"),
+        reason="time.tzset is POSIX-only; the host timezone cannot be overridden",
+    )
+    def test_local_archive_utc_contract_outside_utc(self, tmp_path):
+        """The UTC contract holds when the host timezone is not UTC."""
+        site_dir = _write_local_archive(tmp_path)
+
+        script = r"""
+import json
+import os
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import time
+import radrs
+
+time.tzset()
+root = Path(os.environ["RADRS_ARCHIVE_ROOT"])
+
+def collect(start, end):
+    return [
+        {
+            "uri": info.uri,
+            "vcp_time": info.vcp_time.isoformat(),
+            "offset": info.vcp_time.utcoffset().total_seconds(),
+        }
+        for info in radrs.NexradL2ArchiveIter(
+            str(root), start, end, site_filter=["KTLX"]
+        )
+    ]
+
+naive = collect(datetime(2024, 3, 15), datetime(2024, 3, 15, 2))
+after_first = collect(
+    datetime(2024, 3, 15, 0, 0, 0, 500000), datetime(2024, 3, 15, 2)
+)
+pdt = timezone(timedelta(hours=-7))
+aware = collect(
+    datetime(2024, 3, 14, 17, tzinfo=pdt),
+    datetime(2024, 3, 14, 19, tzinfo=pdt),
+)
+assert datetime(2024, 3, 15).astimezone().utcoffset() == timedelta(hours=-7)
+print(json.dumps({"naive": naive, "after_first": after_first, "aware": aware}))
+"""
+        env = os.environ.copy()
+        env["TZ"] = "America/Los_Angeles"
+        env["RADRS_ARCHIVE_ROOT"] = str(site_dir.parents[3])
+        source_root = str(Path(__file__).resolve().parents[1])
+        env["PYTHONPATH"] = os.pathsep.join(
+            [source_root, env.get("PYTHONPATH", "")]
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        output = json.loads(result.stdout)
+
+        expected_uris = [
+            str(site_dir / "KTLX20240315_000000_V06").lstrip(os.sep),
+            str(site_dir / "KTLX20240315_010000_V06").lstrip(os.sep),
+        ]
+        assert [item["uri"] for item in output["naive"]] == expected_uris
+        assert [item["uri"] for item in output["after_first"]] == [expected_uris[1]]
+        assert output["aware"] == output["naive"]
+        assert [item["vcp_time"] for item in output["naive"]] == [
+            "2024-03-15T00:00:00+00:00",
+            "2024-03-15T01:00:00+00:00",
+        ]
+        assert all(item["offset"] == 0 for item in output["naive"])
 
     @pytest.mark.slow
     @pytest.mark.network

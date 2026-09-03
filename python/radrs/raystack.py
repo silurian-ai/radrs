@@ -189,7 +189,7 @@ else:
         Accumulate volumes from an L2 archive iterator into a batch:
 
         >>> import radrs
-        >>> from datetime import datetime
+        >>> from datetime import datetime, timezone
         >>> # Allocate for 10 VCPs, ~140 sweeps (14 per VCP), ~50k returns
         >>> batch = radrs.raystack.BatchedRaystack(
         ...     max_vcps=10,
@@ -199,8 +199,8 @@ else:
         ... )
         >>> archive = radrs.NexradL2ArchiveIter(
         ...     base_uri="s3://unidata-nexrad-level2",
-        ...     start_time=datetime(2024, 3, 15),
-        ...     end_time=datetime(2024, 3, 16),
+        ...     start_time=datetime(2024, 3, 15, tzinfo=timezone.utc),
+        ...     end_time=datetime(2024, 3, 16, tzinfo=timezone.utc),
         ...     storage_options={"anon": "true"},
         ...     site_filter=["KTLX"],
         ... )
@@ -384,10 +384,16 @@ else:
             -----
             Running out of capacity is not an error. A volume that does not fit
             is rejected whole (adds are atomic, so a partial volume never lands)
-            and iteration continues, so an undersized batch quietly yields a
-            truncated time range. Compare the returned count against the number
-            of volumes you expected. Fetch and parse failures are skipped the
-            same way; set ``RADRS_LOG=warn`` to see the reason for each skip.
+            and iteration continues, so a later, smaller volume can still be
+            admitted: an undersized batch quietly yields a time range with
+            holes in it rather than a clean prefix. Iteration stops early only
+            once a dimension is exactly full. Compare the returned count
+            against the number of volumes you expected.
+
+            Fetch failures are skipped the same way, as are parse failures on
+            the default ``include_sweeps=True`` path; set ``RADRS_LOG=warn`` to
+            see the reason for each skip. With ``include_sweeps=False``, a
+            volume that cannot be peeked raises instead of being skipped.
 
             Examples
             --------
@@ -395,11 +401,11 @@ else:
 
             >>> import radrs
             >>> import radrs.raystack as rrs
-            >>> from datetime import datetime
+            >>> from datetime import datetime, timezone
             >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="s3://noaa-nexrad-level2",
-            ...     start_time=datetime(2024, 3, 15, 10, 0, 0),
-            ...     end_time=datetime(2024, 3, 15, 14, 0, 0),
+            ...     start_time=datetime(2024, 3, 15, 10, 0, 0, tzinfo=timezone.utc),
+            ...     end_time=datetime(2024, 3, 15, 14, 0, 0, tzinfo=timezone.utc),
             ...     storage_options={"anon": "true"},
             ...     site_filter=["KTLX"]
             ... )
@@ -410,8 +416,8 @@ else:
 
             >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="s3://noaa-nexrad-level2",
-            ...     start_time=datetime(2024, 3, 15, 20, 0, 0),
-            ...     end_time=datetime(2024, 3, 16, 4, 0, 0),
+            ...     start_time=datetime(2024, 3, 15, 20, 0, 0, tzinfo=timezone.utc),
+            ...     end_time=datetime(2024, 3, 16, 4, 0, 0, tzinfo=timezone.utc),
             ...     storage_options={"anon": "true"},
             ...     site_filter=["KTLX"]
             ... )
@@ -420,8 +426,8 @@ else:
 
             >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="gs://my-bucket/nexrad",
-            ...     start_time=datetime(2024, 3, 15, 0, 0, 0),
-            ...     end_time=datetime(2024, 3, 15, 23, 59, 59),
+            ...     start_time=datetime(2024, 3, 15, 0, 0, 0, tzinfo=timezone.utc),
+            ...     end_time=datetime(2024, 3, 16, tzinfo=timezone.utc),
             ...     storage_options={"service_account_path": "/path/to/key.json"}
             ... )
             >>> n_added = stream.add_volumes_from_l2(l2_iter, prefetch=8)
@@ -430,8 +436,8 @@ else:
 
             >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="/data/nexrad",
-            ...     start_time=datetime(2024, 3, 15),
-            ...     end_time=datetime(2024, 3, 16)
+            ...     start_time=datetime(2024, 3, 15, tzinfo=timezone.utc),
+            ...     end_time=datetime(2024, 3, 16, tzinfo=timezone.utc)
             ... )
             >>> n_added = stream.add_volumes_from_l2(l2_iter, prefetch=8)
             """
@@ -440,8 +446,10 @@ else:
         def progress(self):
             """Get current fill progress.
 
-            Call this before finalizing. ``finalize()`` trims the arrays, after
-            which the capacity figures no longer describe what was reserved.
+            Call this before ``finalize_to_dict()`` or ``finalize_to_rs_dt()``,
+            which consume the batch — ``progress()`` panics once the buffers
+            have been handed to Python. Plain ``finalize()`` leaves these
+            figures untouched.
 
             Notes
             -----
@@ -504,9 +512,14 @@ else:
                 return self._inner.add_qc_outputs(qc_spec)
 
         def finalize(self):
-            """Finalize batch (trim excess capacity).
+            """Finalize the batch in place.
 
-            Called automatically by to_raystack() and to_datatree().
+            With the default ``truncate=True`` the arrays are already at their
+            filled size and this is a no-op; with ``truncate=False`` they are
+            padded out to full capacity with NaN/NaT fill. Either way the
+            ``progress()`` counts are unchanged.
+
+            Called automatically by finalize_to_dict() and finalize_to_rs_dt().
             """
             return self._inner.finalize()
 

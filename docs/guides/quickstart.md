@@ -68,20 +68,22 @@ For multi-volume iteration over an archive, pass
 `storage_options={"anon": "true"}` to `NexradL2ArchiveIter`:
 
 ```python
-from datetime import datetime
+from datetime import datetime, timezone
 import radrs
 
 archive = radrs.NexradL2ArchiveIter(
     base_uri="s3://unidata-nexrad-level2",
-    start_time=datetime(2024, 3, 15),
-    end_time=datetime(2024, 3, 16),
+    start_time=datetime(2024, 3, 15, tzinfo=timezone.utc),
+    end_time=datetime(2024, 3, 16, tzinfo=timezone.utc),
     storage_options={"anon": "true"},
     site_filter=["KTLX"],
 )
 ```
 
-See [Iterating an archive](batching.md#iterating-an-archive) for the full
-surface.
+Archive bounds are UTC and half-open, `[start_time, end_time)`: naive
+datetimes are read as UTC rather than as local time, and a volume exactly at
+`end_time` is excluded. See
+[Iterating an archive](batching.md#iterating-an-archive) for the full surface.
 
 ## Accumulate a time range into one array
 
