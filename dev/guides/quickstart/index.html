@@ -1053,17 +1053,21 @@ public buckets like <code>unidata-nexrad-level2</code> and <code>noaa-nexrad-lev
 out of the box even without AWS credentials.</p>
 <p>For multi-volume iteration over an archive, pass
 <code>storage_options={"anon": "true"}</code> to <code>NexradL2ArchiveIter</code>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timezone</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
 </span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">archive</span> <span class="o">=</span> <span class="n">radrs</span><span class="o">.</span><span class="n">NexradL2ArchiveIter</span><span class="p">(</span>
 </span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">base_uri</span><span class="o">=</span><span class="s2">&quot;s3://unidata-nexrad-level2&quot;</span><span class="p">,</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">start_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">15</span><span class="p">),</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">end_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">16</span><span class="p">),</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">start_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">end_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span>
 </span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="n">storage_options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;anon&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">},</span>
 </span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="n">site_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;KTLX&quot;</span><span class="p">],</span>
 </span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="p">)</span>
 </span></code></pre></div>
+<p>Archive bounds are UTC. Pass aware datetimes with <code>tzinfo=timezone.utc</code> when
+possible. For compatibility, naive datetimes are interpreted as UTC rather
+than as the machine's local timezone. The interval is half-open:
+<code>[start_time, end_time)</code>, so a volume exactly at <code>end_time</code> is excluded.</p>
 <p>See <a href="../s3-archive/">S3 archive iteration</a> for the full surface.</p>
 <h2 id="whats-next">What's next<a class="headerlink" href="#whats-next" title="Permanent link">&para;</a></h2>
 <ul>

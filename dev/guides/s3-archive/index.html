@@ -846,11 +846,32 @@
 
 
 <h1 id="s3-archive-iteration">S3 archive iteration<a class="headerlink" href="#s3-archive-iteration" title="Permanent link">&para;</a></h1>
-<div class="admonition note">
-<p class="admonition-title">Under construction</p>
-<p>Guide for <code>NexradL2ArchiveIter</code> — multi-cloud iteration with time
-bounds, site filtering, and prefetch — is being written.</p>
-</div>
+<p><code>NexradL2ArchiveIter</code> scans the date-partitioned NEXRAD Level 2 archive and
+returns volumes in a UTC time interval. It supports S3, GCS, Azure, and local
+filesystem URIs.</p>
+<p>Use timezone-aware UTC bounds in new code:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timezone</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">archive</span> <span class="o">=</span> <span class="n">radrs</span><span class="o">.</span><span class="n">NexradL2ArchiveIter</span><span class="p">(</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    <span class="n">base_uri</span><span class="o">=</span><span class="s2">&quot;s3://unidata-nexrad-level2&quot;</span><span class="p">,</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    <span class="n">start_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>    <span class="n">end_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="mi">14</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>    <span class="n">storage_options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;anon&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">},</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>    <span class="n">site_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;KTLX&quot;</span><span class="p">],</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">)</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="k">for</span> <span class="n">info</span> <span class="ow">in</span> <span class="n">archive</span><span class="p">:</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">info</span><span class="o">.</span><span class="n">vcp_time</span><span class="p">,</span> <span class="n">info</span><span class="o">.</span><span class="n">uri</span><span class="p">)</span>
+</span></code></pre></div>
+<p>The time contract is explicit and stable across host timezones:</p>
+<ul>
+<li>Aware bounds are interpreted by instant and normalized to UTC.</li>
+<li>Naive bounds are interpreted as UTC for compatibility with existing code.</li>
+<li>The interval is half-open, <code>[start_time, end_time)</code>: <code>start_time</code> is
+  included and <code>end_time</code> is excluded.</li>
+<li><code>NexradL2ArchiveInfo.vcp_time</code> is an aware Python datetime with
+  <code>tzinfo=timezone.utc</code>.</li>
+</ul>
 <p>See the <a href="../../reference/radrs/"><code>radrs</code> API reference</a> for the current signature.</p>
 
 
