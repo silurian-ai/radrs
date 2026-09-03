@@ -6,17 +6,16 @@ import xarray as xr
 
 import radrs.qc as qc
 import radrs.raystack as rrs
-import radrs.xradar as rxr
 
 try:
     import pyart
-except Exception:  # pragma: no cover - optional dependency
+except ImportError:  # pragma: no cover - dependency failure is reported by integration tests
     pyart = None
 
 
 def _build_single_sweep_pyart_radar(dt: xr.DataTree, sweep_ds: xr.Dataset):
     if pyart is None:
-        pytest.skip("pyart not installed")
+        pytest.fail("The declared arm-pyart dev dependency is not installed")
 
     sweep_ds = sweep_ds.copy()
     sweep_ds["sweep_number"] = 0
@@ -44,12 +43,12 @@ def _select_sweep_with_vradh(dt: xr.DataTree) -> tuple[str, xr.Dataset]:
         sweep_ds = dt[name].dataset
         if "VRADH" in sweep_ds and "DBZH" in sweep_ds:
             return name, sweep_ds
-    raise pytest.skip("No sweep with VRADH/DBZH found")
+    pytest.fail("Full velocity fixture has no sweep with VRADH/DBZH")
 
 
 def _compute_pyart_winding(radar, nyq, vel_texture_threshold, reflectivity_threshold):
     if pyart is None:
-        pytest.skip("pyart not installed")
+        pytest.fail("The declared arm-pyart dev dependency is not installed")
 
     vel_texture = pyart.retrieve.calculate_velocity_texture(
         radar, vel_field="VRADH", nyq=nyq
@@ -91,81 +90,78 @@ def _compute_radrs_winding(original, dbzh, nyq, vel_texture_threshold, reflectiv
     )
 
 
-def test_vradh_winding_number_matches_pyart(available_test_files):
+@pytest.mark.slow
+def test_vradh_winding_number_matches_pyart(full_radrs_datatree):
     if pyart is None:
-        pytest.skip("pyart not installed")
+        pytest.fail("The declared arm-pyart dev dependency is not installed")
 
-    for test_file_path in available_test_files:
-        dt = rxr.open_datatree(test_file_path)
-        sweep_name, sweep_ds = _select_sweep_with_vradh(dt)
+    _, sweep_ds = _select_sweep_with_vradh(full_radrs_datatree)
+    sweep_ds = sweep_ds.assign(VRADH=_clean_vradh(sweep_ds))
+
+    radar = _build_single_sweep_pyart_radar(full_radrs_datatree, sweep_ds)
+    nyq = np.nanmax(np.abs(sweep_ds["VRADH"].values))
+    assert np.isfinite(nyq) and nyq > 0, "Full velocity fixture has invalid Nyquist velocity"
+
+    expected, original = _compute_pyart_winding(radar, nyq, 4.0, 0.0)
+    actual = _compute_radrs_winding(original, sweep_ds["DBZH"].values, nyq, 4.0, 0.0)
+
+    diff = np.nan_to_num(np.abs(actual - expected), nan=0.0)
+    mismatch = np.count_nonzero(diff > 0)
+    mismatch_ratio = mismatch / expected.size
+
+    # Rare +/-2 fold differences can occur due to edge ordering and rounding.
+    assert diff.max() <= 2.0
+    assert mismatch_ratio < 0.001
+
+
+@pytest.mark.slow
+def test_vradh_winding_number_matches_pyart_all_sweeps(full_radrs_datatree):
+    if pyart is None:
+        pytest.fail("The declared arm-pyart dev dependency is not installed")
+
+    total = 0
+    mismatches = 0
+    max_diff = 0.0
+
+    for name in full_radrs_datatree.children:
+        if not name.startswith("sweep_"):
+            continue
+        sweep_ds = full_radrs_datatree[name].dataset
+        if "VRADH" not in sweep_ds or "DBZH" not in sweep_ds:
+            continue
+
         sweep_ds = sweep_ds.assign(VRADH=_clean_vradh(sweep_ds))
-
-        radar = _build_single_sweep_pyart_radar(dt, sweep_ds)
         nyq = np.nanmax(np.abs(sweep_ds["VRADH"].values))
         if not np.isfinite(nyq) or nyq <= 0:
-            pytest.skip("Invalid Nyquist velocity")
+            continue
 
+        radar = _build_single_sweep_pyart_radar(full_radrs_datatree, sweep_ds)
         expected, original = _compute_pyart_winding(radar, nyq, 4.0, 0.0)
         actual = _compute_radrs_winding(original, sweep_ds["DBZH"].values, nyq, 4.0, 0.0)
 
         diff = np.nan_to_num(np.abs(actual - expected), nan=0.0)
-        mismatch = np.count_nonzero(diff > 0)
-        mismatch_ratio = mismatch / expected.size
+        mismatches += np.count_nonzero(diff > 0)
+        total += diff.size
+        max_diff = max(max_diff, float(diff.max()))
 
-        # Rare +/-2 fold differences can occur due to edge ordering and rounding.
-        assert diff.max() <= 2.0
-        assert mismatch_ratio < 0.001
+    assert total > 0, "Full velocity fixture has no sweeps with VRADH/DBZH"
+
+    mismatch_ratio = mismatches / total
+    # All-sweep parity is slightly looser; rare folds can differ by 2.
+    assert max_diff <= 2.0
+    assert mismatch_ratio < 0.001
 
 
 @pytest.mark.slow
-def test_vradh_winding_number_matches_pyart_all_sweeps(available_test_files):
-    if pyart is None:
-        pytest.skip("pyart not installed")
-
-    for test_file_path in available_test_files:
-        dt = rxr.open_datatree(test_file_path)
-        total = 0
-        mismatches = 0
-        max_diff = 0.0
-
-        for name in dt.children:
-            if not name.startswith("sweep_"):
-                continue
-            sweep_ds = dt[name].dataset
-            if "VRADH" not in sweep_ds or "DBZH" not in sweep_ds:
-                continue
-
-            sweep_ds = sweep_ds.assign(VRADH=_clean_vradh(sweep_ds))
-            nyq = np.nanmax(np.abs(sweep_ds["VRADH"].values))
-            if not np.isfinite(nyq) or nyq <= 0:
-                continue
-
-            radar = _build_single_sweep_pyart_radar(dt, sweep_ds)
-            expected, original = _compute_pyart_winding(radar, nyq, 4.0, 0.0)
-            actual = _compute_radrs_winding(original, sweep_ds["DBZH"].values, nyq, 4.0, 0.0)
-
-            diff = np.nan_to_num(np.abs(actual - expected), nan=0.0)
-            mismatches += np.count_nonzero(diff > 0)
-            total += diff.size
-            max_diff = max(max_diff, float(diff.max()))
-
-        if total == 0:
-            pytest.skip("No sweeps with VRADH/DBZH found")
-
-        mismatch_ratio = mismatches / total
-        # All-sweep parity is slightly looser; rare folds can differ by 2.
-        assert max_diff <= 2.0
-        assert mismatch_ratio < 0.001
-
-
-def test_raystack_parse_adds_vradh_winding_number(test_file_bytes):
-    rs = rrs.parse(test_file_bytes, qc=[qc.VradhWindingNumber()])
+def test_raystack_parse_adds_vradh_winding_number(full_volume_bytes):
+    rs = rrs.parse(full_volume_bytes, qc=[qc.VradhWindingNumber()])
     returns = rs["returns"]
-    if "VRADH" not in returns:
-        pytest.skip("VRADH not present in test volume")
 
+    assert "VRADH" in returns, "Full velocity fixture must contain VRADH"
     assert "qc.vradh_winding_number" in returns
-    assert np.asarray(returns["qc.vradh_winding_number"]).shape == np.asarray(returns["VRADH"]).shape
+    assert np.asarray(returns["qc.vradh_winding_number"]).shape == np.asarray(
+        returns["VRADH"]
+    ).shape
 
 
 def test_vradh_winding_number_synthetic_masks():

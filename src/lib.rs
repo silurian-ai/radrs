@@ -126,6 +126,18 @@ fn set_log_filter(py: Python<'_>, filter: Option<String>) -> PyResult<()> {
 /// A Python module implemented in Rust.
 #[pymodule]
 fn _radrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Cargo profile this extension was compiled with. A "debug" build runs
+    // roughly an order of magnitude slower than "release", which makes any
+    // benchmark against it meaningless -- see python/tools/compare_xradar.py.
+    m.add(
+        "__profile__",
+        if cfg!(debug_assertions) {
+            "debug"
+        } else {
+            "release"
+        },
+    )?;
+
     // Register logging functions (opt-in, no overhead by default)
     m.add_function(wrap_pyfunction!(initialize_logs, m)?)?;
     m.add_function(wrap_pyfunction!(set_log_filter, m)?)?;

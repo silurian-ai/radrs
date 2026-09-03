@@ -58,7 +58,6 @@ from radrs._radrs import (
     list_nexrad_l2_archive_volumes_py as list_nexrad_l2_archive_volumes,
     peek_volume,
     set_log_filter,
-    stream_archive,
     stream_realtime,
 )
 
@@ -70,7 +69,6 @@ __all__ = [
     "peek_volume",
     "VolumeMeta",
     "stream_realtime",
-    "stream_archive",
     "NexradL2ArchiveIter",
     "NexradL2ArchiveInfo",
     "list_nexrad_l2_archive_volumes",

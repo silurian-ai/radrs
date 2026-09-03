@@ -7,9 +7,8 @@ pub(crate) mod batch;
 mod convert;
 mod parse;
 
-pub use batch::{BatchedRaystackPy, parse_single_volume};
-pub use convert::{from_xradar_datatree_py, to_xradar_datatree_py};
-pub use parse::{QcOp, parse_py};
+pub use batch::{RaystackBatchData, parse_single_volume};
+pub use parse::{DEFAULT_FOLD_SIZE, QcArray, QcOp, SweepMeta, VolumeMeta, collect_metadata};
 
 use pyo3::prelude::*;
 
