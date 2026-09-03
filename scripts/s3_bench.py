@@ -13,7 +13,7 @@ import argparse
 import asyncio
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 import radrs
@@ -61,7 +61,7 @@ def _warn_about_build() -> None:
 
 
 def get_test_urls(site: str, date: str, n: int) -> list[str]:
-    day = datetime.strptime(date, "%Y-%m-%d")
+    day = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     archive = radrs.NexradL2ArchiveIter(
         base_uri=BASE_ARCHIVE_URL,
         start_time=day,
