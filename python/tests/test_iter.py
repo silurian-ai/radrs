@@ -2,12 +2,32 @@
 
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 import pytest
 import radrs
+
+
+def _write_local_archive(tmp_path):
+    """Create a local NEXRAD L2 archive tree and return the site directory."""
+    site_dir = tmp_path / "archive" / "2024" / "03" / "15" / "KTLX"
+    site_dir.mkdir(parents=True)
+    for filename in (
+        "KTLX20240315_000000_V06",
+        "KTLX20240315_010000_V06",
+        "KTLX20240315_020000_V06",
+    ):
+        (site_dir / filename).touch()
+    return site_dir
+
+
+def _basename(uri):
+    """Last path component of a URI, independent of the host separator."""
+    return uri.replace("\\", "/").rsplit("/", 1)[-1]
 
 
 class TestStreamRealtime:
@@ -28,17 +48,53 @@ def test_stream_archive_is_not_exported():
 class TestNexradL2ArchiveIter:
     """Tests for NexradL2ArchiveIter."""
 
-    def test_local_archive_uses_utc_contract_outside_utc(self, tmp_path):
+    def test_local_archive_utc_contract(self, tmp_path):
         """Naive and aware bounds agree, and the returned time is aware UTC."""
-        archive_root = tmp_path / "archive"
-        site_dir = archive_root / "2024" / "03" / "15" / "KTLX"
-        site_dir.mkdir(parents=True)
-        for filename in (
+        site_dir = _write_local_archive(tmp_path)
+
+        def collect(start, end):
+            return list(
+                radrs.NexradL2ArchiveIter(
+                    str(site_dir.parents[3]), start, end, site_filter=["KTLX"]
+                )
+            )
+
+        naive = collect(datetime(2024, 3, 15), datetime(2024, 3, 15, 2))
+        assert [_basename(info.uri) for info in naive] == [
             "KTLX20240315_000000_V06",
             "KTLX20240315_010000_V06",
-            "KTLX20240315_020000_V06",
-        ):
-            (site_dir / filename).touch()
+        ]
+
+        # start_time is inclusive at sub-second granularity, end_time exclusive.
+        after_first = collect(
+            datetime(2024, 3, 15, 0, 0, 0, 500000), datetime(2024, 3, 15, 2)
+        )
+        assert [_basename(info.uri) for info in after_first] == [
+            "KTLX20240315_010000_V06"
+        ]
+
+        # Aware bounds are interpreted by instant, so a -07:00 window covering
+        # the same range selects the same volumes as the naive (UTC) one.
+        pdt = timezone(timedelta(hours=-7))
+        aware = collect(
+            datetime(2024, 3, 14, 17, tzinfo=pdt),
+            datetime(2024, 3, 14, 19, tzinfo=pdt),
+        )
+        assert [info.uri for info in aware] == [info.uri for info in naive]
+
+        assert [info.vcp_time for info in naive] == [
+            datetime(2024, 3, 15, 0, 0, tzinfo=timezone.utc),
+            datetime(2024, 3, 15, 1, 0, tzinfo=timezone.utc),
+        ]
+        assert all(info.vcp_time.utcoffset() == timedelta(0) for info in naive)
+
+    @pytest.mark.skipif(
+        not hasattr(time, "tzset"),
+        reason="time.tzset is POSIX-only; the host timezone cannot be overridden",
+    )
+    def test_local_archive_utc_contract_outside_utc(self, tmp_path):
+        """The UTC contract holds when the host timezone is not UTC."""
+        site_dir = _write_local_archive(tmp_path)
 
         script = r"""
 import json
@@ -56,7 +112,6 @@ def collect(start, end):
         {
             "uri": info.uri,
             "vcp_time": info.vcp_time.isoformat(),
-            "is_utc": info.vcp_time.tzinfo is timezone.utc,
             "offset": info.vcp_time.utcoffset().total_seconds(),
         }
         for info in radrs.NexradL2ArchiveIter(
@@ -78,7 +133,7 @@ print(json.dumps({"naive": naive, "after_first": after_first, "aware": aware}))
 """
         env = os.environ.copy()
         env["TZ"] = "America/Los_Angeles"
-        env["RADRS_ARCHIVE_ROOT"] = str(archive_root)
+        env["RADRS_ARCHIVE_ROOT"] = str(site_dir.parents[3])
         source_root = str(Path(__file__).resolve().parents[1])
         env["PYTHONPATH"] = os.pathsep.join(
             [source_root, env.get("PYTHONPATH", "")]
@@ -99,7 +154,11 @@ print(json.dumps({"naive": naive, "after_first": after_first, "aware": aware}))
         assert [item["uri"] for item in output["naive"]] == expected_uris
         assert [item["uri"] for item in output["after_first"]] == [expected_uris[1]]
         assert output["aware"] == output["naive"]
-        assert all(item["is_utc"] and item["offset"] == 0 for item in output["naive"])
+        assert [item["vcp_time"] for item in output["naive"]] == [
+            "2024-03-15T00:00:00+00:00",
+            "2024-03-15T01:00:00+00:00",
+        ]
+        assert all(item["offset"] == 0 for item in output["naive"])
 
     @pytest.mark.slow
     @pytest.mark.network
