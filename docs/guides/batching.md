@@ -101,22 +101,6 @@ backends take their own keys:
     )
     ```
 
-!!! warning "`vcp_time` is naive local time"
-
-    `info.vcp_time` carries no `tzinfo` and is expressed in the host's local
-    timezone, even though NEXRAD names volumes in UTC. Under
-    `TZ=America/Chicago` the volume `KABR20240702_000016_V06` reports
-    `2024-07-01 19:00:16`.
-
-    Naive bounds passed to `NexradL2ArchiveIter` are interpreted the same way,
-    so feeding `vcp_time` straight back in as `start_time` or `end_time`
-    round-trips correctly on any host. To display it, or compare it against
-    UTC bounds, convert rather than relabel:
-
-    ```python
-    info.vcp_time.astimezone(timezone.utc)     # correct: shifts local to UTC
-    info.vcp_time.replace(tzinfo=timezone.utc) # wrong: off by the UTC offset
-    ```
 
 ## Folding
 
