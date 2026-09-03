@@ -101,7 +101,7 @@ nav:
       - Raystack format: guides/raystack-format.md
       - Batch iteration and folding: guides/batching.md
       - Quality control: guides/qc.md
-      - XRadar interop: guides/xradar-interop.md
+      - xradar interop: guides/xradar-interop.md
       - Visualization: guides/visualization.md
   - API reference:
       - radrs: reference/radrs.md

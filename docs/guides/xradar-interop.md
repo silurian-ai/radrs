@@ -1,4 +1,4 @@
-# XRadar interop
+# xradar interop
 
 `radrs.xradar.open_datatree` is a drop-in replacement for
 `xradar.io.open_nexradlevel2_datatree`. It returns an `xarray.DataTree` with
@@ -15,11 +15,11 @@ import radrs.xradar as rxr
 dt = rxr.open_datatree(path)
 ```
 
-Where the two libraries differ, they differ deliberately, in three places:
-radial ordering, the representation of gates with no valid measurement, and how
-cloud sources are reached. Everything else — sweep count, sweep naming,
-elevation angles, range geometry, variable sets, and decoded moment values — is
-intended to match, and is checked against xradar in the test suite.
+The two libraries differ in three places, all on purpose: radial ordering, the
+representation of gates with no valid measurement, and how cloud sources are
+reached. Everything else is intended to match, and is checked against xradar in
+the test suite: sweep count, sweep naming, elevation angles, range geometry,
+variable sets, and decoded moment values.
 
 ## What matches
 
@@ -28,11 +28,11 @@ Comparing a KTLX VCP-12 volume against xradar 0.12, aligned by azimuth:
 | Property | Result |
 |---|---|
 | Sweeps | 20 vs 20, same `sweep_N` names |
-| Radials per sweep | Identical on every sweep (720) |
+| Radials per sweep | Identical on every sweep (720). Differences of one or two radials at a sweep boundary are possible on other volumes, from different handling of duplicate or incomplete radials, so align by azimuth rather than assuming equal lengths. |
 | Range gates per sweep | Identical on every sweep |
 | `sweep_fixed_angle` | Identical to within float representation |
-| Variable sets | Identical — no radrs-only or xradar-only variables |
-| Moment values | **Exact agreement** on all 104 moment/sweep pairs, wherever both libraries report a valid measurement |
+| Variable sets | Identical, with no radrs-only or xradar-only variables |
+| Moment values | Exact agreement on all 104 moment/sweep pairs, wherever both libraries report a valid measurement |
 
 "Exact" is literal for the integer-scaled moments: mean, p95, and p99 absolute
 difference are all 0.0 for `DBZH`. `RHOHV` differs by up to 5e-8, which is
@@ -43,7 +43,7 @@ interpretation.
 
 xradar sorts the radials within each sweep by ascending azimuth. radrs
 preserves the order the radials appear in the file, which is the order the
-radar actually collected them — a sweep starts wherever the antenna was.
+radar actually collected them. A sweep starts wherever the antenna was.
 
 ```python
 rxr.open_datatree(path)["sweep_0"]["azimuth"].values[:5]
@@ -54,12 +54,12 @@ rxr.open_datatree(path, sort_by_azimuth=True)["sweep_0"]["azimuth"].values[:5]
 ```
 
 Pass `sort_by_azimuth=True` to match xradar. On the volume above the sorted
-azimuths agree with xradar's to the bit — `max|Δazimuth| == 0.0`.
+azimuths agree with xradar's to the bit.
 
 Which default you want depends on the work. Sorted is right for plotting and
 for anything that indexes by azimuth. File order is right when collection
-sequence matters — spotting antenna irregularities, or reasoning about the time
-axis, since azimuth-sorting scrambles it.
+sequence matters, such as spotting antenna irregularities or reasoning about
+the time axis, since azimuth-sorting scrambles it.
 
 !!! warning "Sort before comparing anything positionally"
 
@@ -70,13 +70,12 @@ axis, since azimuth-sorting scrambles it.
 ## Gates with no valid measurement
 
 NEXRAD encodes each gate as a byte, reserving the two lowest codes: one for
-*below threshold* (the return was too weak to measure) and one for *range
-folded* (the return is ambiguous because the target lies beyond the unambiguous
-range).
+below threshold (the return was too weak to measure) and one for range folded
+(the return is ambiguous because the target lies beyond the unambiguous range).
 
-radrs decodes both to **NaN** — semantically, "no measurement here". xradar
-runs them through the moment's scale and offset like any other code, so they
-come back as numbers at the bottom of that moment's scale:
+radrs decodes both to NaN, meaning "no measurement here". xradar runs them
+through the moment's scale and offset like any other code, so they come back
+as numbers at the bottom of that moment's scale:
 
 | Moment | xradar value, below threshold | xradar value, range folded |
 |---|---:|---:|
@@ -89,66 +88,60 @@ come back as numbers at the bottom of that moment's scale:
 | `CCORH` | -8.0 | -6.0, -7.0 |
 
 In every case the below-threshold value is the minimum of that moment's decoded
-scale and the range-folded value is the next step up — they are ordinary
-decodes of the two reserved codes, not out-of-band markers. (`CCORH` is the odd
-one out, with a third value; radrs masks slightly more of it than the two
-reserved codes alone account for.)
+scale and the range-folded value is the next step up. They are ordinary decodes
+of the two reserved codes, not out-of-band markers. `CCORH` is the odd one out,
+with a third value; radrs masks slightly more of it than the two reserved codes
+alone account for.
 
-Both readings are defensible — radrs is cleaner for analysis, xradar retains
-which of the two codes it was. But the practical consequence is sharp: on
-`sweep_0` of the volume above, **78.5% of `DBZH` cells** are below threshold.
-Under xradar those cells are the value -33.0, which is a physically plausible
-reflectivity, so any mean, histogram, or gradient computed over the raw array
-is dominated by them. `RHOHV`'s 0.202 is worse — it looks like an ordinary
-low-correlation measurement.
+Either choice is reasonable. radrs is cleaner for analysis; xradar retains
+which of the two codes a gate was. In practice the difference is large: on
+`sweep_0` of the volume above, 78.5% of `DBZH` cells are below threshold. Under
+xradar those cells hold -33.0, a physically plausible reflectivity, so any
+mean, histogram, or gradient computed over the raw array is dominated by them.
+`RHOHV`'s 0.202 is worse, because it looks like an ordinary low-correlation
+measurement.
+
+Nothing is lost in the other direction. There are zero cells that xradar
+reports as NaN while radrs reports a value.
 
 !!! danger "Do not mask by literal value"
 
-    The values above are the *decoded scale minimum* for each moment, so they
+    The values above are the decoded scale minimum for each moment, so they
     depend on the scale and offset recorded in the file and vary by moment and
     by sweep. Hard-coding `-33.0` works for `DBZH` on this volume and silently
     fails on `RHOHV`, on other moments, and potentially on other volumes.
 
-    To compare the two libraries, restrict to gates where both report
-    something finite:
+### Comparing the two libraries
 
-    ```python
-    import numpy as np
+Restrict to gates where both report something finite:
 
-    valid = np.isfinite(rs_vals) & np.isfinite(xr_vals)
-    diff = np.abs(rs_vals[valid] - xr_vals[valid])
-    ```
+```python
+import numpy as np
 
-    To clean an xradar array on its own terms, derive the two reserved values
-    from the data rather than hard-coding them — they are always the two lowest
-    decoded values present:
+valid = np.isfinite(rs_vals) & np.isfinite(xr_vals)
+diff = np.abs(rs_vals[valid] - xr_vals[valid])
+```
 
-    ```python
-    reserved = np.unique(ds[moment].values)[:2]
-    cleaned = ds[moment].where(~np.isin(ds[moment].values, reserved))
-    ```
+### Cleaning an xradar array on its own
 
-    On Doppler sweeps that reproduces radrs's NaN mask exactly. But it is
-    still a heuristic, and it over-masks where range folding never occurred:
-    on the surveillance cut of the volume above the two lowest `DBZH` values
-    are `-33.0` and `-24.0`, and that `-24.0` is a real measurement. For
-    `RHOHV` the same recipe agrees with radrs on 99.93% of cells rather than
-    100% — the shortfall is genuine low-correlation gates being thrown away.
+Derive the two reserved values from the data rather than hard-coding them.
+They are always the two lowest decoded values present:
 
-    Reading the volume with radrs avoids the guesswork, since the distinction
-    is made during decode. The cost is that radrs collapses both codes to NaN,
-    so which one a gate was is not recoverable from its output.
+```python
+reserved = np.unique(ds[moment].values)[:2]
+cleaned = ds[moment].where(~np.isin(ds[moment].values, reserved))
+```
 
-Nothing is lost in the other direction: there are **zero** cells that xradar
-reports as NaN while radrs reports a value.
+On Doppler sweeps that reproduces radrs's NaN mask exactly. It is still a
+heuristic, though, and it over-masks where range folding never occurred. On the
+surveillance cut of the volume above the two lowest `DBZH` values are `-33.0`
+and `-24.0`, and that `-24.0` is a real measurement. For `RHOHV` the same
+recipe agrees with radrs on 99.93% of cells rather than 100%, and the shortfall
+is genuine low-correlation gates being thrown away.
 
-## Radial counts
-
-Sweep and radial counts matched exactly on the volume above, but small
-differences of one or two radials per sweep are possible, from different
-handling of duplicate or incomplete radials at the sweep boundary. Align by
-azimuth rather than assuming equal lengths if you are comparing across
-libraries, and expect `min(n_rs, n_xr)` rows of overlap.
+Reading the volume with radrs avoids the guesswork, since the distinction is
+made during decode. The cost is that radrs collapses both codes to NaN, so
+which one a gate was is not recoverable from its output.
 
 ## Cloud sources
 
@@ -163,7 +156,7 @@ rxr.open_datatree(
 `s3://` defaults to anonymous access, so the public buckets work with no
 credentials. `gs://`, `az://`, `file://`, and plain local paths are accepted
 too, along with raw `bytes`; pass `storage_options` for private buckets. Only
-single-volume keys work — the GCS mirror's 6-minute tar bundles are not
+single-volume keys work. The GCS mirror's 6-minute tar bundles are not
 unpacked and fail at parse.
 
 `xradar.io.open_nexradlevel2_datatree` needs a local file or an open file
@@ -202,7 +195,7 @@ uv run python scripts/xradar_radrs_bench.py \
 
 It aligns by azimuth internally, so `sort_by_azimuth` does not need to be set.
 
-**`notebooks/xradar_radrs_compare.py`** is the interactive version — pick a
+**`notebooks/xradar_radrs_compare.py`** is the interactive version. Pick a
 volume, sweep, and moment, and get the two arrays side by side with a
 difference map, a statistics table (NaN agreement, mean and max absolute
 difference, percentage within tolerance), an azimuth alignment plot, and the
@@ -212,16 +205,16 @@ raystack `activity` summary for the same volume.
 uv run marimo run notebooks/xradar_radrs_compare.py
 ```
 
-Note that it loads radrs with `sort_by_azimuth=True` so the side-by-side images
-line up; the NaN-disagreement row in its statistics table is measuring the
+It loads radrs with `sort_by_azimuth=True` so the side-by-side images line up.
+The NaN-disagreement row in its statistics table is measuring the
 below-threshold difference described above, not an error.
 
 !!! note "Timings need a release build"
 
     The benchmark also reports load times for both libraries, and prints a
     banner naming the build profile it measured. An editable install from
-    `uv sync` is a **debug** build — `opt-level 0`, no LTO, roughly 5–10×
-    slower than release — so its timings say nothing about radrs performance.
+    `uv sync` is a debug build (`opt-level 0`, no LTO, roughly 5–10× slower
+    than release), so its timings say nothing about radrs performance.
 
     Build the extension in release mode before reading the numbers:
 

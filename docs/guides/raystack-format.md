@@ -35,8 +35,8 @@ space: azimuth, elevation, time, base range, and range step.
 
 !!! warning "`range` is a gate index, not a distance"
 
-    The `range` coordinate runs `0 … fold_size - 1` — it is the gate's offset
-    *within its fold*. Two returns at the same `range` index sit at completely
+    The `range` coordinate runs `0 … fold_size - 1`: it is the gate's offset
+    within its fold. Two returns at the same `range` index sit at completely
     different distances if they came from different folds or different sweeps.
 
     Physical range lives on the per-return `base_range` and `range_step`
@@ -54,7 +54,7 @@ space: azimuth, elevation, time, base range, and range step.
     trailing folds too.
 
 Folding also sets how much memory a volume costs, which matters most when
-accumulating many volumes at once — see
+accumulating many volumes at once. See
 [Batch iteration and folding](batching.md) for the returns-per-volume
 arithmetic.
 
