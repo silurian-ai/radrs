@@ -387,14 +387,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../s3-archive/" class="md-nav__link">
+      <a href="../raystack-format/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    S3 archive iteration
+    Raystack format
   
 
     
@@ -415,14 +415,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../raystack-format/" class="md-nav__link">
+      <a href="../batching/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Raystack format
+    Batch iteration and folding
   
 
     
@@ -508,6 +508,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Visualization
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="././" class="md-nav__link md-nav__link--active">
         
   
@@ -524,6 +542,59 @@
   
 
       </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#raystack_vizpy-single-volume" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>raystack_viz.py</code>: single volume
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#batched_raystack_vizpy-a-whole-time-range" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>batched_raystack_viz.py</code>: a whole time range
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-your-own" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Building your own
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -817,6 +888,11 @@
                       
                     
                     
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
                   
                   <div class="md-sidebar__inner">
                     
@@ -828,6 +904,47 @@
   
     
   
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#raystack_vizpy-single-volume" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>raystack_viz.py</code>: single volume
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#batched_raystack_vizpy-a-whole-time-range" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>batched_raystack_viz.py</code>: a whole time range
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#building-your-own" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Building your own
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -846,14 +963,118 @@
 
 
 <h1 id="visualization">Visualization<a class="headerlink" href="#visualization" title="Permanent link">&para;</a></h1>
-<div class="admonition note">
-<p class="admonition-title">Under construction</p>
-<p>Guide covering the marimo-based interactive volume viewer is being
-written.</p>
-</div>
+<p><code>radrs.viz</code> renders raystack data directly, with no Py-ART or Cartopy in the
+path. It has two halves: <code>prepare_*_payload</code> functions that reduce a <code>returns</code>
+dataset to a compact, JSON-serializable payload, and
+<a href="https://anywidget.dev">anywidget</a>-based widgets that draw it in the browser
+with hover readout and 3D interaction.</p>
+<p>Two marimo notebooks wire that surface to live controls. Both pull volumes
+straight from the public NEXRAD archives, so they need no local data.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>run<span class="w"> </span>marimo<span class="w"> </span>run<span class="w"> </span>notebooks/raystack_viz.py
 </span></code></pre></div>
+<p><code>marimo run</code> opens the notebook as an app: controls only, no source. Use
+<code>marimo edit</code> instead to see and change the cells.</p>
+<h2 id="raystack_vizpy-single-volume"><code>raystack_viz.py</code>: single volume<a class="headerlink" href="#raystack_vizpy-single-volume" title="Permanent link">&para;</a></h2>
+<p>Opens one volume with <code>rrs.open_datatree</code> and offers five ways to look at it:</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>What it draws</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Ray 3D</strong></td>
+<td>One endpoint per return ray, so the sampling geometry of the whole VCP is visible at once. Sweep-independent.</td>
+</tr>
+<tr>
+<td><strong>Gate cloud 3D</strong></td>
+<td>Every finite gate as a point in radar-relative space, downsampled to the sample cap.</td>
+</tr>
+<tr>
+<td><strong>CAPPI</strong></td>
+<td>Constant-altitude horizontal slice, gridded from the gates within an altitude tolerance.</td>
+</tr>
+<tr>
+<td><strong>Cross-section</strong></td>
+<td>Vertical slice along a target azimuth, within an azimuth tolerance.</td>
+</tr>
+<tr>
+<td><strong>Waterfall</strong></td>
+<td>The raw <code>(return_time, range)</code> moment matrix as a 2-D heatmap. This is the raystack layout itself, unprojected.</td>
+</tr>
+</tbody>
+</table>
+<p>Pick a station, archive, and time window; the notebook lists the volumes it
+finds and you choose one from a dropdown. <code>fold_size</code> is a control too, so you
+can watch the waterfall's row count change as folding changes.</p>
+<p>The 3D modes rotate on drag, zoom on wheel, and reset on double-click. The 2-D
+modes report the value under the cursor along with its azimuth, elevation,
+sweep, and range. CAPPI and cross-section add their own altitude/azimuth and
+tolerance sliders, and grid resolution.</p>
+<h2 id="batched_raystack_vizpy-a-whole-time-range"><code>batched_raystack_viz.py</code>: a whole time range<a class="headerlink" href="#batched_raystack_vizpy-a-whole-time-range" title="Permanent link">&para;</a></h2>
+<p>Accumulates many volumes into one <code>BatchedRaystack</code> and renders the result as a
+single returns matrix, so you can follow a storm's evolution down one image.
+See <a href="../batching/">Batch iteration and folding</a> for the API underneath.</p>
+<table>
+<thead>
+<tr>
+<th>Mode</th>
+<th>What it draws</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Folded waterfall</strong></td>
+<td>The batch's <code>(return_time, range)</code> matrix drawn one pixel-row per return, so volumes stack along the time axis. Rows are exact, not resampled.</td>
+</tr>
+<tr>
+<td><strong>Gate cloud 3D</strong></td>
+<td>Every finite gate in the entire batch, overlaid in radar-relative space.</td>
+</tr>
+</tbody>
+</table>
+<p>The controls map onto the batch parameters:</p>
+<ul>
+<li><strong>Fold size</strong> and <strong>volume range</strong> set what goes in.</li>
+<li><strong>Prefetch</strong> sets how many fetches run concurrently.</li>
+<li><strong>Capacity headroom</strong> is the multiplier on the estimated returns per volume.
+  Because capacity is reserved up front, undershooting drops volumes off the
+  end of the range; the notebook reports how many of the selected volumes
+  actually fit.</li>
+<li><strong>Drop all-NaN returns</strong> toggles compaction, on by default.</li>
+</ul>
+<p>After loading it prints a metrics table: volumes added versus selected, sweep
+and return counts, the NaN share of the surviving cells, and returns filled
+against returns capacity. That last figure is reported as spare capacity, and
+because reservation happens before compaction, real spare is lower than shown
+whenever dropping is on.</p>
+<p>The folded waterfall gets tall, since a batch is hundreds of thousands of
+returns and each one is a pixel row, so the notebook windows it with row offset
+and row count sliders sized to keep the payload under marimo's output limit.</p>
+<h2 id="building-your-own">Building your own<a class="headerlink" href="#building-your-own" title="Permanent link">&para;</a></h2>
+<p>The payload functions are usable on their own; the widgets are optional. Each
+takes a <code>returns</code> dataset and a moment name and returns a dataclass of plain
+arrays:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.raystack</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rrs</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.viz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">viz</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">src</span> <span class="o">=</span> <span class="s2">&quot;s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06&quot;</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">rdt</span> <span class="o">=</span> <span class="n">rrs</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">fold_size</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">returns</span><span class="p">,</span> <span class="n">sweeps</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">get_returns_and_sweeps</span><span class="p">(</span><span class="n">rdt</span><span class="p">)</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">viz</span><span class="o">.</span><span class="n">available_moments</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>             <span class="c1"># what&#39;s renderable, QC included</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">payload</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">prepare_volume_payload</span><span class="p">(</span><span class="n">returns</span><span class="o">=</span><span class="n">returns</span><span class="p">,</span> <span class="n">moment</span><span class="o">=</span><span class="s2">&quot;DBZH&quot;</span><span class="p">,</span> <span class="n">max_points</span><span class="o">=</span><span class="mi">125_000</span><span class="p">)</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">payload</span><span class="o">.</span><span class="n">point_count</span><span class="p">,</span> <span class="n">payload</span><span class="o">.</span><span class="n">max_abs_m</span>
+</span></code></pre></div>
+<p><code>prepare_volume_payload</code> and the other 3-D paths take <code>max_points</code> and
+downsample deterministically, so the same inputs always yield the same picture.
+<code>viz.sweep_offsets(sweeps)</code> gives the cumulative return offsets if you want to
+slice a single sweep out of a volume or a batch first.</p>
+<p>The widgets need <code>anywidget</code> and <code>traitlets</code> (both in the <code>dev</code> group). Without
+them the payload functions still work; only the <code>*Widget</code> classes raise.</p>
 
 
 

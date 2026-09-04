@@ -387,14 +387,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../s3-archive/" class="md-nav__link">
+      <a href="../raystack-format/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    S3 archive iteration
+    Raystack format
   
 
     
@@ -415,14 +415,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../raystack-format/" class="md-nav__link">
+      <a href="../batching/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Raystack format
+    Batch iteration and folding
   
 
     
@@ -480,6 +480,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    xradar interop
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="././" class="md-nav__link md-nav__link--active">
         
   
@@ -496,6 +514,120 @@
   
 
       </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-matches" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What matches
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#radial-ordering-and-sort_by_azimuth" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Radial ordering and <code>sort_by_azimuth</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gates-with-no-valid-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Gates with no valid measurement
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gates with no valid measurement">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#comparing-the-two-libraries" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Comparing the two libraries
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cleaning-an-xradar-array-on-its-own" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Cleaning an xradar array on its own
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cloud-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Cloud sources
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verifying-it-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Verifying it yourself
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What's next
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -817,6 +949,11 @@
                       
                     
                     
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
                   
                   <div class="md-sidebar__inner">
                     
@@ -828,6 +965,108 @@
   
     
   
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-matches" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What matches
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#radial-ordering-and-sort_by_azimuth" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Radial ordering and <code>sort_by_azimuth</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gates-with-no-valid-measurement" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Gates with no valid measurement
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gates with no valid measurement">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#comparing-the-two-libraries" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Comparing the two libraries
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cleaning-an-xradar-array-on-its-own" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Cleaning an xradar array on its own
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cloud-sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Cloud sources
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verifying-it-yourself" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Verifying it yourself
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#whats-next" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What's next
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -846,12 +1085,245 @@
 
 
 <h1 id="xradar-interop">xradar interop<a class="headerlink" href="#xradar-interop" title="Permanent link">&para;</a></h1>
-<div class="admonition note">
-<p class="admonition-title">Under construction</p>
-<p>Guide covering xradar/Py-ART compatibility — sweep ordering, NaN
-semantics for below-threshold and range-folded gates, and the
-<code>sort_by_azimuth</code> flag — is being written.</p>
+<p><code>radrs.xradar.open_datatree</code> is a drop-in replacement for
+<code>xradar.io.open_nexradlevel2_datatree</code>. It returns an <code>xarray.DataTree</code> with
+the same <code>sweep_N</code> children, the same variable names, and the same dimensions,
+so code written against xradar generally works by changing the import.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># before</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">xradar</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xd</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">dt</span> <span class="o">=</span> <span class="n">xd</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">open_nexradlevel2_datatree</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1"># after</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.xradar</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rxr</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">dt</span> <span class="o">=</span> <span class="n">rxr</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+</span></code></pre></div>
+<p>The two libraries differ in three places, all on purpose: radial ordering, the
+representation of gates with no valid measurement, and how cloud sources are
+reached. Everything else is intended to match, and is checked against xradar in
+the test suite: sweep count, sweep naming, elevation angles, range geometry,
+variable sets, and decoded moment values.</p>
+<h2 id="what-matches">What matches<a class="headerlink" href="#what-matches" title="Permanent link">&para;</a></h2>
+<p>Comparing a KTLX VCP-12 volume against xradar 0.12, aligned by azimuth:</p>
+<table>
+<thead>
+<tr>
+<th>Property</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Sweeps</td>
+<td>20 vs 20, same <code>sweep_N</code> names</td>
+</tr>
+<tr>
+<td>Radials per sweep</td>
+<td>Identical on every sweep (720). Differences of one or two radials at a sweep boundary are possible on other volumes, from different handling of duplicate or incomplete radials, so align by azimuth rather than assuming equal lengths.</td>
+</tr>
+<tr>
+<td>Range gates per sweep</td>
+<td>Identical on every sweep</td>
+</tr>
+<tr>
+<td><code>sweep_fixed_angle</code></td>
+<td>Identical to within float representation</td>
+</tr>
+<tr>
+<td>Variable sets</td>
+<td>Identical, with no radrs-only or xradar-only variables</td>
+</tr>
+<tr>
+<td>Moment values</td>
+<td>Exact agreement on all 104 moment/sweep pairs, wherever both libraries report a valid measurement</td>
+</tr>
+</tbody>
+</table>
+<p>"Exact" is literal for the integer-scaled moments: mean, p95, and p99 absolute
+difference are all 0.0 for <code>DBZH</code>. <code>RHOHV</code> differs by up to 5e-8, which is
+float32 round-off in the scale/offset decode, not a difference in
+interpretation.</p>
+<h2 id="radial-ordering-and-sort_by_azimuth">Radial ordering and <code>sort_by_azimuth</code><a class="headerlink" href="#radial-ordering-and-sort_by_azimuth" title="Permanent link">&para;</a></h2>
+<p>xradar sorts the radials within each sweep by ascending azimuth. radrs
+preserves the order the radials appear in the file, which is the order the
+radar actually collected them. A sweep starts wherever the antenna was.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">rxr</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">path</span><span class="p">)[</span><span class="s2">&quot;sweep_0&quot;</span><span class="p">][</span><span class="s2">&quot;azimuth&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="c1"># array([167.27, 167.75, 168.27, 168.67, 169.21])   file order</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">rxr</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">sort_by_azimuth</span><span class="o">=</span><span class="kc">True</span><span class="p">)[</span><span class="s2">&quot;sweep_0&quot;</span><span class="p">][</span><span class="s2">&quot;azimuth&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="c1"># array([0.19, 0.71, 1.19, 1.76, 2.25])             xradar convention</span>
+</span></code></pre></div>
+<p>Pass <code>sort_by_azimuth=True</code> to match xradar. On the volume above the sorted
+azimuths agree with xradar's to the bit.</p>
+<p>Which default you want depends on the work. Sorted is right for plotting and
+for anything that indexes by azimuth. File order is right when collection
+sequence matters, such as spotting antenna irregularities or reasoning about
+the time axis, since azimuth-sorting scrambles it.</p>
+<div class="admonition warning">
+<p class="admonition-title">Sort before comparing anything positionally</p>
+<p>Without <code>sort_by_azimuth=True</code>, row <em>i</em> of a radrs sweep and row <em>i</em> of an
+xradar sweep are different radials. A cell-by-cell diff of the two will
+show large, meaningless differences.</p>
 </div>
+<h2 id="gates-with-no-valid-measurement">Gates with no valid measurement<a class="headerlink" href="#gates-with-no-valid-measurement" title="Permanent link">&para;</a></h2>
+<p>NEXRAD encodes each gate as a byte, reserving the two lowest codes: one for
+below threshold (the return was too weak to measure) and one for range folded
+(the return is ambiguous because the target lies beyond the unambiguous range).</p>
+<p>radrs decodes both to NaN, meaning "no measurement here". xradar runs them
+through the moment's scale and offset like any other code, so they come back
+as numbers at the bottom of that moment's scale:</p>
+<table>
+<thead>
+<tr>
+<th>Moment</th>
+<th style="text-align: right;">xradar value, below threshold</th>
+<th style="text-align: right;">xradar value, range folded</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DBZH</code></td>
+<td style="text-align: right;">-33.0</td>
+<td style="text-align: right;">-32.5</td>
+</tr>
+<tr>
+<td><code>VRADH</code></td>
+<td style="text-align: right;">-64.5</td>
+<td style="text-align: right;">-64.0</td>
+</tr>
+<tr>
+<td><code>WRADH</code></td>
+<td style="text-align: right;">-64.5</td>
+<td style="text-align: right;">-64.0</td>
+</tr>
+<tr>
+<td><code>ZDR</code></td>
+<td style="text-align: right;">-13.062</td>
+<td style="text-align: right;">-13.031</td>
+</tr>
+<tr>
+<td><code>PHIDP</code></td>
+<td style="text-align: right;">-0.705</td>
+<td style="text-align: right;">-0.353</td>
+</tr>
+<tr>
+<td><code>RHOHV</code></td>
+<td style="text-align: right;">0.202</td>
+<td style="text-align: right;">0.205</td>
+</tr>
+<tr>
+<td><code>CCORH</code></td>
+<td style="text-align: right;">-8.0</td>
+<td style="text-align: right;">-6.0, -7.0</td>
+</tr>
+</tbody>
+</table>
+<p>In every case the below-threshold value is the minimum of that moment's decoded
+scale and the range-folded value is the next step up. They are ordinary decodes
+of the two reserved codes, not out-of-band markers. <code>CCORH</code> is the odd one out,
+with a third value; radrs masks slightly more of it than the two reserved codes
+alone account for.</p>
+<p>Either choice is reasonable. radrs is cleaner for analysis; xradar retains
+which of the two codes a gate was. In practice the difference is large: on
+<code>sweep_0</code> of the volume above, 78.5% of <code>DBZH</code> cells are below threshold. Under
+xradar those cells hold -33.0, a physically plausible reflectivity, so any
+mean, histogram, or gradient computed over the raw array is dominated by them.
+<code>RHOHV</code>'s 0.202 is worse, because it looks like an ordinary low-correlation
+measurement.</p>
+<p>Nothing is lost in the other direction. There are zero cells that xradar
+reports as NaN while radrs reports a value.</p>
+<div class="admonition danger">
+<p class="admonition-title">Do not mask by literal value</p>
+<p>The values above are the decoded scale minimum for each moment, so they
+depend on the scale and offset recorded in the file and vary by moment and
+by sweep. Hard-coding <code>-33.0</code> works for <code>DBZH</code> on this volume and silently
+fails on <code>RHOHV</code>, on other moments, and potentially on other volumes.</p>
+</div>
+<h3 id="comparing-the-two-libraries">Comparing the two libraries<a class="headerlink" href="#comparing-the-two-libraries" title="Permanent link">&para;</a></h3>
+<p>Restrict to gates where both report something finite:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">valid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">rs_vals</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">xr_vals</span><span class="p">)</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">diff</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">rs_vals</span><span class="p">[</span><span class="n">valid</span><span class="p">]</span> <span class="o">-</span> <span class="n">xr_vals</span><span class="p">[</span><span class="n">valid</span><span class="p">])</span>
+</span></code></pre></div>
+<h3 id="cleaning-an-xradar-array-on-its-own">Cleaning an xradar array on its own<a class="headerlink" href="#cleaning-an-xradar-array-on-its-own" title="Permanent link">&para;</a></h3>
+<p>Derive the two reserved values from the data rather than hard-coding them.
+They are always the two lowest decoded values present:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">reserved</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">ds</span><span class="p">[</span><span class="n">moment</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)[:</span><span class="mi">2</span><span class="p">]</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="n">cleaned</span> <span class="o">=</span> <span class="n">ds</span><span class="p">[</span><span class="n">moment</span><span class="p">]</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="o">~</span><span class="n">np</span><span class="o">.</span><span class="n">isin</span><span class="p">(</span><span class="n">ds</span><span class="p">[</span><span class="n">moment</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">,</span> <span class="n">reserved</span><span class="p">))</span>
+</span></code></pre></div>
+<p>On Doppler sweeps that reproduces radrs's NaN mask exactly. It is still a
+heuristic, though, and it over-masks where range folding never occurred. On the
+surveillance cut of the volume above the two lowest <code>DBZH</code> values are <code>-33.0</code>
+and <code>-24.0</code>, and that <code>-24.0</code> is a real measurement. For <code>RHOHV</code> the same
+recipe agrees with radrs on 99.93% of cells rather than 100%, and the shortfall
+is genuine low-correlation gates being thrown away.</p>
+<p>Reading the volume with radrs avoids the guesswork, since the distinction is
+made during decode. The cost is that radrs collapses both codes to NaN, so
+which one a gate was is not recoverable from its output.</p>
+<h2 id="cloud-sources">Cloud sources<a class="headerlink" href="#cloud-sources" title="Permanent link">&para;</a></h2>
+<p>radrs takes a URI directly and fetches it itself:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">rxr</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>    <span class="s2">&quot;s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06&quot;</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><code>s3://</code> defaults to anonymous access, so the public buckets work with no
+credentials. <code>gs://</code>, <code>az://</code>, <code>file://</code>, and plain local paths are accepted
+too, along with raw <code>bytes</code>; pass <code>storage_options</code> for private buckets. Only
+single-volume keys work. The GCS mirror's 6-minute tar bundles are not
+unpacked and fail at parse.</p>
+<p><code>xradar.io.open_nexradlevel2_datatree</code> needs a local file or an open file
+object, so reaching the same object means staging it first:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">fsspec</span><span class="o">,</span><span class="w"> </span><span class="nn">xradar</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xd</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">local</span> <span class="o">=</span> <span class="n">fsspec</span><span class="o">.</span><span class="n">open_local</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;simplecache::</span><span class="si">{</span><span class="n">uri</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">s3</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;anon&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">dt</span> <span class="o">=</span> <span class="n">xd</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">open_nexradlevel2_datatree</span><span class="p">(</span><span class="n">local</span><span class="p">)</span>
+</span></code></pre></div>
+<h2 id="verifying-it-yourself">Verifying it yourself<a class="headerlink" href="#verifying-it-yourself" title="Permanent link">&para;</a></h2>
+<p>Two tools in the repo compare the libraries directly. Both need the <code>dev</code>
+group, which brings in xradar:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev
+</span></code></pre></div>
+<p><strong><code>scripts/xradar_radrs_bench.py</code></strong> loads one volume through both libraries and
+prints, per sweep, the radial and range counts, both fixed angles, and for each
+moment the fraction of gates where both are valid plus the mean, p95, and p99
+absolute difference. Moments that agree everywhere collapse to
+<code>(all obs equal)</code>.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/xradar_radrs_bench.py<span class="w"> </span>/path/to/KTLX20240315_000217_V06
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># or compare a remote volume, letting each library reach it its own way</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/xradar_radrs_bench.py<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span>--radrs-source<span class="w"> </span>s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span>--xradar-source<span class="w"> </span>https://unidata-nexrad-level2.s3.amazonaws.com/2024/03/15/KTLX/KTLX20240315_000217_V06
+</span></code></pre></div>
+<p>It aligns by azimuth internally, so <code>sort_by_azimuth</code> does not need to be set.</p>
+<p><strong><code>notebooks/xradar_radrs_compare.py</code></strong> is the interactive version. Pick a
+volume, sweep, and moment, and get the two arrays side by side with a
+difference map, a statistics table (NaN agreement, mean and max absolute
+difference, percentage within tolerance), an azimuth alignment plot, and the
+raystack <code>activity</code> summary for the same volume.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>run<span class="w"> </span>marimo<span class="w"> </span>run<span class="w"> </span>notebooks/xradar_radrs_compare.py
+</span></code></pre></div>
+<p>It loads radrs with <code>sort_by_azimuth=True</code> so the side-by-side images line up.
+The NaN-disagreement row in its statistics table is measuring the
+below-threshold difference described above, not an error.</p>
+<div class="admonition note">
+<p class="admonition-title">Timings need a release build</p>
+<p>The benchmark also reports load times for both libraries, and prints a
+banner naming the build profile it measured. An editable install from
+<code>uv sync</code> is a debug build (<code>opt-level 0</code>, no LTO, roughly 5–10× slower
+than release), so its timings say nothing about radrs performance.</p>
+<p>Build the extension in release mode before reading the numbers:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>maturin<span class="w"> </span>develop<span class="w"> </span>--release
+</span></code></pre></div>
+<p>See <a href="../../install/">Install</a> for the full source-build steps.</p>
+</div>
+<h2 id="whats-next">What's next<a class="headerlink" href="#whats-next" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../quickstart/">Quickstart</a> — the <code>open_datatree</code> basics for both interfaces.</li>
+<li><a href="../raystack-format/">Raystack format</a> — the flat alternative to the
+  sweep-tree layout, for when fixed-shape tensors suit the work better.</li>
+<li><a href="../../reference/xradar/"><code>radrs.xradar</code> API reference</a> — the full signature.</li>
+</ul>
 
 
 

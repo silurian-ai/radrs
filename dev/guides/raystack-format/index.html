@@ -13,10 +13,10 @@
         <link rel="canonical" href="https://silurian-ai.github.io/radrs/dev/guides/raystack-format/">
       
       
-        <link rel="prev" href="../s3-archive/">
+        <link rel="prev" href="../quickstart/">
       
       
-        <link rel="next" href="../qc/">
+        <link rel="next" href="../batching/">
       
       
         
@@ -384,34 +384,6 @@
                 
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../s3-archive/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    S3 archive iteration
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
     
   
   
@@ -545,6 +517,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../batching/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Batch iteration and folding
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1052,6 +1052,26 @@ where the radial runs out of gates.</p>
 is typically several times the number of physical radials.</p>
 <p>Each return row carries the metadata needed to place it back in radar
 space: azimuth, elevation, time, base range, and range step.</p>
+<div class="admonition warning">
+<p class="admonition-title"><code>range</code> is a gate index, not a distance</p>
+<p>The <code>range</code> coordinate runs <code>0 … fold_size - 1</code>: it is the gate's offset
+within its fold. Two returns at the same <code>range</code> index sit at completely
+different distances if they came from different folds or different sweeps.</p>
+<p>Physical range lives on the per-return <code>base_range</code> and <code>range_step</code>
+variables (both metres), so reconstruct it explicitly:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">gate_index</span> <span class="o">=</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;range&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>                       <span class="c1"># (fold_size,)</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="n">range_m</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;base_range&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>    <span class="o">+</span> <span class="n">gate_index</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;range_step&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="p">)</span>                                                          <span class="c1"># (n_returns, fold_size)</span>
+</span></code></pre></div>
+<p><code>base_range</code> already accounts for the fold offset, so this is correct for
+trailing folds too.</p>
+</div>
+<p>Folding also sets how much memory a volume costs, which matters most when
+accumulating many volumes at once. See
+<a href="../batching/">Batch iteration and folding</a> for the returns-per-volume
+arithmetic.</p>
 <h2 id="the-four-datasets">The four datasets<a class="headerlink" href="#the-four-datasets" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1088,22 +1108,22 @@ space: azimuth, elevation, time, base range, and range step.</p>
 how many rows of <code>returns</code> belong to that sweep. That single column is what
 keeps the flat layout aligned with the original sweep structure.</p>
 <h2 id="opening-a-volume">Opening a volume<a class="headerlink" href="#opening-a-volume" title="Permanent link">&para;</a></h2>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.raystack</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rrs</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">src</span> <span class="o">=</span> <span class="s2">&quot;s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06&quot;</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">rdt</span> <span class="o">=</span> <span class="n">rrs</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">fold_size</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">vcps</span>     <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;vcps&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">sweeps</span>   <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;sweeps&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">returns</span>  <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;returns&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">activity</span> <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;activity&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.raystack</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rrs</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">src</span> <span class="o">=</span> <span class="s2">&quot;s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06&quot;</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">rdt</span> <span class="o">=</span> <span class="n">rrs</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">fold_size</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">vcps</span>     <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;vcps&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">sweeps</span>   <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;sweeps&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">returns</span>  <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;returns&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="n">activity</span> <span class="o">=</span> <span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;activity&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">dataset</span>
 </span></code></pre></div>
 <p>Moment variables come back as <code>(n_returns, fold_size)</code> matrices; the
 return-level metadata arrays are 1-D and align with the first axis:</p>
-<div class="language-pycon highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">returns</span><span class="p">[</span><span class="s2">&quot;DBZH&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="go">(114840, 128)</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">returns</span><span class="p">[</span><span class="s2">&quot;azimuth&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;return_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="go">((114840,), (114840,))</span>
+<div class="language-pycon highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">returns</span><span class="p">[</span><span class="s2">&quot;DBZH&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="go">(114840, 128)</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="gp">&gt;&gt;&gt; </span><span class="n">returns</span><span class="p">[</span><span class="s2">&quot;azimuth&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;return_time&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="go">((114840,), (114840,))</span>
 </span></code></pre></div>
 <p>That alignment is the contract the format is built around. A model can
 consume <code>DBZH</code> as a dense tensor; analysis code can map any row back to
@@ -1111,22 +1131,22 @@ radar geometry by indexing the metadata arrays the same way.</p>
 <h2 id="slicing-by-sweep">Slicing by sweep<a class="headerlink" href="#slicing-by-sweep" title="Permanent link">&para;</a></h2>
 <p><code>sweeps["num_returns"]</code> is a count per sweep; the cumulative sum gives
 slice offsets into every return-level array.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">offsets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">r_</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">sweeps</span><span class="p">[</span><span class="s2">&quot;num_returns&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)]</span>
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">start</span><span class="p">,</span> <span class="n">stop</span> <span class="o">=</span> <span class="n">offsets</span><span class="p">[</span><span class="n">sweep_index</span><span class="p">],</span> <span class="n">offsets</span><span class="p">[</span><span class="n">sweep_index</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">dbzh</span>    <span class="o">=</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;DBZH&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">stop</span><span class="p">]</span>
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="n">azimuth</span> <span class="o">=</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;azimuth&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">stop</span><span class="p">]</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">offsets</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">r_</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">sweeps</span><span class="p">[</span><span class="s2">&quot;num_returns&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)]</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">start</span><span class="p">,</span> <span class="n">stop</span> <span class="o">=</span> <span class="n">offsets</span><span class="p">[</span><span class="n">sweep_index</span><span class="p">],</span> <span class="n">offsets</span><span class="p">[</span><span class="n">sweep_index</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">dbzh</span>    <span class="o">=</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;DBZH&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">stop</span><span class="p">]</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">azimuth</span> <span class="o">=</span> <span class="n">returns</span><span class="p">[</span><span class="s2">&quot;azimuth&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="n">start</span><span class="p">:</span><span class="n">stop</span><span class="p">]</span>
 </span></code></pre></div>
 <p>The same <code>start:stop</code> slice applies to every column in <code>returns</code>.</p>
 <h2 id="checking-data-availability">Checking data availability<a class="headerlink" href="#checking-data-availability" title="Permanent link">&para;</a></h2>
 <p>The <code>activity</code> dataset summarizes how much valid data each moment has,
 already computed over the folded representation. It is the cheap way to
 filter or weight volumes before sampling training batches.</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">activity</span><span class="p">[</span><span class="s2">&quot;ray_valid_fraction&quot;</span><span class="p">]</span>      <span class="c1"># per (moment, return)</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">activity</span><span class="p">[</span><span class="s2">&quot;sweep_valid_fraction&quot;</span><span class="p">]</span>    <span class="c1"># per (moment, sweep)</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">activity</span><span class="p">[</span><span class="s2">&quot;volume_valid_fraction&quot;</span><span class="p">]</span>   <span class="c1"># per (moment, vcp)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">activity</span><span class="p">[</span><span class="s2">&quot;ray_valid_fraction&quot;</span><span class="p">]</span>      <span class="c1"># per (moment, return)</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">activity</span><span class="p">[</span><span class="s2">&quot;sweep_valid_fraction&quot;</span><span class="p">]</span>    <span class="c1"># per (moment, sweep)</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">activity</span><span class="p">[</span><span class="s2">&quot;volume_valid_fraction&quot;</span><span class="p">]</span>   <span class="c1"># per (moment, vcp)</span>
 </span></code></pre></div>
 <p><code>*_valid_count</code> variants give raw counts instead of fractions. A return
 with all-NaN moments has fraction <code>0.0</code>; a fully populated one has <code>1.0</code>.</p>

@@ -16,7 +16,7 @@
         <link rel="prev" href="../../install/">
       
       
-        <link rel="next" href="../s3-archive/">
+        <link rel="next" href="../raystack-format/">
       
       
         
@@ -464,6 +464,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#accumulate-a-time-range-into-one-array" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Accumulate a time range into one array
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#whats-next" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -490,14 +501,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../s3-archive/" class="md-nav__link">
+      <a href="../raystack-format/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    S3 archive iteration
+    Raystack format
   
 
     
@@ -518,14 +529,14 @@
   
   
     <li class="md-nav__item">
-      <a href="../raystack-format/" class="md-nav__link">
+      <a href="../batching/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
     
   
-    Raystack format
+    Batch iteration and folding
   
 
     
@@ -978,6 +989,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#accumulate-a-time-range-into-one-array" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Accumulate a time range into one array
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#whats-next" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1045,8 +1067,13 @@ rather than nested xradar groups.</p>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">rdt</span><span class="p">[</span><span class="s2">&quot;returns&quot;</span><span class="p">][</span><span class="s2">&quot;DBZH&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span>  <span class="c1"># (n_returns, 128)</span>
 </span></code></pre></div>
 <p><code>fold_size</code> chunks each radial along the range axis: a radial with
-<code>n_gates &gt; fold_size</code> becomes multiple returns of <code>fold_size</code> gates each. See
-<a href="../raystack-format/">Raystack format</a> for the array layout.</p>
+<code>n_gates &gt; fold_size</code> becomes <code>ceil(n_gates / fold_size)</code> returns of
+<code>fold_size</code> gates each, NaN-padded past the last real gate. The <code>range</code>
+coordinate is the gate's index within its fold, not a distance. See
+<a href="../raystack-format/#returns-and-folding">Raystack format</a> for the array layout
+and for recovering physical range, and
+<a href="../batching/#folding">Batch iteration and folding</a> for how <code>fold_size</code> trades
+rows against columns.</p>
 <h2 id="anonymous-s3-access">Anonymous S3 access<a class="headerlink" href="#anonymous-s3-access" title="Permanent link">&para;</a></h2>
 <p>The single-volume <code>open_datatree</code> path fetches from S3 without signing, so
 public buckets like <code>unidata-nexrad-level2</code> and <code>noaa-nexrad-level2</code> work
@@ -1064,21 +1091,38 @@ out of the box even without AWS credentials.</p>
 </span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="n">site_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;KTLX&quot;</span><span class="p">],</span>
 </span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="p">)</span>
 </span></code></pre></div>
-<p>Archive bounds are UTC. Pass aware datetimes with <code>tzinfo=timezone.utc</code> when
-possible. For compatibility, naive datetimes are interpreted as UTC rather
-than as the machine's local timezone. The interval is half-open:
-<code>[start_time, end_time)</code>, so a volume exactly at <code>end_time</code> is excluded.</p>
-<p>See <a href="../s3-archive/">S3 archive iteration</a> for the full surface.</p>
+<p>Archive bounds are UTC and half-open, <code>[start_time, end_time)</code>: naive
+datetimes are read as UTC rather than as local time, and a volume exactly at
+<code>end_time</code> is excluded. See
+<a href="../batching/#iterating-an-archive">Iterating an archive</a> for the full surface.</p>
+<h2 id="accumulate-a-time-range-into-one-array">Accumulate a time range into one array<a class="headerlink" href="#accumulate-a-time-range-into-one-array" title="Permanent link">&para;</a></h2>
+<p><code>BatchedRaystack</code> fills pre-allocated buffers from an archive iterator, so a
+whole time range becomes a single returns matrix:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.raystack</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rrs</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">batch</span> <span class="o">=</span> <span class="n">rrs</span><span class="o">.</span><span class="n">BatchedRaystack</span><span class="p">(</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">max_vcps</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">max_sweeps</span><span class="o">=</span><span class="mi">20</span> <span class="o">*</span> <span class="mi">32</span><span class="p">,</span> <span class="n">max_returns</span><span class="o">=</span><span class="mi">20</span> <span class="o">*</span> <span class="mi">90_000</span><span class="p">,</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">fold_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">drop_empty_returns</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">)</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">n_added</span> <span class="o">=</span> <span class="n">batch</span><span class="o">.</span><span class="n">add_volumes_from_l2</span><span class="p">(</span><span class="n">archive</span><span class="p">,</span> <span class="n">prefetch</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">rs_dt</span> <span class="o">=</span> <span class="n">batch</span><span class="o">.</span><span class="n">finalize_to_rs_dt</span><span class="p">()</span>
+</span></code></pre></div>
+<p>Capacity is reserved up front, so <code>max_returns</code> has to be estimated before the
+first fetch and <code>n_added</code> has to be checked afterwards. See
+<a href="../batching/">Batch iteration and folding</a> for the sizing arithmetic.</p>
 <h2 id="whats-next">What's next<a class="headerlink" href="#whats-next" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../s3-archive/">S3 archive iteration</a> — <code>NexradL2ArchiveIter</code> for
-  time-bounded multi-cloud slices.</li>
 <li><a href="../raystack-format/">Raystack format</a> — what <code>vcps</code>, <code>sweeps</code>, <code>returns</code>,
-  and <code>activity</code> actually contain.</li>
+  and <code>activity</code> actually contain, with a visual folding walkthrough.</li>
+<li><a href="../batching/">Batch iteration and folding</a> — <code>NexradL2ArchiveIter</code>,
+  <code>BatchedRaystack</code> capacity sizing, <code>prefetch</code>, <code>drop_empty_returns</code>, and
+  fixed-shape output.</li>
 <li><a href="../qc/">Quality control</a> — <code>RhohvThreshold</code>, <code>SunSpike</code>, and
   <code>VradhWindingNumber</code> applied during raystack parsing.</li>
 <li><a href="../xradar-interop/">xradar interop</a> — sweep ordering, NaN semantics for
   below-threshold gates, and the <code>sort_by_azimuth</code> flag.</li>
+<li><a href="../visualization/">Visualization</a> — the marimo viewers for a single volume
+  and for a whole batch.</li>
 </ul>
 
 
