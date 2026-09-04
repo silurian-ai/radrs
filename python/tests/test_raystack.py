@@ -326,9 +326,21 @@ class TestFromXradarDatatree:
 
         assert set(unique_return_sweeps).issubset(set(unique_sweeps))
 
-    @pytest.mark.slow
-    def test_from_xradar_datatree_with_xradar_datatree(self, full_xradar_datatree):
-        xrad_dt = full_xradar_datatree
+    def test_from_xradar_datatree_with_xradar_datatree(self, test_file_path):
+        try:
+            import xradar as xd
+        except ImportError:
+            pytest.skip("xradar not installed")
+
+        # xradar >= 0.12 drops /radar_parameters, /georeferencing_correction and
+        # /radar_calibration unless optional_groups=True. This test exists to prove
+        # from_xradar_datatree skips non-sweep children, so ask for them explicitly.
+        # It also defaults to incomplete_sweep="drop", which discards the compact
+        # fixture's only (force-closed) sweep and yields an empty DataTree, so keep
+        # the sweep with NaN-filled rays instead.
+        xrad_dt = xd.io.open_nexradlevel2_datatree(
+            test_file_path, optional_groups=True, incomplete_sweep="pad"
+        )
         non_sweep = [k for k in xrad_dt.children.keys() if not k.startswith("sweep_")]
         assert len(non_sweep) > 0
 

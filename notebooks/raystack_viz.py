@@ -13,7 +13,7 @@ def _():
     import radrs
     import radrs.viz as viz
     import radrs.raystack as rrs
-    return dt, mo, viz, radrs, rrs
+    return dt, mo, radrs, rrs, viz
 
 
 @app.cell
@@ -78,7 +78,14 @@ def _(dt, mo):
         ],
         align="stretch",
     )
-    return base_uri, end_time, fold_size_input, max_volumes, start_time, station_input
+    return (
+        base_uri,
+        end_time,
+        fold_size_input,
+        max_volumes,
+        start_time,
+        station_input,
+    )
 
 
 @app.cell
@@ -110,6 +117,7 @@ def _(
         )
 
     infos = sorted(infos, key=lambda item: item.vcp_time)[: int(max_volumes.value)]
+    infos
     return end_utc, infos, start_utc, station
 
 
@@ -144,7 +152,7 @@ def _(base_uri, end_utc, infos, mo, start_utc, station):
 
 
 @app.cell
-def _(fold_size_input, mo, viz, rrs, volume_selector):
+def _(fold_size_input, mo, rrs, viz, volume_selector):
     with mo.status.spinner("Loading selected volume..."):
         dtree = rrs.open_datatree(
             volume_selector.value,
@@ -152,6 +160,7 @@ def _(fold_size_input, mo, viz, rrs, volume_selector):
             include_activity=False,
         )
         returns, sweeps = viz.get_returns_and_sweeps(dtree)
+    dtree
     return dtree, returns, sweeps
 
 
@@ -189,7 +198,7 @@ def _(dtree, mo, returns, sweeps, volume_selector):
 
 
 @app.cell
-def _(mo, viz, returns):
+def _(mo, returns, viz):
     mode_selector = mo.ui.dropdown(
         options=["Ray 3D", "Gate cloud 3D", "CAPPI", "Cross-section", "Waterfall"],
         value="Ray 3D",
@@ -351,10 +360,10 @@ def _(
     mo,
     mode_selector,
     moment_selector,
-    viz,
     returns,
     sample_cap,
     sweeps,
+    viz,
     wf_max_range,
     wf_max_returns,
     xsec_azimuth,
@@ -442,7 +451,7 @@ def _(canvas_size, mo, payload, viz):
 
 
 @app.cell
-def _(max_points, mo, mode, payload, viz, requested_points, widget_ui):
+def _(max_points, mo, mode, payload, requested_points, viz, widget_ui):
     hover = widget_ui.hover if isinstance(widget_ui.hover, dict) else {}
 
     if isinstance(payload, viz.WaterfallPayload):

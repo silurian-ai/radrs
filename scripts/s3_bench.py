@@ -1,10 +1,10 @@
 """S3 benchmark suite for radrs and optional xradar comparison.
 
 Usage examples:
-  uv run python benchmarks/s3_benchmark.py
-  uv run python benchmarks/s3_benchmark.py --mode full
-  uv run python benchmarks/s3_benchmark.py --site KTLX --date 2024-03-15 --n 3
-  uv run python benchmarks/s3_benchmark.py --xradar
+  uv run python scripts/s3_bench.py
+  uv run python scripts/s3_bench.py --mode full
+  uv run python scripts/s3_bench.py --site KTLX --date 2024-03-15 --n 3
+  uv run python scripts/s3_bench.py --xradar
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import argparse
 import asyncio
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 import radrs
@@ -24,11 +24,46 @@ DEFAULT_DATE = "2024-03-15"
 DEFAULT_N = 3
 DEFAULT_N_FULL = 10
 
+BASE_ARCHIVE_URL="s3://unidata-nexrad-level2"
+
+def _build_profile() -> str | None:
+    try:
+        from radrs import _radrs
+    except ImportError:
+        return None
+    return getattr(_radrs, "__profile__", None)
+
+
+def _warn_about_build() -> None:
+    """Every number below is meaningless on a debug build -- say so loudly."""
+    profile = _build_profile()
+    if profile == "release":
+        return
+
+    if profile == "debug":
+        headline = "WARNING: radrs is a DEBUG build."
+        detail = (
+            "Parsing runs ~13x slower than release, so CPU swamps the S3 fetch\n"
+            "  and the async section cannot show any speedup. Rebuild with\n"
+            "  `uv run maturin develop --release` before reading these numbers."
+        )
+    else:
+        headline = "WARNING: Could not determine the radrs build profile."
+        detail = (
+            "The installed extension predates `_radrs.__profile__`. If it was built\n"
+            "  by `uv sync` or a plain `maturin develop`, it is a debug build."
+        )
+
+    print("=" * 60)
+    print(f"  {headline}")
+    print(f"  {detail}")
+    print("=" * 60)
+
 
 def get_test_urls(site: str, date: str, n: int) -> list[str]:
-    day = datetime.strptime(date, "%Y-%m-%d")
+    day = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     archive = radrs.NexradL2ArchiveIter(
-        base_uri="s3://unidata-nexrad-level2",
+        base_uri=BASE_ARCHIVE_URL,
         start_time=day,
         end_time=day + timedelta(days=1),
         storage_options={"anon": "true", "region": "us-east-1"},
@@ -36,7 +71,7 @@ def get_test_urls(site: str, date: str, n: int) -> list[str]:
     )
     urls = []
     for info in archive:
-        urls.append(info.uri)
+        urls.append(BASE_ARCHIVE_URL + "/" + info.uri)
         if len(urls) >= n:
             break
     return urls
@@ -144,6 +179,7 @@ def run(mode: str, site: str, date: str, n: int, n_full: int, use_xradar: bool) 
     print("=" * 60)
     print("radrs S3 Benchmark Suite")
     print("=" * 60)
+    _warn_about_build()
     print(f"Site: {site}  Date: {date}")
 
     urls = get_test_urls(site, date, max(n, 3))

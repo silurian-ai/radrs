@@ -28,19 +28,23 @@ rdt = rrs.open_datatree(src, fold_size=128)
 Iterate over a time-bounded archive on S3:
 
 ```python
-from datetime import datetime
+from datetime import datetime, timezone
 import radrs
 
 archive = radrs.NexradL2ArchiveIter(
     base_uri="s3://unidata-nexrad-level2",
-    start_time=datetime(2024, 3, 15),
-    end_time=datetime(2024, 3, 16),
+    start_time=datetime(2024, 3, 15, tzinfo=timezone.utc),
+    end_time=datetime(2024, 3, 16, tzinfo=timezone.utc),
     storage_options={"anon": "true"},
     site_filter=["KTLX"],
 )
 for info in archive:
     process(info.uri)
 ```
+
+Archive bounds use UTC. Aware datetimes are converted by instant; naive
+datetimes are interpreted as UTC for compatibility with older examples. The
+end bound is exclusive, so volumes are selected from ``[start_time, end_time)``.
 """
 
 
@@ -54,7 +58,6 @@ from radrs._radrs import (
     list_nexrad_l2_archive_volumes_py as list_nexrad_l2_archive_volumes,
     peek_volume,
     set_log_filter,
-    stream_archive,
     stream_realtime,
 )
 
@@ -66,7 +69,6 @@ __all__ = [
     "peek_volume",
     "VolumeMeta",
     "stream_realtime",
-    "stream_archive",
     "NexradL2ArchiveIter",
     "NexradL2ArchiveInfo",
     "list_nexrad_l2_archive_volumes",

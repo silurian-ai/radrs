@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*.*.*'
-      - 'radrs-v*.*.*'
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
@@ -21,6 +18,25 @@ on:
       - 'Cargo.lock'
       - '.github/workflows/docs-deploy.yml'
 
+  # Versioned docs publish off the GitHub Release, not the tag push. A `push`
+  # trigger shares one `paths` filter across its branches and tags, and a tag
+  # push has no changed-file diff, so the tag half never matched and versioned
+  # docs were never deployed.
+  release:
+    types: [published]
+
+  # Manual backfill / re-publish. `tag` is the git ref the docs are built from;
+  # `version` overrides the published docs version when it should differ from
+  # the one derived from the tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build docs from, e.g. radrs-v0.3.7'
+        required: true
+      version:
+        description: 'Docs version to publish as (default: minor series of the tag, e.g. 0.3)'
+        required: false
+
 env:
   PYTHON_VERSION: '3.12'
 
@@ -28,7 +44,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: docs-deploy-${{ github.ref }}
+  # Every deploy path pushes to gh-pages, and a release lands at the same time
+  # as its release commit on main. One group so they queue instead of racing.
+  group: docs-deploy
   cancel-in-progress: false
 
 jobs:
@@ -40,6 +58,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.tag || github.ref }}
           # mike needs full history of gh-pages to update versioned docs.
           fetch-depth: 0
           persist-credentials: true
@@ -68,23 +87,31 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Deploy dev alias (push to main)
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name == 'push'
         run: uv run mike deploy --push --update-aliases dev
 
-      - name: Deploy versioned docs (release tag)
-        if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/radrs-v')
+      - name: Deploy versioned docs (release)
+        if: >-
+          github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'release' && !github.event.release.prerelease)
         env:
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          DOCS_VERSION: ${{ inputs.version }}
         run: |
-          case "${GITHUB_REF_NAME}" in
-            radrs-v*) tag="${GITHUB_REF_NAME#radrs-v}" ;;
-            v*) tag="${GITHUB_REF_NAME#v}" ;;
-            *)
-              echo "Unsupported release tag: ${GITHUB_REF_NAME}" >&2
-              exit 1
-              ;;
-          esac
-          version="${tag%.*}"
-          echo "Deploying docs for version ${version} (from tag ${GITHUB_REF_NAME})"
+          if [ -n "${DOCS_VERSION}" ]; then
+            version="${DOCS_VERSION}"
+          else
+            case "${RELEASE_TAG}" in
+              radrs-v*) tag="${RELEASE_TAG#radrs-v}" ;;
+              v*) tag="${RELEASE_TAG#v}" ;;
+              *)
+                echo "Unsupported release tag: ${RELEASE_TAG}" >&2
+                exit 1
+                ;;
+            esac
+            # Docs are versioned per minor series, so 0.3.7 publishes as 0.3.
+            version="${tag%.*}"
+          fi
+          echo "Deploying docs for version ${version} (from tag ${RELEASE_TAG})"
           uv run mike deploy --push --update-aliases "${version}" latest
           uv run mike set-default --push latest
