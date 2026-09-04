@@ -47,6 +47,36 @@ the [full documentation](https://silurian-ai.github.io/radrs/dev/).
 - [User guide & API reference](https://silurian-ai.github.io/radrs/dev/)
 - [Changelog](CHANGELOG.md)
 
+## xarray engines
+
+radrs registers two explicit xarray engines:
+
+| Engine | Schema | Use case |
+|--------|--------|----------|
+| `radrs-xradar` | xradar/CfRadial-style sweep tree (`/sweep_0`, `/sweep_1`, ...) | Ecosystem compatibility with xarray, xradar, and Py-ART workflows |
+| `radrs-raystack` | Flattened raystack tree (`/vcps`, `/sweeps`, `/returns`, `/activity`) | radrs-native analytics, batching, and ML-oriented storage |
+
+```python
+import xarray as xr
+
+dt = xr.open_datatree(source, engine="radrs-xradar", sort_by_azimuth=True)
+sweep = xr.open_dataset(source, engine="radrs-xradar", group="sweep_0")
+
+rs_dt = xr.open_datatree(source, engine="radrs-raystack", fold_size=128)
+returns = xr.open_dataset(
+    source,
+    engine="radrs-raystack",
+    group="returns",
+    fold_size=128,
+)
+```
+
+Both engines accept `format="nexrad-level2"`, which is the current default and
+the only supported source format.
+
+The direct `radrs.xradar` and `radrs.raystack` APIs remain the canonical APIs.
+The xarray engines are thin adapters for workflows that prefer xarray dispatch.
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE).

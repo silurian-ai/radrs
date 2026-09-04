@@ -41,9 +41,11 @@ rdt = rrs.open_datatree(src, fold_size=128, qc=[qc.RhohvThreshold(threshold=0.8)
 For lower-level use over already-loaded bytes, see ``parse``.
 """
 
-from radrs.qc import compile_qc_steps
-import xarray as xr
 import numpy as np
+import xarray as xr
+
+from radrs._source_format import DEFAULT_SOURCE_FORMAT, require_supported_format
+from radrs.qc import compile_qc_steps
 
 # Import from the Rust extension
 try:
@@ -53,8 +55,16 @@ except ImportError:
 
 if _raystack is None:
 
-    def parse(data, fold_size=None, qc=None, include_activity=True):
+    def parse(
+        data,
+        fold_size=None,
+        qc=None,
+        include_activity=True,
+        *,
+        format: str = DEFAULT_SOURCE_FORMAT,
+    ):
         """Parse NEXRAD data to raystack format."""
+        require_supported_format(format)
         raise NotImplementedError("radrs.raystack module not available")
 
     def from_xradar_datatree(datatree, fold_size=None, include_activity=True):
@@ -70,15 +80,29 @@ if _raystack is None:
         raise NotImplementedError("radrs.raystack module not available")
 
     def open_datatree(
-        source, fold_size=None, qc=None, include_activity=True, storage_options=None
+        source,
+        fold_size=None,
+        qc=None,
+        include_activity=True,
+        storage_options=None,
+        *,
+        format: str = DEFAULT_SOURCE_FORMAT,
     ):
         """Open NEXRAD data and return raystack DataTree."""
+        require_supported_format(format)
         raise NotImplementedError("radrs.raystack module not available")
 
     async def open_datatree_async(
-        source, fold_size=None, qc=None, include_activity=True, storage_options=None
+        source,
+        fold_size=None,
+        qc=None,
+        include_activity=True,
+        storage_options=None,
+        *,
+        format: str = DEFAULT_SOURCE_FORMAT,
     ):
         """Open NEXRAD data and return raystack DataTree (async)."""
+        require_supported_format(format)
         raise NotImplementedError("radrs.raystack module not available")
 
     class BatchedRaystack:
@@ -89,7 +113,15 @@ if _raystack is None:
 
 else:
 
-    def parse(data, fold_size=None, qc=None, include_activity=True):
+    def parse(
+        data,
+        fold_size=None,
+        qc=None,
+        include_activity=True,
+        *,
+        format: str = DEFAULT_SOURCE_FORMAT,
+    ):
+        require_supported_format(format)
         qc_spec = compile_qc_steps(qc)
         return _raystack.parse(
             data, fold_size=fold_size, qc=qc_spec, include_activity=include_activity
@@ -104,7 +136,13 @@ else:
     to_raystack_datatree = _raystack.to_raystack_datatree
 
     def open_datatree(
-        source, fold_size=None, qc=None, include_activity=True, storage_options=None
+        source,
+        fold_size=None,
+        qc=None,
+        include_activity=True,
+        storage_options=None,
+        *,
+        format: str = DEFAULT_SOURCE_FORMAT,
     ):
         """Open a NEXRAD volume and return a raystack DataTree.
 
@@ -128,6 +166,7 @@ else:
             - GCS service account: {"service_account_path": "/path/to/key.json"}
             - Azure: {"account_name": "...", "access_key": "..."}
         """
+        require_supported_format(format)
         qc_spec = compile_qc_steps(qc)
         return _raystack.open_datatree(
             source,
@@ -138,13 +177,20 @@ else:
         )
 
     async def open_datatree_async(
-        source, fold_size=None, qc=None, include_activity=True, storage_options=None
+        source,
+        fold_size=None,
+        qc=None,
+        include_activity=True,
+        storage_options=None,
+        *,
+        format: str = DEFAULT_SOURCE_FORMAT,
     ):
         """Async variant of ``open_datatree``.
 
         See ``open_datatree`` for parameter descriptions, including the
         single-volume-only caveat for non-S3 cloud sources.
         """
+        require_supported_format(format)
         qc_spec = compile_qc_steps(qc)
         return await _raystack.open_datatree_async(
             source,

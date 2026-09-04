@@ -39,6 +39,10 @@ zarr = ["zarr>=3"]
 test = ["pytest", "pytest-asyncio", "pytest-benchmark", "xradar>=0.12", "fsspec"]
 ray = ["ray"]
 
+[project.entry-points."xarray.backends"]
+"radrs-xradar" = "radrs.backends:RadrsXradarBackend"
+"radrs-raystack" = "radrs.backends:RadrsRaystackBackend"
+
 [tool.maturin]
 python-source = "python"
 module-name = "radrs._radrs"
