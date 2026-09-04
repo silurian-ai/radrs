@@ -380,13 +380,29 @@ else:
             RuntimeError
                 If batch is already finalized
 
+            Notes
+            -----
+            Running out of capacity is not an error. A volume that does not fit
+            is rejected whole (adds are atomic, so a partial volume never lands)
+            and iteration continues, so a later, smaller volume can still be
+            admitted: an undersized batch quietly yields a time range with
+            holes in it rather than a clean prefix. Iteration stops early only
+            once a dimension is exactly full. Compare the returned count
+            against the number of volumes you expected.
+
+            Fetch failures are skipped the same way, as are parse failures on
+            the default ``include_sweeps=True`` path; set ``RADRS_LOG=warn`` to
+            see the reason for each skip. With ``include_sweeps=False``, a
+            volume that cannot be peeked raises instead of being skipped.
+
             Examples
             --------
             S3 with anonymous access (time range within a single day):
 
+            >>> import radrs
             >>> import radrs.raystack as rrs
             >>> from datetime import datetime, timezone
-            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="s3://noaa-nexrad-level2",
             ...     start_time=datetime(2024, 3, 15, 10, 0, 0, tzinfo=timezone.utc),
             ...     end_time=datetime(2024, 3, 15, 14, 0, 0, tzinfo=timezone.utc),
@@ -398,7 +414,7 @@ else:
 
             Time range spanning multiple days:
 
-            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="s3://noaa-nexrad-level2",
             ...     start_time=datetime(2024, 3, 15, 20, 0, 0, tzinfo=timezone.utc),
             ...     end_time=datetime(2024, 3, 16, 4, 0, 0, tzinfo=timezone.utc),
@@ -408,7 +424,7 @@ else:
 
             GCS with service account:
 
-            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="gs://my-bucket/nexrad",
             ...     start_time=datetime(2024, 3, 15, 0, 0, 0, tzinfo=timezone.utc),
             ...     end_time=datetime(2024, 3, 16, tzinfo=timezone.utc),
@@ -418,7 +434,7 @@ else:
 
             Local filesystem:
 
-            >>> l2_iter = rrs.NexradL2ArchiveIter(
+            >>> l2_iter = radrs.NexradL2ArchiveIter(
             ...     base_uri="/data/nexrad",
             ...     start_time=datetime(2024, 3, 15, tzinfo=timezone.utc),
             ...     end_time=datetime(2024, 3, 16, tzinfo=timezone.utc)
@@ -429,6 +445,19 @@ else:
 
         def progress(self):
             """Get current fill progress.
+
+            Call this before ``finalize_to_dict()`` or ``finalize_to_rs_dt()``,
+            which consume the batch — ``progress()`` panics once the buffers
+            have been handed to Python. Plain ``finalize()`` leaves these
+            figures untouched.
+
+            Notes
+            -----
+            ``returns_filled`` counts the returns that survived
+            ``drop_empty_returns``, while ``returns_capacity`` is checked against
+            the uncompacted count. With compaction on, ``fill_fraction`` is
+            therefore a lower bound on real capacity pressure — use the volume
+            count returned by ``add_volumes_from_l2`` to confirm everything fit.
 
             Returns
             -------
@@ -483,9 +512,14 @@ else:
                 return self._inner.add_qc_outputs(qc_spec)
 
         def finalize(self):
-            """Finalize batch (trim excess capacity).
+            """Finalize the batch in place.
 
-            Called automatically by to_raystack() and to_datatree().
+            With the default ``truncate=True`` the arrays are already at their
+            filled size and this is a no-op; with ``truncate=False`` they are
+            padded out to full capacity with NaN/NaT fill. Either way the
+            ``progress()`` counts are unchanged.
+
+            Called automatically by finalize_to_dict() and finalize_to_rs_dt().
             """
             return self._inner.finalize()
 

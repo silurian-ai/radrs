@@ -23,7 +23,7 @@ def _(mo):
 
     Volume viewer with multiple visualization modes:
     - **Ray 3D**: one endpoint per return ray (sweep-independent)
-    - **Gate cloud 3D**: all finite gates in a rotating 3D projectionB radrs
+    - **Gate cloud 3D**: all finite gates in a rotating 3D projection
     - **CAPPI**: constant-altitude horizontal slice through the volume
     - **Cross-section**: vertical slice along a target azimuth
     - **Waterfall**: raw (return_time, range) moment matrix as a 2D heatmap

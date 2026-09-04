@@ -116,9 +116,10 @@ def _(
             site_filter=[station],
         )
 
-    # info.vcp_time is naive *local* time; pin it to UTC before display or reuse.
-    def to_utc(naive):
-        return naive.astimezone(dt.timezone.utc)
+    # info.vcp_time is already timezone-aware UTC. Normalize defensively so the
+    # notebook also runs against older radrs builds that returned naive local.
+    def to_utc(value):
+        return value.astimezone(dt.timezone.utc)
 
     infos = sorted(infos, key=lambda item: item.vcp_time)[: int(max_volumes.value)]
     infos

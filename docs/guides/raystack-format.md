@@ -33,6 +33,31 @@ is typically several times the number of physical radials.
 Each return row carries the metadata needed to place it back in radar
 space: azimuth, elevation, time, base range, and range step.
 
+!!! warning "`range` is a gate index, not a distance"
+
+    The `range` coordinate runs `0 … fold_size - 1`: it is the gate's offset
+    within its fold. Two returns at the same `range` index sit at completely
+    different distances if they came from different folds or different sweeps.
+
+    Physical range lives on the per-return `base_range` and `range_step`
+    variables (both metres), so reconstruct it explicitly:
+
+    ```python
+    gate_index = returns["range"].values                       # (fold_size,)
+    range_m = (
+        returns["base_range"].values[:, None]
+        + gate_index[None, :] * returns["range_step"].values[:, None]
+    )                                                          # (n_returns, fold_size)
+    ```
+
+    `base_range` already accounts for the fold offset, so this is correct for
+    trailing folds too.
+
+Folding also sets how much memory a volume costs, which matters most when
+accumulating many volumes at once. See
+[Batch iteration and folding](batching.md) for the returns-per-volume
+arithmetic.
+
 ## The four datasets
 
 | Dataset | Main dimension | Contents |
