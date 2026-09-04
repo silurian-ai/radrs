@@ -30,7 +30,10 @@ def _normalize_source(filename_or_obj: object) -> str | bytes:
     if isinstance(filename_or_obj, str):
         return filename_or_obj
     if isinstance(filename_or_obj, os.PathLike):
-        return os.fspath(filename_or_obj)
+        # ``__fspath__`` may yield bytes (e.g. an ``os.DirEntry`` from a byte
+        # ``os.scandir``); decode so it stays a path rather than being read as
+        # raw file contents by the Rust readers.
+        return os.fsdecode(filename_or_obj)
     if hasattr(filename_or_obj, "read"):
         data = filename_or_obj.read()
         if isinstance(data, bytes):

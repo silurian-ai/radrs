@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from io import BytesIO, StringIO
 from pathlib import Path
 
@@ -214,6 +215,19 @@ def test_supported_source_types_match(test_file_path: str, test_file_bytes: byte
     for source in sources:
         actual = xr.open_datatree(source, engine="radrs-xradar")
         xr.testing.assert_equal(actual, expected)
+
+
+def test_byte_valued_path_like_stays_a_path(test_file_path: str) -> None:
+    class BytesPath:
+        def __init__(self, path: str) -> None:
+            self._path = os.fsencode(path)
+
+        def __fspath__(self) -> bytes:
+            return self._path
+
+    expected = radrs_xradar.open_datatree(test_file_path)
+    actual = xr.open_datatree(BytesPath(test_file_path), engine="radrs-xradar")
+    xr.testing.assert_equal(actual, expected)
 
 
 def test_file_like_inputs_must_be_binary() -> None:

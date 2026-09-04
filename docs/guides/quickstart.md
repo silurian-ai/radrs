@@ -58,6 +58,29 @@ and for recovering physical range, and
 [Batch iteration and folding](batching.md#folding) for how `fold_size` trades
 rows against columns.
 
+## XArray integration
+
+Both readers are also registered as xarray engines, so they can be reached
+through `xarray.open_datatree` / `open_dataset` dispatch instead of the radrs
+APIs directly:
+
+```python
+import xarray as xr
+
+dt = xr.open_datatree(src, engine="radrs-xradar", sort_by_azimuth=True)
+sweep = xr.open_dataset(src, engine="radrs-xradar", group="sweep_0")
+
+rs_dt = xr.open_datatree(src, engine="radrs-raystack", fold_size=128)
+returns = xr.open_dataset(src, engine="radrs-raystack", group="returns")
+```
+
+Each engine forwards its reader's keywords (`sort_by_azimuth` for
+`radrs-xradar`; `fold_size`, `qc`, `include_activity` for `radrs-raystack`),
+plus `group`, `drop_variables`, and `storage_options`. Decoder keywords such as
+`mask_and_scale` are rejected — the engines return already-decoded in-memory
+objects. `radrs.xradar` and `radrs.raystack` remain the canonical APIs; the
+engines are thin adapters for pipelines built around xarray dispatch.
+
 ## Anonymous S3 access
 
 The single-volume `open_datatree` path fetches from S3 without signing, so
