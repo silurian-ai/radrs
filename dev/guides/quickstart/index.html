@@ -453,6 +453,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#xarray-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        XArray integration
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#anonymous-s3-access" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -978,6 +989,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#xarray-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        XArray integration
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#anonymous-s3-access" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1074,22 +1096,40 @@ coordinate is the gate's index within its fold, not a distance. See
 and for recovering physical range, and
 <a href="../batching/#folding">Batch iteration and folding</a> for how <code>fold_size</code> trades
 rows against columns.</p>
+<h2 id="xarray-integration">XArray integration<a class="headerlink" href="#xarray-integration" title="Permanent link">&para;</a></h2>
+<p>Both readers are also registered as xarray engines, so they can be reached
+through <code>xarray.open_datatree</code> / <code>open_dataset</code> dispatch instead of the radrs
+APIs directly:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">xarray</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">xr</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">dt</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;radrs-xradar&quot;</span><span class="p">,</span> <span class="n">sort_by_azimuth</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">sweep</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_dataset</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;radrs-xradar&quot;</span><span class="p">,</span> <span class="n">group</span><span class="o">=</span><span class="s2">&quot;sweep_0&quot;</span><span class="p">)</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">rs_dt</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;radrs-raystack&quot;</span><span class="p">,</span> <span class="n">fold_size</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="n">returns</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">open_dataset</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">engine</span><span class="o">=</span><span class="s2">&quot;radrs-raystack&quot;</span><span class="p">,</span> <span class="n">group</span><span class="o">=</span><span class="s2">&quot;returns&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Each engine forwards its reader's keywords (<code>sort_by_azimuth</code> for
+<code>radrs-xradar</code>; <code>fold_size</code>, <code>qc</code>, <code>include_activity</code> for <code>radrs-raystack</code>),
+plus <code>group</code>, <code>drop_variables</code>, and <code>storage_options</code>. Decoder keywords such as
+<code>mask_and_scale</code> are rejected — the engines return already-decoded in-memory
+objects. <code>radrs.xradar</code> and <code>radrs.raystack</code> remain the canonical APIs; the
+engines are thin adapters for pipelines built around xarray dispatch.</p>
 <h2 id="anonymous-s3-access">Anonymous S3 access<a class="headerlink" href="#anonymous-s3-access" title="Permanent link">&para;</a></h2>
 <p>The single-volume <code>open_datatree</code> path fetches from S3 without signing, so
 public buckets like <code>unidata-nexrad-level2</code> and <code>noaa-nexrad-level2</code> work
 out of the box even without AWS credentials.</p>
 <p>For multi-volume iteration over an archive, pass
 <code>storage_options={"anon": "true"}</code> to <code>NexradL2ArchiveIter</code>:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timezone</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">archive</span> <span class="o">=</span> <span class="n">radrs</span><span class="o">.</span><span class="n">NexradL2ArchiveIter</span><span class="p">(</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">base_uri</span><span class="o">=</span><span class="s2">&quot;s3://unidata-nexrad-level2&quot;</span><span class="p">,</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">start_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">end_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="n">storage_options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;anon&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">},</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a>    <span class="n">site_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;KTLX&quot;</span><span class="p">],</span>
-</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="p">)</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timezone</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">archive</span> <span class="o">=</span> <span class="n">radrs</span><span class="o">.</span><span class="n">NexradL2ArchiveIter</span><span class="p">(</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">base_uri</span><span class="o">=</span><span class="s2">&quot;s3://unidata-nexrad-level2&quot;</span><span class="p">,</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">start_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">15</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">end_time</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">16</span><span class="p">,</span> <span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">),</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">storage_options</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;anon&quot;</span><span class="p">:</span> <span class="s2">&quot;true&quot;</span><span class="p">},</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a>    <span class="n">site_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;KTLX&quot;</span><span class="p">],</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="p">)</span>
 </span></code></pre></div>
 <p>Archive bounds are UTC and half-open, <code>[start_time, end_time)</code>: naive
 datetimes are read as UTC rather than as local time, and a volume exactly at
@@ -1098,14 +1138,14 @@ datetimes are read as UTC rather than as local time, and a volume exactly at
 <h2 id="accumulate-a-time-range-into-one-array">Accumulate a time range into one array<a class="headerlink" href="#accumulate-a-time-range-into-one-array" title="Permanent link">&para;</a></h2>
 <p><code>BatchedRaystack</code> fills pre-allocated buffers from an archive iterator, so a
 whole time range becomes a single returns matrix:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.raystack</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rrs</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">batch</span> <span class="o">=</span> <span class="n">rrs</span><span class="o">.</span><span class="n">BatchedRaystack</span><span class="p">(</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">max_vcps</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">max_sweeps</span><span class="o">=</span><span class="mi">20</span> <span class="o">*</span> <span class="mi">32</span><span class="p">,</span> <span class="n">max_returns</span><span class="o">=</span><span class="mi">20</span> <span class="o">*</span> <span class="mi">90_000</span><span class="p">,</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">fold_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">drop_empty_returns</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="p">)</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="n">n_added</span> <span class="o">=</span> <span class="n">batch</span><span class="o">.</span><span class="n">add_volumes_from_l2</span><span class="p">(</span><span class="n">archive</span><span class="p">,</span> <span class="n">prefetch</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">rs_dt</span> <span class="o">=</span> <span class="n">batch</span><span class="o">.</span><span class="n">finalize_to_rs_dt</span><span class="p">()</span>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.raystack</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rrs</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">batch</span> <span class="o">=</span> <span class="n">rrs</span><span class="o">.</span><span class="n">BatchedRaystack</span><span class="p">(</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">max_vcps</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">max_sweeps</span><span class="o">=</span><span class="mi">20</span> <span class="o">*</span> <span class="mi">32</span><span class="p">,</span> <span class="n">max_returns</span><span class="o">=</span><span class="mi">20</span> <span class="o">*</span> <span class="mi">90_000</span><span class="p">,</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">fold_size</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span> <span class="n">drop_empty_returns</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="p">)</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="n">n_added</span> <span class="o">=</span> <span class="n">batch</span><span class="o">.</span><span class="n">add_volumes_from_l2</span><span class="p">(</span><span class="n">archive</span><span class="p">,</span> <span class="n">prefetch</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="n">rs_dt</span> <span class="o">=</span> <span class="n">batch</span><span class="o">.</span><span class="n">finalize_to_rs_dt</span><span class="p">()</span>
 </span></code></pre></div>
 <p>Capacity is reserved up front, so <code>max_returns</code> has to be estimated before the
 first fetch and <code>n_added</code> has to be checked afterwards. See
