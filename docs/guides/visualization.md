@@ -1,97 +1,165 @@
 # Visualization
 
-`radrs.viz` renders raystack data directly, with no Py-ART or Cartopy in the
-path. It has two halves: `prepare_*_payload` functions that reduce a `returns`
-dataset to a compact, JSON-serializable payload, and
-[anywidget](https://anywidget.dev)-based widgets that draw it in the browser
-with hover readout and 3D interaction.
+`radrs.viz` plots a raystack `DataTree` directly. Every function takes the tree
+that `rrs.open_datatree` or `BatchedRaystack.finalize_to_rs_dt` returns, and
+hands back something a notebook displays as-is: a matplotlib `(Figure, Axes)`
+pair, or a [pydeck](https://deckgl.readthedocs.io) `Deck`.
 
-Two marimo notebooks wire that surface to live controls. Both pull volumes
-straight from the public NEXRAD archives, so they need no local data.
+Install the plotting dependencies with the `viz` extra:
 
 ```bash
-uv sync --group dev
-uv run marimo run notebooks/raystack_viz.py
+uv add 'radrs[viz]'
 ```
 
-`marimo run` opens the notebook as an app: controls only, no source. Use
-`marimo edit` instead to see and change the cells.
+Raystack returns are *folded* — each row holds `fold_size` gates starting at
+that row's `base_range`, so several rows make up one radial. Every function
+here unfolds first, placing each row at its true distance from the radar, which
+is why the axes are in kilometres rather than gate indices. See
+[Raystack format](raystack-format.md) for what folding does to the layout.
 
-## `raystack_viz.py`: single volume
+## `plot_sweep` / `plot_sweeps`
 
-Opens one volume with `rrs.open_datatree` and offers five ways to look at it:
-
-| Mode | What it draws |
-|---|---|
-| **Ray 3D** | One endpoint per return ray, so the sampling geometry of the whole VCP is visible at once. Sweep-independent. |
-| **Gate cloud 3D** | Every finite gate as a point in radar-relative space, downsampled to the sample cap. |
-| **CAPPI** | Constant-altitude horizontal slice, gridded from the gates within an altitude tolerance. |
-| **Cross-section** | Vertical slice along a target azimuth, within an azimuth tolerance. |
-| **Waterfall** | The raw `(return_time, range)` moment matrix as a 2-D heatmap. This is the raystack layout itself, unprojected. |
-
-Pick a station, archive, and time window; the notebook lists the volumes it
-finds and you choose one from a dropdown. `fold_size` is a control too, so you
-can watch the waterfall's row count change as folding changes.
-
-The 3D modes rotate on drag, zoom on wheel, and reset on double-click. The 2-D
-modes report the value under the cursor along with its azimuth, elevation,
-sweep, and range. CAPPI and cross-section add their own altitude/azimuth and
-tolerance sliders, and grid resolution.
-
-## `batched_raystack_viz.py`: a whole time range
-
-Accumulates many volumes into one `BatchedRaystack` and renders the result as a
-single returns matrix, so you can follow a storm's evolution down one image.
-See [Batch iteration and folding](batching.md) for the API underneath.
-
-| Mode | What it draws |
-|---|---|
-| **Folded waterfall** | The batch's `(return_time, range)` matrix drawn one pixel-row per return, so volumes stack along the time axis. Rows are exact, not resampled. |
-| **Gate cloud 3D** | Every finite gate in the entire batch, overlaid in radar-relative space. |
-
-The controls map onto the batch parameters:
-
-- **Fold size** and **volume range** set what goes in.
-- **Prefetch** sets how many fetches run concurrently.
-- **Capacity headroom** is the multiplier on the estimated returns per volume.
-  Because capacity is reserved up front, undershooting drops volumes off the
-  end of the range; the notebook reports how many of the selected volumes
-  actually fit.
-- **Drop all-NaN returns** toggles compaction, on by default.
-
-After loading it prints a metrics table: volumes added versus selected, sweep
-and return counts, the NaN share of the surviving cells, and returns filled
-against returns capacity. That last figure is reported as spare capacity, and
-because reservation happens before compaction, real spare is lower than shown
-whenever dropping is on.
-
-The folded waterfall gets tall, since a batch is hundreds of thousands of
-returns and each one is a pixel row, so the notebook windows it with row offset
-and row count sliders sized to keep the payload under marimo's output limit.
-
-## Building your own
-
-The payload functions are usable on their own; the widgets are optional. Each
-takes a `returns` dataset and a moment name and returns a dataclass of plain
-arrays:
+A PPI in kilometres from the radar. `plot_sweep` is the single-sweep shorthand;
+`plot_sweeps` is the real implementation.
 
 ```python
 import radrs.raystack as rrs
 import radrs.viz as viz
 
-src = "s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06"
-rdt = rrs.open_datatree(src, fold_size=256)
-returns, sweeps = viz.get_returns_and_sweeps(rdt)
+src = "s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06"
+rs_dt = rrs.open_datatree(src, fold_size=256)
 
-viz.available_moments(returns)             # what's renderable, QC included
-payload = viz.prepare_volume_payload(returns=returns, moment="DBZH", max_points=125_000)
-payload.point_count, payload.max_abs_m
+fig, ax = viz.plot_sweep(rs_dt, 0)
 ```
 
-`prepare_volume_payload` and the other 3-D paths take `max_points` and
-downsample deterministically, so the same inputs always yield the same picture.
-`viz.sweep_offsets(sweeps)` gives the cumulative return offsets if you want to
-slice a single sweep out of a volume or a batch first.
+![PPI of sweep 0 from a KTLX volume, reflectivity on a yellow-to-green scale, with a squall line to the south-east.](../assets/visualization/plot-sweep.png)
 
-The widgets need `anywidget` and `traitlets` (both in the `dev` group). Without
-them the payload functions still work; only the `*Widget` classes raise.
+The title carries the VCP number, sweep number, moment, and the site's X, Y and
+elevation coordinates, so a saved figure stays self-describing.
+
+Pass several sweeps and they overlay, each in its own colormap — yellow to
+green, then blue to purple, then orange to red, then matplotlib defaults. NaN
+gates are transparent, so lower sweeps show through the gaps in higher ones:
+
+```python
+fig, ax = viz.plot_sweeps(rs_dt, [0, 2, 6, 10], alpha=0.6)
+```
+
+![Four sweeps of the same volume overlaid, each in a different colormap, with one colorbar per sweep.](../assets/visualization/plot-sweeps.png)
+
+`alpha` sets the transparency of every sweep after the first, which is drawn
+opaque. Colorbars stack on the right in sweep order, capped at eight.
+
+## `plot_waterfall`
+
+Every return drawn against true range, stacked in time — the raystack layout
+itself, unfolded.
+
+```python
+fig, ax = viz.plot_waterfall(rs_dt)
+```
+
+![Waterfall of a whole KTLX volume: reflectivity against range on the x axis, time down the y axis, with black wedges where higher sweeps stop short.](../assets/visualization/plot-waterfall.png)
+
+The color rules are what make this readable:
+
+- **Black** is range that no fold ever covered. The black wedges on the right
+  are the higher sweeps, which stop far short of the 460 km surveillance cut.
+- **White** is a gate that *was* sampled and came back NaN — below threshold,
+  range folded, or trailing padding at the end of a radial.
+- Dotted vertical lines mark where each fold window begins, every 64 km at
+  `fold_size=256`.
+
+Two strips run down the left, aligned with the rows: VCP number in `tab20b`,
+ruled black at each volume boundary, and sweep number in `tab20c`. Both get a
+legend underneath.
+
+A volume is far more returns than a figure has pixels, so rows and range bins
+are block-reduced to fit `max_rows` and `max_cols`. `reduce="max"` keeps echoes
+crisp; use `reduce="mean"` for signed moments like `VRADH`.
+
+### Reading the fold structure
+
+Red ticks inside the left edge mark each distinct return time. Past ~2000
+radials they would merge into a solid bar, so the function drops them and says
+so on the axis. Window the rows to bring them back:
+
+```python
+fig, ax = viz.plot_waterfall(rs_dt, row_offset=0, row_count=1536)
+```
+
+![A 1536-row window of the same waterfall, showing each radial's folds stepping right across the range axis with red radial ticks on the left.](../assets/visualization/plot-waterfall-window.png)
+
+Zoomed in, each radial's folds read as a staircase: consecutive rows step one
+64 km window to the right, and the red ticks separate one radial from the next.
+Radials that ran out of gates early leave their later windows black.
+
+## `plot_geo`
+
+Finite gates as a 3-D point cloud on a real-world map. Returns a `pydeck.Deck`,
+which marimo and Jupyter display directly; the view rotates, so the vertical
+structure of the volume is legible from the side.
+
+```python
+deck = viz.plot_geo(rs_dt, min_value=20.0)
+deck.to_html("cloud.html")
+```
+
+Gates are geolocated with the standard 4/3-earth-radius refraction model, so
+altitudes are above mean sea level, not above the radar. The site itself is
+marked in red.
+
+Two arguments matter more than the rest:
+
+- `min_value` drops weak gates. Without it a whole volume of near-threshold
+  returns fogs the map and hides the storm; 20 dBZ is a reasonable floor for
+  `DBZH`.
+- `max_points` (default 30,000) caps what gets rendered. deck.gl data travels
+  as JSON at roughly 90 bytes a point, so this bounds the notebook output size.
+  Gates beyond the cap are dropped by strided subsampling, which is
+  deterministic — the same raystack always renders the same cloud.
+
+`viz.gate_positions` returns the same geolocated arrays without building a
+deck, if you want to feed them somewhere else.
+
+## Exploring interactively
+
+`notebooks/raystack_viz.py` wires all of the above to live controls. It pulls
+volumes straight from the public NEXRAD archives, so it needs no local data —
+the figures on this page are its defaults.
+
+```bash
+uv sync --group dev
+uv run marimo edit notebooks/raystack_viz.py
+```
+
+Part 1 builds a raystack from an archive URL, instrument name, time range and
+fold size; there is no load button, so editing a control re-fetches. Part 2 is
+a configuration cell and a plot cell for each function above, which is the
+quickest way to find the arguments you want before writing them down.
+
+Use `marimo run` instead of `marimo edit` to open it as an app: controls only,
+no source.
+
+## Picking a moment
+
+`available_moments` lists what a tree actually carries, QC outputs included:
+
+```python
+viz.available_moments(rs_dt)              # ['DBZH', ..., 'qc.rhohv_threshold_mask']
+viz.available_moments(rs_dt, include_qc=False)
+```
+
+`vcp_infos` and `sweep_infos` describe what is selectable, with labels built
+for dropdowns:
+
+```python
+[info.label for info in viz.vcp_infos(rs_dt)]
+# ['00 | VCP 212 | 2024-03-15 00:02:17']
+
+[info.label for info in viz.sweep_infos(rs_dt, vcp_num=0)]
+# ['sweep  0 | elev  0.48 deg | 5,760 returns', ...]
+```
+
+`vcp_num` is an index into the VCPs in time order, not the NEXRAD pattern
+number — `0` is the first volume in the raystack, whatever pattern it ran.

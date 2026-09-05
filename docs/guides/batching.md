@@ -166,7 +166,7 @@ still counts as non-empty on the strength of its `DBZH`.
 
 Sweep-to-return slicing survives compaction either way. `sweeps["num_returns"]`
 is written after returns are dropped, so it always sums to the actual row count
-and `viz.sweep_offsets(sweeps)` stays valid. Leave compaction off only when you
+and its cumulative sum still gives correct slice offsets. Leave compaction off only when you
 need a row per radial per fold: a rigid layout you can index positionally, or
 reconstruct a full sweep geometry from.
 
@@ -352,7 +352,6 @@ from datetime import datetime, timedelta, timezone
 
 import radrs
 import radrs.raystack as rrs
-import radrs.viz as viz
 
 STATION = "KABR"
 BASE_URI = "s3://unidata-nexrad-level2"
@@ -397,7 +396,7 @@ if n_added < len(selected):
 
 prog = batch.progress()  # read before finalize_to_rs_dt consumes the batch
 rs_dt = batch.finalize_to_rs_dt()
-returns, sweeps = viz.get_returns_and_sweeps(rs_dt)
+returns = rs_dt["returns"].dataset
 
 print(f"{n_added}/{len(selected)} volumes, {returns.sizes['return_time']:,} returns")
 print(f"reserved {prog['returns_filled']:,}/{prog['returns_capacity']:,}")
@@ -408,5 +407,5 @@ print(f"reserved {prog['returns_filled']:,}/{prog['returns_capacity']:,}")
 - [Raystack format](raystack-format.md) — what `vcps`, `sweeps`, `returns`,
   and `activity` contain, and the folding walkthrough.
 - [Quality control](qc.md) — the QC steps `add_qc_outputs` accepts.
-- [Visualization](visualization.md) — `batched_raystack_viz.py`, an interactive
-  viewer built on this API with capacity and compaction wired to live controls.
+- [Visualization](visualization.md) — plotting a batch, and
+  `raystack_viz.py`, an interactive viewer built on this API.
