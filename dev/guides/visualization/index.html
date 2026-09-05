@@ -560,10 +560,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#raystack_vizpy-single-volume" class="md-nav__link">
+  <a href="#plot_sweep-plot_sweeps" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>raystack_viz.py</code>: single volume
+        <code>plot_sweep</code> / <code>plot_sweeps</code>
       </span>
     </span>
   </a>
@@ -571,10 +571,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#batched_raystack_vizpy-a-whole-time-range" class="md-nav__link">
+  <a href="#plot_waterfall" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>batched_raystack_viz.py</code>: a whole time range
+        <code>plot_waterfall</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="plot_waterfall">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reading-the-fold-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reading the fold structure
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plot_geo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>plot_geo</code>
       </span>
     </span>
   </a>
@@ -582,10 +610,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#building-your-own" class="md-nav__link">
+  <a href="#exploring-interactively" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Building your own
+        Exploring interactively
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#picking-a-moment" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Picking a moment
       </span>
     </span>
   </a>
@@ -912,10 +951,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#raystack_vizpy-single-volume" class="md-nav__link">
+  <a href="#plot_sweep-plot_sweeps" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>raystack_viz.py</code>: single volume
+        <code>plot_sweep</code> / <code>plot_sweeps</code>
       </span>
     </span>
   </a>
@@ -923,10 +962,38 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#batched_raystack_vizpy-a-whole-time-range" class="md-nav__link">
+  <a href="#plot_waterfall" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        <code>batched_raystack_viz.py</code>: a whole time range
+        <code>plot_waterfall</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="plot_waterfall">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reading-the-fold-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Reading the fold structure
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plot_geo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>plot_geo</code>
       </span>
     </span>
   </a>
@@ -934,10 +1001,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#building-your-own" class="md-nav__link">
+  <a href="#exploring-interactively" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Building your own
+        Exploring interactively
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#picking-a-moment" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Picking a moment
       </span>
     </span>
   </a>
@@ -963,118 +1041,121 @@
 
 
 <h1 id="visualization">Visualization<a class="headerlink" href="#visualization" title="Permanent link">&para;</a></h1>
-<p><code>radrs.viz</code> renders raystack data directly, with no Py-ART or Cartopy in the
-path. It has two halves: <code>prepare_*_payload</code> functions that reduce a <code>returns</code>
-dataset to a compact, JSON-serializable payload, and
-<a href="https://anywidget.dev">anywidget</a>-based widgets that draw it in the browser
-with hover readout and 3D interaction.</p>
-<p>Two marimo notebooks wire that surface to live controls. Both pull volumes
-straight from the public NEXRAD archives, so they need no local data.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>uv<span class="w"> </span>run<span class="w"> </span>marimo<span class="w"> </span>run<span class="w"> </span>notebooks/raystack_viz.py
+<p><code>radrs.viz</code> plots a raystack <code>DataTree</code> directly. Every function takes the tree
+that <code>rrs.open_datatree</code> or <code>BatchedRaystack.finalize_to_rs_dt</code> returns, and
+hands back something a notebook displays as-is: a matplotlib <code>(Figure, Axes)</code>
+pair, or a <a href="https://deckgl.readthedocs.io">pydeck</a> <code>Deck</code>.</p>
+<p>Install the plotting dependencies with the <code>viz</code> extra:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s1">&#39;radrs[viz]&#39;</span>
 </span></code></pre></div>
-<p><code>marimo run</code> opens the notebook as an app: controls only, no source. Use
-<code>marimo edit</code> instead to see and change the cells.</p>
-<h2 id="raystack_vizpy-single-volume"><code>raystack_viz.py</code>: single volume<a class="headerlink" href="#raystack_vizpy-single-volume" title="Permanent link">&para;</a></h2>
-<p>Opens one volume with <code>rrs.open_datatree</code> and offers five ways to look at it:</p>
-<table>
-<thead>
-<tr>
-<th>Mode</th>
-<th>What it draws</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Ray 3D</strong></td>
-<td>One endpoint per return ray, so the sampling geometry of the whole VCP is visible at once. Sweep-independent.</td>
-</tr>
-<tr>
-<td><strong>Gate cloud 3D</strong></td>
-<td>Every finite gate as a point in radar-relative space, downsampled to the sample cap.</td>
-</tr>
-<tr>
-<td><strong>CAPPI</strong></td>
-<td>Constant-altitude horizontal slice, gridded from the gates within an altitude tolerance.</td>
-</tr>
-<tr>
-<td><strong>Cross-section</strong></td>
-<td>Vertical slice along a target azimuth, within an azimuth tolerance.</td>
-</tr>
-<tr>
-<td><strong>Waterfall</strong></td>
-<td>The raw <code>(return_time, range)</code> moment matrix as a 2-D heatmap. This is the raystack layout itself, unprojected.</td>
-</tr>
-</tbody>
-</table>
-<p>Pick a station, archive, and time window; the notebook lists the volumes it
-finds and you choose one from a dropdown. <code>fold_size</code> is a control too, so you
-can watch the waterfall's row count change as folding changes.</p>
-<p>The 3D modes rotate on drag, zoom on wheel, and reset on double-click. The 2-D
-modes report the value under the cursor along with its azimuth, elevation,
-sweep, and range. CAPPI and cross-section add their own altitude/azimuth and
-tolerance sliders, and grid resolution.</p>
-<h2 id="batched_raystack_vizpy-a-whole-time-range"><code>batched_raystack_viz.py</code>: a whole time range<a class="headerlink" href="#batched_raystack_vizpy-a-whole-time-range" title="Permanent link">&para;</a></h2>
-<p>Accumulates many volumes into one <code>BatchedRaystack</code> and renders the result as a
-single returns matrix, so you can follow a storm's evolution down one image.
-See <a href="../batching/">Batch iteration and folding</a> for the API underneath.</p>
-<table>
-<thead>
-<tr>
-<th>Mode</th>
-<th>What it draws</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>Folded waterfall</strong></td>
-<td>The batch's <code>(return_time, range)</code> matrix drawn one pixel-row per return, so volumes stack along the time axis. Rows are exact, not resampled.</td>
-</tr>
-<tr>
-<td><strong>Gate cloud 3D</strong></td>
-<td>Every finite gate in the entire batch, overlaid in radar-relative space.</td>
-</tr>
-</tbody>
-</table>
-<p>The controls map onto the batch parameters:</p>
-<ul>
-<li><strong>Fold size</strong> and <strong>volume range</strong> set what goes in.</li>
-<li><strong>Prefetch</strong> sets how many fetches run concurrently.</li>
-<li><strong>Capacity headroom</strong> is the multiplier on the estimated returns per volume.
-  Because capacity is reserved up front, undershooting drops volumes off the
-  end of the range; the notebook reports how many of the selected volumes
-  actually fit.</li>
-<li><strong>Drop all-NaN returns</strong> toggles compaction, on by default.</li>
-</ul>
-<p>After loading it prints a metrics table: volumes added versus selected, sweep
-and return counts, the NaN share of the surviving cells, and returns filled
-against returns capacity. That last figure is reported as spare capacity, and
-because reservation happens before compaction, real spare is lower than shown
-whenever dropping is on.</p>
-<p>The folded waterfall gets tall, since a batch is hundreds of thousands of
-returns and each one is a pixel row, so the notebook windows it with row offset
-and row count sliders sized to keep the payload under marimo's output limit.</p>
-<h2 id="building-your-own">Building your own<a class="headerlink" href="#building-your-own" title="Permanent link">&para;</a></h2>
-<p>The payload functions are usable on their own; the widgets are optional. Each
-takes a <code>returns</code> dataset and a moment name and returns a dataclass of plain
-arrays:</p>
+<p>Raystack returns are <em>folded</em> — each row holds <code>fold_size</code> gates starting at
+that row's <code>base_range</code>, so several rows make up one radial. Every function
+here unfolds first, placing each row at its true distance from the radar, which
+is why the axes are in kilometres rather than gate indices. See
+<a href="../raystack-format/">Raystack format</a> for what folding does to the layout.</p>
+<h2 id="plot_sweep-plot_sweeps"><code>plot_sweep</code> / <code>plot_sweeps</code><a class="headerlink" href="#plot_sweep-plot_sweeps" title="Permanent link">&para;</a></h2>
+<p>A PPI in kilometres from the radar. <code>plot_sweep</code> is the single-sweep shorthand;
+<code>plot_sweeps</code> is the real implementation.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.raystack</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">rrs</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">radrs.viz</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">viz</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">src</span> <span class="o">=</span> <span class="s2">&quot;s3://unidata-nexrad-level2/2024/07/02/KABR/KABR20240702_000016_V06&quot;</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">rdt</span> <span class="o">=</span> <span class="n">rrs</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">fold_size</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">returns</span><span class="p">,</span> <span class="n">sweeps</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">get_returns_and_sweeps</span><span class="p">(</span><span class="n">rdt</span><span class="p">)</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="n">viz</span><span class="o">.</span><span class="n">available_moments</span><span class="p">(</span><span class="n">returns</span><span class="p">)</span>             <span class="c1"># what&#39;s renderable, QC included</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">payload</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">prepare_volume_payload</span><span class="p">(</span><span class="n">returns</span><span class="o">=</span><span class="n">returns</span><span class="p">,</span> <span class="n">moment</span><span class="o">=</span><span class="s2">&quot;DBZH&quot;</span><span class="p">,</span> <span class="n">max_points</span><span class="o">=</span><span class="mi">125_000</span><span class="p">)</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="n">payload</span><span class="o">.</span><span class="n">point_count</span><span class="p">,</span> <span class="n">payload</span><span class="o">.</span><span class="n">max_abs_m</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="n">src</span> <span class="o">=</span> <span class="s2">&quot;s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06&quot;</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="n">rs_dt</span> <span class="o">=</span> <span class="n">rrs</span><span class="o">.</span><span class="n">open_datatree</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">fold_size</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">plot_sweep</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 </span></code></pre></div>
-<p><code>prepare_volume_payload</code> and the other 3-D paths take <code>max_points</code> and
-downsample deterministically, so the same inputs always yield the same picture.
-<code>viz.sweep_offsets(sweeps)</code> gives the cumulative return offsets if you want to
-slice a single sweep out of a volume or a batch first.</p>
-<p>The widgets need <code>anywidget</code> and <code>traitlets</code> (both in the <code>dev</code> group). Without
-them the payload functions still work; only the <code>*Widget</code> classes raise.</p>
+<p><img alt="PPI of sweep 0 from a KTLX volume, reflectivity on a yellow-to-green scale, with a squall line to the south-east." src="../../assets/visualization/plot-sweep.png" /></p>
+<p>The title carries the VCP number, sweep number, moment, and the site's X, Y and
+elevation coordinates, so a saved figure stays self-describing.</p>
+<p>Pass several sweeps and they overlay, each in its own colormap — yellow to
+green, then blue to purple, then orange to red, then matplotlib defaults. NaN
+gates are transparent, so lower sweeps show through the gaps in higher ones:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">plot_sweeps</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.6</span><span class="p">)</span>
+</span></code></pre></div>
+<p><img alt="Four sweeps of the same volume overlaid, each in a different colormap, with one colorbar per sweep." src="../../assets/visualization/plot-sweeps.png" /></p>
+<p><code>alpha</code> sets the transparency of every sweep after the first, which is drawn
+opaque. Colorbars stack on the right in sweep order, capped at eight.</p>
+<h2 id="plot_waterfall"><code>plot_waterfall</code><a class="headerlink" href="#plot_waterfall" title="Permanent link">&para;</a></h2>
+<p>Every return drawn against true range, stacked in time — the raystack layout
+itself, unfolded.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">plot_waterfall</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">)</span>
+</span></code></pre></div>
+<p><img alt="Waterfall of a whole KTLX volume: reflectivity against range on the x axis, time down the y axis, with black wedges where higher sweeps stop short." src="../../assets/visualization/plot-waterfall.png" /></p>
+<p>The color rules are what make this readable:</p>
+<ul>
+<li><strong>Black</strong> is range that no fold ever covered. The black wedges on the right
+  are the higher sweeps, which stop far short of the 460 km surveillance cut.</li>
+<li><strong>White</strong> is a gate that <em>was</em> sampled and came back NaN — below threshold,
+  range folded, or trailing padding at the end of a radial.</li>
+<li>Dotted vertical lines mark where each fold window begins, every 64 km at
+  <code>fold_size=256</code>.</li>
+</ul>
+<p>Two strips run down the left, aligned with the rows: VCP number in <code>tab20b</code>,
+ruled black at each volume boundary, and sweep number in <code>tab20c</code>. Both get a
+legend underneath.</p>
+<p>A volume is far more returns than a figure has pixels, so rows and range bins
+are block-reduced to fit <code>max_rows</code> and <code>max_cols</code>. <code>reduce="max"</code> keeps echoes
+crisp; use <code>reduce="mean"</code> for signed moments like <code>VRADH</code>.</p>
+<h3 id="reading-the-fold-structure">Reading the fold structure<a class="headerlink" href="#reading-the-fold-structure" title="Permanent link">&para;</a></h3>
+<p>Red ticks inside the left edge mark each distinct return time. Past ~2000
+radials they would merge into a solid bar, so the function drops them and says
+so on the axis. Window the rows to bring them back:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">plot_waterfall</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">,</span> <span class="n">row_offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">row_count</span><span class="o">=</span><span class="mi">1536</span><span class="p">)</span>
+</span></code></pre></div>
+<p><img alt="A 1536-row window of the same waterfall, showing each radial's folds stepping right across the range axis with red radial ticks on the left." src="../../assets/visualization/plot-waterfall-window.png" /></p>
+<p>Zoomed in, each radial's folds read as a staircase: consecutive rows step one
+64 km window to the right, and the red ticks separate one radial from the next.
+Radials that ran out of gates early leave their later windows black.</p>
+<h2 id="plot_geo"><code>plot_geo</code><a class="headerlink" href="#plot_geo" title="Permanent link">&para;</a></h2>
+<p>Finite gates as a 3-D point cloud on a real-world map. Returns a <code>pydeck.Deck</code>,
+which marimo and Jupyter display directly; the view rotates, so the vertical
+structure of the volume is legible from the side.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">deck</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">plot_geo</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">,</span> <span class="n">min_value</span><span class="o">=</span><span class="mf">20.0</span><span class="p">)</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">deck</span><span class="o">.</span><span class="n">to_html</span><span class="p">(</span><span class="s2">&quot;cloud.html&quot;</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Gates are geolocated with the standard 4/3-earth-radius refraction model, so
+altitudes are above mean sea level, not above the radar. The site itself is
+marked in red.</p>
+<p>Two arguments matter more than the rest:</p>
+<ul>
+<li><code>min_value</code> drops weak gates. Without it a whole volume of near-threshold
+  returns fogs the map and hides the storm; 20 dBZ is a reasonable floor for
+  <code>DBZH</code>.</li>
+<li><code>max_points</code> (default 30,000) caps what gets rendered. deck.gl data travels
+  as JSON at roughly 90 bytes a point, so this bounds the notebook output size.
+  Gates beyond the cap are dropped by strided subsampling, which is
+  deterministic — the same raystack always renders the same cloud.</li>
+</ul>
+<p><code>viz.gate_positions</code> returns the same geolocated arrays without building a
+deck, if you want to feed them somewhere else.</p>
+<h2 id="exploring-interactively">Exploring interactively<a class="headerlink" href="#exploring-interactively" title="Permanent link">&para;</a></h2>
+<p><code>notebooks/raystack_viz.py</code> wires all of the above to live controls. It pulls
+volumes straight from the public NEXRAD archives, so it needs no local data —
+the figures on this page are its defaults.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--group<span class="w"> </span>dev
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>uv<span class="w"> </span>run<span class="w"> </span>marimo<span class="w"> </span>edit<span class="w"> </span>notebooks/raystack_viz.py
+</span></code></pre></div>
+<p>Part 1 builds a raystack from an archive URL, instrument name, time range and
+fold size; there is no load button, so editing a control re-fetches. Part 2 is
+a configuration cell and a plot cell for each function above, which is the
+quickest way to find the arguments you want before writing them down.</p>
+<p>Use <code>marimo run</code> instead of <code>marimo edit</code> to open it as an app: controls only,
+no source.</p>
+<h2 id="picking-a-moment">Picking a moment<a class="headerlink" href="#picking-a-moment" title="Permanent link">&para;</a></h2>
+<p><code>available_moments</code> lists what a tree actually carries, QC outputs included:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="n">viz</span><span class="o">.</span><span class="n">available_moments</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">)</span>              <span class="c1"># [&#39;DBZH&#39;, ..., &#39;qc.rhohv_threshold_mask&#39;]</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">viz</span><span class="o">.</span><span class="n">available_moments</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">,</span> <span class="n">include_qc</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</span></code></pre></div>
+<p><code>vcp_infos</code> and <code>sweep_infos</code> describe what is selectable, with labels built
+for dropdowns:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="p">[</span><span class="n">info</span><span class="o">.</span><span class="n">label</span> <span class="k">for</span> <span class="n">info</span> <span class="ow">in</span> <span class="n">viz</span><span class="o">.</span><span class="n">vcp_infos</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">)]</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="c1"># [&#39;00 | VCP 212 | 2024-03-15 00:02:17&#39;]</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="p">[</span><span class="n">info</span><span class="o">.</span><span class="n">label</span> <span class="k">for</span> <span class="n">info</span> <span class="ow">in</span> <span class="n">viz</span><span class="o">.</span><span class="n">sweep_infos</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">,</span> <span class="n">vcp_num</span><span class="o">=</span><span class="mi">0</span><span class="p">)]</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="c1"># [&#39;sweep  0 | elev  0.48 deg | 5,760 returns&#39;, ...]</span>
+</span></code></pre></div>
+<p><code>vcp_num</code> is an index into the VCPs in time order, not the NEXRAD pattern
+number — <code>0</code> is the first volume in the raystack, whatever pattern it ran.</p>
 
 
 
