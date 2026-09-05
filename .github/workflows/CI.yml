@@ -87,7 +87,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
       - name: Install locked CI dependencies
-        run: uv sync --locked --no-install-project --no-default-groups --group ci
+        run: uv sync --locked --no-install-project --no-default-groups --group dev
       - name: Build and install radrs
         run: uv run --no-sync maturin develop --profile ci
       - name: Run hermetic tests
