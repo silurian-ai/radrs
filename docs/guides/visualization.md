@@ -8,7 +8,7 @@ pair, or a [pydeck](https://deckgl.readthedocs.io) `Deck`.
 Install the plotting dependencies with the `viz` extra:
 
 ```bash
-pip install 'radrs[viz]'
+uv add 'radrs[viz]'
 ```
 
 Raystack returns are *folded* — each row holds `fold_size` gates starting at
