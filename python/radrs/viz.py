@@ -1,6 +1,6 @@
 """Raystack plots: PPI sweeps, unfolded waterfalls, and 3-D geographic point clouds.
 
-Needs the ``viz`` extra: ``pip install 'radrs[viz]'``.
+Needs the ``viz`` extra: ``uv add 'radrs[viz]'``.
 """
 
 from __future__ import annotations
