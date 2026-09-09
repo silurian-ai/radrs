@@ -1288,6 +1288,11 @@ prints, per sweep, the radial and range counts, both fixed angles, and for each
 moment the fraction of gates where both are valid plus the mean, p95, and p99
 absolute difference. Moments that agree everywhere collapse to
 <code>(all obs equal)</code>.</p>
+<p>Both timings include opening the volume and calling <code>DataTree.load()</code> to
+materialize all variables in every node before stopping the timer. Remote
+sources also include fetching the file; use the same local file for both
+readers to exclude network variability. These are single-run measurements,
+not repeated or cache-controlled benchmarks.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/xradar_radrs_bench.py<span class="w"> </span>/path/to/KTLX20240315_000217_V06
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
 </span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="c1"># or compare a remote volume, letting each library reach it its own way</span>
