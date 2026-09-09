@@ -1021,7 +1021,7 @@ vectorized analysis across moments.</p>
 return. Moment data (<code>DBZH</code>, <code>VRADH</code>, <code>RHOHV</code>, …) lives in the <code>returns</code>
 table as 2-D arrays whose first axis matches the return-level metadata
 row-for-row.</p>
-<p><img alt="Overview of the raystack format: physical volume, folding a radial, flat schema, and the resulting tensor." src="../../assets/raystack-explainer.png" /></p>
+<p><a class="glightbox" data-type="image" href="../../assets/raystack-explainer.png"><img alt="Overview of the raystack format: physical volume, folding a radial, flat schema, and the resulting tensor." src="../../assets/raystack-explainer.png" /></a></p>
 <h2 id="returns-and-folding">Returns and folding<a class="headerlink" href="#returns-and-folding" title="Permanent link">&para;</a></h2>
 <p>A <em>return</em> is a fixed-width chunk of range gates from a single radial. The
 width is set by <code>fold_size</code>. If a radial has more gates than <code>fold_size</code>,
@@ -1136,7 +1136,7 @@ final arrays.</p>
 <p><strong>A NEXRAD volume.</strong> A volume is a VCP made of sweeps at different
 elevations; each sweep is a sequence of radials, and each radial carries
 moment values along its range gates.</p>
-<p><img alt="Physical scan panel showing a VCP with several sweeps from a KABR NEXRAD Level 2 volume." src="../../assets/raystack-explainer-panels/physical-scan.png" /></p>
+<p><a class="glightbox" data-type="image" href="../../assets/raystack-explainer-panels/physical-scan.png"><img alt="Physical scan panel showing a VCP with several sweeps from a KABR NEXRAD Level 2 volume." src="../../assets/raystack-explainer-panels/physical-scan.png" /></a></p>
 <p><strong>Folding a radial.</strong> Raystack splits each radial into fixed-width rows
 and keeps the metadata needed to place each row back in radar space. The
 1,832 gates of this radial fill returns 0–13 completely and the first 40
@@ -1146,10 +1146,10 @@ missing or below the detection threshold — those are the gray cells
 scattered through the real part of the radial. Nothing in the moment array
 distinguishes the two, so use <code>sweeps["max_gates"]</code> when you need to know
 where the real gates end.</p>
-<p><img alt="Radial folding panel showing range gates split into fixed-size return rows, with the trailing padding of the last row hatched." src="../../assets/raystack-explainer-panels/fold-radial.png" /></p>
+<p><a class="glightbox" data-type="image" href="../../assets/raystack-explainer-panels/fold-radial.png"><img alt="Radial folding panel showing range gates split into fixed-size return rows, with the trailing padding of the last row hatched." src="../../assets/raystack-explainer-panels/fold-radial.png" /></a></p>
 <p><strong>Flat schema.</strong> The hierarchy lives in three aligned tables —
 <code>vcps</code>, <code>sweeps</code>, <code>returns</code> — linked by <code>sweeps["num_returns"]</code>.</p>
-<p><img alt="Flat schema panel showing vcps, sweeps, and returns datasets." src="../../assets/raystack-explainer-panels/flat-schema.png" /></p>
+<p><a class="glightbox" data-type="image" href="../../assets/raystack-explainer-panels/flat-schema.png"><img alt="Flat schema panel showing vcps, sweeps, and returns datasets." src="../../assets/raystack-explainer-panels/flat-schema.png" /></a></p>
 <p><strong>Tensor view.</strong> Each moment is a <code>(n_returns, fold_size)</code> matrix. The
 panel below shows a 320-row window of <code>DBZH</code> centred on the end of sweep 0
 (row 10,800): the orange line is that sweep boundary, and the faint lines
@@ -1157,7 +1157,7 @@ are radial boundaries — every 15 rows in sweep 0, every 10 in sweep 1,
 because the two sweeps have different <code>max_gates</code>. The 1-D metadata arrays
 line up row-for-row, so the same matrix is consumable as a tensor and
 interpretable as radar data.</p>
-<p><img alt="ML tensor panel showing a window of the DBZH return-by-range matrix straddling the sweep 0 / sweep 1 boundary, with aligned metadata." src="../../assets/raystack-explainer-panels/ml-tensor.png" /></p>
+<p><a class="glightbox" data-type="image" href="../../assets/raystack-explainer-panels/ml-tensor.png"><img alt="ML tensor panel showing a window of the DBZH return-by-range matrix straddling the sweep 0 / sweep 1 boundary, with aligned metadata." src="../../assets/raystack-explainer-panels/ml-tensor.png" /></a></p>
 
 
 
@@ -1177,6 +1177,8 @@ interpretable as radar data.</p>
             </div>
           
           
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
         </div>
         
@@ -1219,7 +1221,7 @@ interpretable as radar data.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.instant","navigation.tracking","navigation.indexes","navigation.top","search.suggest","search.highlight","content.code.copy","content.code.annotate","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"default":"latest","provider":"mike"}}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.instant","navigation.tracking","navigation.indexes","navigation.top","search.suggest","search.highlight","content.tabs.link","content.code.copy","content.code.annotate","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"default":"latest","provider":"mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.88ee1349.min.js"></script>

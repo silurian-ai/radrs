@@ -1044,7 +1044,7 @@ is why the axes are in kilometres rather than gate indices. See
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">plot_sweep</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
 </span></code></pre></div>
-<p><img alt="PPI of sweep 0 from a KTLX volume, reflectivity on a yellow-to-green scale, with a squall line to the south-east." src="../../assets/visualization/plot-sweep.png" /></p>
+<p><a class="glightbox" data-type="image" href="../../assets/visualization/plot-sweep.png"><img alt="PPI of sweep 0 from a KTLX volume, reflectivity on a yellow-to-green scale, with a squall line to the south-east." src="../../assets/visualization/plot-sweep.png" /></a></p>
 <p>The title carries the VCP number, sweep number, moment, and the site's X, Y and
 elevation coordinates, so a saved figure stays self-describing.</p>
 <p>Pass several sweeps and they overlay, each in its own colormap — yellow to
@@ -1052,7 +1052,7 @@ green, then blue to purple, then orange to red, then matplotlib defaults. NaN
 gates are transparent, so lower sweeps show through the gaps in higher ones:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">plot_sweeps</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">10</span><span class="p">],</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.6</span><span class="p">)</span>
 </span></code></pre></div>
-<p><img alt="Four sweeps of the same volume overlaid, each in a different colormap, with one colorbar per sweep." src="../../assets/visualization/plot-sweeps.png" /></p>
+<p><a class="glightbox" data-type="image" href="../../assets/visualization/plot-sweeps.png"><img alt="Four sweeps of the same volume overlaid, each in a different colormap, with one colorbar per sweep." src="../../assets/visualization/plot-sweeps.png" /></a></p>
 <p><code>alpha</code> sets the transparency of every sweep after the first, which is drawn
 opaque. Colorbars stack on the right in sweep order, capped at eight.</p>
 <h2 id="plot_waterfall"><code>plot_waterfall</code><a class="headerlink" href="#plot_waterfall" title="Permanent link">&para;</a></h2>
@@ -1060,7 +1060,7 @@ opaque. Colorbars stack on the right in sweep order, capped at eight.</p>
 itself, unfolded.</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">plot_waterfall</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">)</span>
 </span></code></pre></div>
-<p><img alt="Waterfall of a whole KTLX volume: reflectivity against range on the x axis, time down the y axis, with black wedges where higher sweeps stop short." src="../../assets/visualization/plot-waterfall.png" /></p>
+<p><a class="glightbox" data-type="image" href="../../assets/visualization/plot-waterfall.png"><img alt="Waterfall of a whole KTLX volume: reflectivity against range on the x axis, time down the y axis, with black wedges where higher sweeps stop short." src="../../assets/visualization/plot-waterfall.png" /></a></p>
 <p>The color rules are what make this readable:</p>
 <ul>
 <li><strong>Black</strong> is range that no fold ever covered. The black wedges on the right
@@ -1082,7 +1082,7 @@ radials they would merge into a solid bar, so the function drops them and says
 so on the axis. Window the rows to bring them back:</p>
 <div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">fig</span><span class="p">,</span> <span class="n">ax</span> <span class="o">=</span> <span class="n">viz</span><span class="o">.</span><span class="n">plot_waterfall</span><span class="p">(</span><span class="n">rs_dt</span><span class="p">,</span> <span class="n">row_offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">row_count</span><span class="o">=</span><span class="mi">1536</span><span class="p">)</span>
 </span></code></pre></div>
-<p><img alt="A 1536-row window of the same waterfall, showing each radial's folds stepping right across the range axis with red radial ticks on the left." src="../../assets/visualization/plot-waterfall-window.png" /></p>
+<p><a class="glightbox" data-type="image" href="../../assets/visualization/plot-waterfall-window.png"><img alt="A 1536-row window of the same waterfall, showing each radial's folds stepping right across the range axis with red radial ticks on the left." src="../../assets/visualization/plot-waterfall-window.png" /></a></p>
 <p>Zoomed in, each radial's folds read as a staircase: consecutive rows step one
 64 km window to the right, and the red ticks separate one radial from the next.
 Radials that ran out of gates early leave their later windows black.</p>
@@ -1155,6 +1155,8 @@ number — <code>0</code> is the first volume in the raystack, whatever pattern 
             </div>
           
           
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
 <script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
         </div>
         
@@ -1197,7 +1199,7 @@ number — <code>0</code> is the first volume in the raystack, whatever pattern 
     
       
       
-      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.instant","navigation.tracking","navigation.indexes","navigation.top","search.suggest","search.highlight","content.code.copy","content.code.annotate","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"default":"latest","provider":"mike"}}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.instant","navigation.tracking","navigation.indexes","navigation.top","search.suggest","search.highlight","content.tabs.link","content.code.copy","content.code.annotate","toc.follow"],"search":"../../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"default":"latest","provider":"mike"}}</script>
     
     
       <script src="../../assets/javascripts/bundle.88ee1349.min.js"></script>
