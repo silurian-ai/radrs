@@ -85,4 +85,5 @@ docs = [
     "zensical>=0.0.60",
     "mkdocstrings[python]",
     "mike @ git+https://github.com/squidfunk/mike.git",
+    "ruff>=0.16.6",  # Format long mkdocstrings signatures.
 ]
