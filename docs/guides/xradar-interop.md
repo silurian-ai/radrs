@@ -184,6 +184,12 @@ moment the fraction of gates where both are valid plus the mean, p95, and p99
 absolute difference. Moments that agree everywhere collapse to
 `(all obs equal)`.
 
+Both timings include opening the volume and calling `DataTree.load()` to
+materialize all variables in every node before stopping the timer. Remote
+sources also include fetching the file; use the same local file for both
+readers to exclude network variability. These are single-run measurements,
+not repeated or cache-controlled benchmarks.
+
 ```bash
 uv run python scripts/xradar_radrs_bench.py /path/to/KTLX20240315_000217_V06
 

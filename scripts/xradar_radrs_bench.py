@@ -2,8 +2,8 @@
 """Benchmark radrs.xradar output against xradar for a single file.
 
 Examples:
-  python python/tools/compare_xradar.py /path/to/file.ar2v
-  python python/tools/compare_xradar.py \
+  python scripts/xradar_radrs_bench.py /path/to/file.ar2v
+  python scripts/xradar_radrs_bench.py \
     --radrs-source s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06 \
     --xradar-source https://unidata-nexrad-level2.s3.amazonaws.com/2024/03/15/KTLX/KTLX20240315_000217_V06
 """
@@ -11,12 +11,13 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import time
-from typing import Iterable
+from collections.abc import Callable, Iterable
 import re
-import fsspec
+import time
 
+import fsspec
 import numpy as np
+import xarray as xr
 
 
 MOMENTS = ["DBZH", "VRADH", "WRADH", "ZDR", "PHIDP", "RHOHV", "CCORH"]
@@ -154,9 +155,11 @@ def _warn_about_build(profile: str | None) -> None:
     print()
 
 
-def _time_call(fn) -> tuple[float, object]:
+def _time_load(open_tree: Callable[[], xr.DataTree]) -> tuple[float, xr.DataTree]:
+    """Time opening and materializing every variable in every tree node."""
     start = time.perf_counter()
-    result = fn()
+    result = open_tree()
+    result.load()
     return time.perf_counter() - start, result
 
 
@@ -186,12 +189,13 @@ def compare(radrs_source: str, xradar_source: str | None) -> None:
             with fsspec.open(xradar_source, "rb") as f:
                 return f.read()
 
-    t_rs, rs_dt = _time_call(lambda: rxr.open_datatree(radrs_source))
-    t_xr, xr_dt = _time_call(
+    t_rs, rs_dt = _time_load(lambda: rxr.open_datatree(radrs_source))
+    t_xr, xr_dt = _time_load(
         lambda: xd.io.open_nexradlevel2_datatree(xradar_source_call())
     )
 
     suffix = "" if profile == "release" else f"  [{profile or 'unknown'} build]"
+    print("Timings include opening and materializing all tree variables; remote reads are included.")
     print(f"radrs load: {t_rs:.2f}s{suffix}")
     print(f"xradar load: {t_xr:.2f}s")
 
