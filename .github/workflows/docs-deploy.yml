@@ -12,6 +12,7 @@ on:
       # has to re-publish when only that file changed.
       - 'CHANGELOG.md'
       - 'pyproject.toml'
+      - 'uv.lock'
       - 'python/radrs/**'
       - 'src/**'
       - 'Cargo.toml'
@@ -79,7 +80,7 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install docs dependencies
-        run: uv sync --group docs
+        run: uv sync --locked --no-default-groups --group docs
 
       - name: Configure git identity
         run: |
@@ -88,7 +89,7 @@ jobs:
 
       - name: Deploy dev alias (push to main)
         if: github.event_name == 'push'
-        run: uv run mike deploy --push --update-aliases dev
+        run: uv run --locked --no-default-groups --group docs mike deploy --push --update-aliases dev
 
       - name: Deploy versioned docs (release)
         if: >-
@@ -113,5 +114,5 @@ jobs:
             version="${tag%.*}"
           fi
           echo "Deploying docs for version ${version} (from tag ${RELEASE_TAG})"
-          uv run mike deploy --push --update-aliases "${version}" latest
-          uv run mike set-default --push latest
+          uv run --locked --no-default-groups --group docs mike deploy --push --update-aliases "${version}" latest
+          uv run --locked --no-default-groups --group docs mike set-default --push latest

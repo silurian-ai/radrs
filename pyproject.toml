@@ -82,7 +82,7 @@ dev = [
     "zizmor>=1.24.1",
 ]
 docs = [
-    "zensical",
+    "zensical>=0.0.60",
     "mkdocstrings[python]",
     "mike @ git+https://github.com/squidfunk/mike.git",
 ]
