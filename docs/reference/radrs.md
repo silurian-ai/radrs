@@ -9,5 +9,4 @@
         - NexradL2ArchiveIter
         - NexradL2ArchiveInfo
         - list_nexrad_l2_archive_volumes
-        - stream_realtime
         - set_log_filter

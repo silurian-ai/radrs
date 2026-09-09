@@ -30,19 +30,10 @@ def _basename(uri):
     return uri.replace("\\", "/").rsplit("/", 1)[-1]
 
 
-class TestStreamRealtime:
-    """Tests for stream_realtime function."""
-
-    def test_stream_realtime_not_implemented(self):
-        """Test that stream_realtime raises NotImplementedError."""
-
-        with pytest.raises(NotImplementedError):
-            radrs.stream_realtime("KTLX")
-
-
-def test_stream_archive_is_not_exported():
-    assert not hasattr(radrs, "stream_archive")
-    assert not hasattr(radrs._radrs, "stream_archive")
+@pytest.mark.parametrize("name", ["stream_archive", "stream_realtime"])
+def test_unimplemented_streams_are_not_exported(name):
+    assert not hasattr(radrs, name)
+    assert not hasattr(radrs._radrs, name)
 
 
 class TestNexradL2ArchiveIter:

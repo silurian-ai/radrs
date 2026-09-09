@@ -36,7 +36,6 @@ pyo3-async-runtimes = { version = "0.29", features = ["tokio-runtime"] }
 
 # Error handling
 thiserror = "2.0"
-anyhow = "1.0"
 
 # Parallelism
 rayon = "1.10"

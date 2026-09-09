@@ -58,7 +58,6 @@ from radrs._radrs import (
     list_nexrad_l2_archive_volumes_py as list_nexrad_l2_archive_volumes,
     peek_volume,
     set_log_filter,
-    stream_realtime,
 )
 
 if "RADRS_LOG" in os.environ:
@@ -68,7 +67,6 @@ if "RADRS_LOG" in os.environ:
 __all__ = [
     "peek_volume",
     "VolumeMeta",
-    "stream_realtime",
     "NexradL2ArchiveIter",
     "NexradL2ArchiveInfo",
     "list_nexrad_l2_archive_volumes",

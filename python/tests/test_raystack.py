@@ -524,7 +524,7 @@ class TestActivityDataTree:
     @pytest.mark.slow
     def test_open_datatree_activity_s3(self):
         # Public bucket. open_datatree defaults s3:// URIs to anonymous
-        # access (preserving the old fetch_s3_url behavior), so callers
+        # access by default, so callers
         # don't need to pass storage_options for public archive data.
         dt = rrs.open_datatree(S3_TEST_FILE)
         assert "activity" in dt
