@@ -14,7 +14,7 @@ Load a NEXRAD volume as an xarray DataTree:
 ```python
 import radrs.xradar as rxr
 
-dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_120000_V06")
+dt = rxr.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06")
 ```
 
 Or in the flat raystack layout for ML pipelines:
