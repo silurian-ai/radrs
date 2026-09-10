@@ -77,6 +77,12 @@ the only supported source format.
 The direct `radrs.xradar` and `radrs.raystack` APIs remain the canonical APIs.
 The xarray engines are thin adapters for workflows that prefer xarray dispatch.
 
+## Acknowledgments
+
+radrs builds on the [nexrad Rust project](https://github.com/danielway/nexrad)
+for NEXRAD decoding and data models. We thank its authors and contributors for
+this foundation and have contributed fixes upstream as part of developing radrs.
+
 ## License
 
 Apache-2.0 — see [LICENSE](LICENSE).
