@@ -15,7 +15,7 @@ Open a NEXRAD volume as a raystack DataTree:
 ```python
 import radrs.raystack as rrs
 
-rdt = rrs.open_datatree("s3://unidata-nexrad-level2/.../KTLX20240315_120000_V06", fold_size=128)
+rdt = rrs.open_datatree("s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06", fold_size=128)
 rdt["returns"]["DBZH"].shape  # (n_returns, 128)
 ```
 
@@ -314,7 +314,7 @@ class BatchedRaystack:
 
         >>> stream = radrs.raystack.BatchedRaystack(10, 140, 50000)
         >>> stream.add_volume_from_url(
-        ...     "s3://noaa-nexrad-level2/2024/03/15/KTLX/KTLX20240315_120000_V06",
+        ...     "s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06",
         ...     storage_options={"anon": "true"}
         ... )
 

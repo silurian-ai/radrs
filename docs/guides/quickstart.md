@@ -29,7 +29,7 @@ the same sweep-per-node structure.
 ```python
 import radrs.xradar as rxr
 
-src = "s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_120000_V06"
+src = "s3://unidata-nexrad-level2/2024/03/15/KTLX/KTLX20240315_000217_V06"
 dt = rxr.open_datatree(src)
 ```
 
