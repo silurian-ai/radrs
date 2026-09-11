@@ -47,6 +47,7 @@ pub mod metadata;
 pub mod metadata_build;
 pub mod ops;
 pub mod qc;
+mod range;
 pub mod raystack;
 pub mod xradar;
 
