@@ -32,41 +32,11 @@ from dataclasses import dataclass
 from typing import Iterable, List, Optional
 
 # Import from the Rust extension
-try:
-    from radrs._radrs import qc as _qc
-except ImportError:
-    _qc = None
+from radrs._radrs import qc as _qc
 
-if _qc is None:
-    def rhohv_threshold(rhohv, threshold=None):
-        """Apply RHOHV threshold mask."""
-        raise NotImplementedError("radrs.qc module not available")
-
-    def sun_spike(dbzh, dbzh_threshold=None, fill_threshold=None, corr_threshold=None):
-        """Detect sun spikes in reflectivity data."""
-        raise NotImplementedError("radrs.qc module not available")
-
-    def vradh_winding_number(
-        vradh,
-        dbzh=None,
-        nyquist=None,
-        wind_size=None,
-        velocity_texture_threshold=None,
-        reflectivity_threshold=None,
-        interval_splits=None,
-        skip_between_rays=None,
-        skip_along_ray=None,
-        centered=None,
-        rays_wrap_around=None,
-        fill_value=None,
-        fill_tolerance=None,
-    ):
-        """Compute VRADH winding number from region-based dealiasing."""
-        raise NotImplementedError("radrs.qc module not available")
-else:
-    rhohv_threshold = _qc.rhohv_threshold
-    sun_spike = _qc.sun_spike
-    vradh_winding_number = _qc.vradh_winding_number
+rhohv_threshold = _qc.rhohv_threshold
+sun_spike = _qc.sun_spike
+vradh_winding_number = _qc.vradh_winding_number
 
 
 class QCStep:

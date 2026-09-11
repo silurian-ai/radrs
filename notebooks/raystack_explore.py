@@ -65,7 +65,6 @@ def _(dt, mo):
 def _(dt, mo):
     returns = dt["returns"].dataset
     sweeps = dt["sweeps"].dataset
-    vcps = dt["vcps"].dataset
 
     n_returns = returns.sizes["return_time"]
     n_sweeps = sweeps.sizes["sweep_time"]

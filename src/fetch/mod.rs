@@ -16,12 +16,6 @@ use tokio::runtime::Runtime;
 use tokio::sync::Semaphore;
 use url::Url;
 
-pub mod archive;
-pub mod realtime;
-
-pub use archive::fetch_s3_url;
-pub use realtime::{ChunkId, poll_realtime_chunks};
-
 /// Public archive bucket for complete NEXRAD Level 2 volumes.
 pub const ARCHIVE_BUCKET: &str = "unidata-nexrad-level2";
 
@@ -268,6 +262,26 @@ pub(crate) fn extract_base_path(uri: &str) -> Result<String> {
     )))
 }
 
+/// Default `storage_options` for the `open_datatree` URI fetch path.
+///
+/// Return `{"anon": "true"}` for S3 URIs to preserve the readers' default
+/// anonymous access when no explicit storage options were provided.
+///
+/// Other schemes (`gs://`, `az://`, local) defer to the underlying
+/// `object_store` credential chain. Callers who need anonymous access for
+/// those (e.g., the public GCS NEXRAD mirror) must request it explicitly.
+pub fn default_open_datatree_storage_options(uri: &str) -> Option<HashMap<String, String>> {
+    // get(..5) returns None on a non-char-boundary slice (e.g., local paths
+    // starting with a multi-byte character) so this is panic-safe.
+    if uri.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("s3://")) {
+        let mut opts = HashMap::new();
+        opts.insert("anon".to_string(), "true".to_string());
+        Some(opts)
+    } else {
+        None
+    }
+}
+
 /// Fetch bytes from a URL using object_store
 ///
 /// Supports S3, GCS, Azure Blob Storage, and local filesystems.
@@ -294,28 +308,6 @@ pub(crate) fn extract_base_path(uri: &str) -> Result<String> {
 /// // Local filesystem
 /// let bytes = fetch_bytes_from_url("/data/nexrad/KTLX20240315_120000_V06", None).await?;
 /// ```
-/// Default `storage_options` for the `open_datatree` URI fetch path.
-///
-/// `open_datatree` historically routed all S3 URLs through `fetch_s3_url`,
-/// which hardcoded `skip_signature=true` for every request. To preserve
-/// that behavior for existing callers, return `{"anon": "true"}` when the
-/// URI is `s3://` and no explicit options were provided.
-///
-/// Other schemes (`gs://`, `az://`, local) defer to the underlying
-/// `object_store` credential chain. Callers who need anonymous access for
-/// those (e.g., the public GCS NEXRAD mirror) must request it explicitly.
-pub fn default_open_datatree_storage_options(uri: &str) -> Option<HashMap<String, String>> {
-    // get(..5) returns None on a non-char-boundary slice (e.g., local paths
-    // starting with a multi-byte character) so this is panic-safe.
-    if uri.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("s3://")) {
-        let mut opts = HashMap::new();
-        opts.insert("anon".to_string(), "true".to_string());
-        Some(opts)
-    } else {
-        None
-    }
-}
-
 pub async fn fetch_bytes_from_url(
     url: &str,
     storage_options: Option<HashMap<String, String>>,
@@ -417,7 +409,7 @@ mod tests {
 
     #[test]
     fn test_default_open_datatree_storage_options() {
-        // s3:// URIs get implicit anon to match old fetch_s3_url behavior.
+        // S3 readers default to anonymous access.
         let opts = default_open_datatree_storage_options("s3://bucket/key").unwrap();
         assert_eq!(opts.get("anon").map(String::as_str), Some("true"));
 

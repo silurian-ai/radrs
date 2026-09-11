@@ -46,7 +46,6 @@ pub mod constants;
 pub mod metadata;
 pub mod metadata_build;
 pub mod ops;
-pub mod parse;
 pub mod qc;
 pub mod raystack;
 pub mod xradar;
@@ -128,7 +127,7 @@ fn set_log_filter(py: Python<'_>, filter: Option<String>) -> PyResult<()> {
 fn _radrs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Cargo profile this extension was compiled with. A "debug" build runs
     // roughly an order of magnitude slower than "release", which makes any
-    // benchmark against it meaningless -- see python/tools/compare_xradar.py.
+    // benchmark against it meaningless -- see scripts/xradar_radrs_bench.py.
     m.add(
         "__profile__",
         if cfg!(debug_assertions) {

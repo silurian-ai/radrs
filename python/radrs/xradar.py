@@ -39,84 +39,57 @@ credentials for private buckets. ``gs://`` and ``az://`` URIs use
 from radrs._source_format import DEFAULT_SOURCE_FORMAT, require_supported_format
 
 # Import from the Rust extension
-try:
-    from radrs._radrs import xradar as _xradar
-except ImportError:
-    _xradar = None
+from radrs._radrs import xradar as _xradar
 
-if _xradar is None:
-    def open_datatree(
+def open_datatree(
+    source,
+    sort_by_azimuth: bool = False,
+    storage_options=None,
+    *,
+    format: str = DEFAULT_SOURCE_FORMAT,
+):
+    """Open a NEXRAD Level 2 file as xarray DataTree.
+
+    Parameters
+    ----------
+    source : str or bytes
+        Path to file, URI (``s3://``, ``gs://``, ``az://``, ``file://``,
+        or absolute local path), or raw bytes. The URI must point at a
+        single NEXRAD Level 2 volume — tar archives (e.g. the public
+        GCS NEXRAD mirror's 6-minute bundles) are not unpacked here and
+        will fail at parse. See module docstring for details.
+    sort_by_azimuth : bool, default=False
+        If True, sort radials within each sweep by azimuth (xradar convention).
+    storage_options : dict, optional
+        Storage backend configuration forwarded to object_store. Examples:
+        - S3 anonymous: {"anon": "true"}
+        - GCS service account: {"service_account_path": "/path/to/key.json"}
+        - Azure: {"account_name": "...", "access_key": "..."}
+    """
+    require_supported_format(format)
+    return _xradar.open_datatree(
         source,
-        sort_by_azimuth: bool = False,
-        storage_options=None,
-        *,
-        format: str = DEFAULT_SOURCE_FORMAT,
-    ):
-        """Open a NEXRAD Level 2 file as xarray DataTree."""
-        require_supported_format(format)
-        raise NotImplementedError("radrs.xradar module not available")
+        sort_by_azimuth=sort_by_azimuth,
+        storage_options=storage_options,
+    )
 
-    async def open_datatree_async(
+async def open_datatree_async(
+    source,
+    sort_by_azimuth: bool = False,
+    storage_options=None,
+    *,
+    format: str = DEFAULT_SOURCE_FORMAT,
+):
+    """Open a NEXRAD Level 2 file as xarray DataTree (async).
+
+    See ``open_datatree`` for parameter descriptions, including the
+    single-volume-only caveat for non-S3 cloud sources.
+    """
+    require_supported_format(format)
+    return await _xradar.open_datatree_async(
         source,
-        sort_by_azimuth: bool = False,
-        storage_options=None,
-        *,
-        format: str = DEFAULT_SOURCE_FORMAT,
-    ):
-        """Open a NEXRAD Level 2 file as xarray DataTree (async)."""
-        require_supported_format(format)
-        raise NotImplementedError("radrs.xradar module not available")
-else:
-
-    def open_datatree(
-        source,
-        sort_by_azimuth: bool = False,
-        storage_options=None,
-        *,
-        format: str = DEFAULT_SOURCE_FORMAT,
-    ):
-        """Open a NEXRAD Level 2 file as xarray DataTree.
-
-        Parameters
-        ----------
-        source : str or bytes
-            Path to file, URI (``s3://``, ``gs://``, ``az://``, ``file://``,
-            or absolute local path), or raw bytes. The URI must point at a
-            single NEXRAD Level 2 volume — tar archives (e.g. the public
-            GCS NEXRAD mirror's 6-minute bundles) are not unpacked here and
-            will fail at parse. See module docstring for details.
-        sort_by_azimuth : bool, default=False
-            If True, sort radials within each sweep by azimuth (xradar convention).
-        storage_options : dict, optional
-            Storage backend configuration forwarded to object_store. Examples:
-            - S3 anonymous: {"anon": "true"}
-            - GCS service account: {"service_account_path": "/path/to/key.json"}
-            - Azure: {"account_name": "...", "access_key": "..."}
-        """
-        require_supported_format(format)
-        return _xradar.open_datatree(
-            source,
-            sort_by_azimuth=sort_by_azimuth,
-            storage_options=storage_options,
-        )
-
-    async def open_datatree_async(
-        source,
-        sort_by_azimuth: bool = False,
-        storage_options=None,
-        *,
-        format: str = DEFAULT_SOURCE_FORMAT,
-    ):
-        """Open a NEXRAD Level 2 file as xarray DataTree (async).
-
-        See ``open_datatree`` for parameter descriptions, including the
-        single-volume-only caveat for non-S3 cloud sources.
-        """
-        require_supported_format(format)
-        return await _xradar.open_datatree_async(
-            source,
-            sort_by_azimuth=sort_by_azimuth,
-            storage_options=storage_options,
-        )
+        sort_by_azimuth=sort_by_azimuth,
+        storage_options=storage_options,
+    )
 
 __all__ = ["open_datatree", "open_datatree_async"]

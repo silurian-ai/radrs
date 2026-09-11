@@ -178,12 +178,10 @@ def test_parse_vs_pyart_azimuth_alignment(full_volume_bytes, full_pyart_radar):
         n = int(num_ret[rs_idx])
 
         rs_az = np.asarray(returns["azimuth"][start : start + n])
-        rs_time = np.asarray(returns["return_time"][start : start + n])
 
         pa_start = int(radar.sweep_start_ray_index["data"][pa_idx])
         pa_end = int(radar.sweep_end_ray_index["data"][pa_idx])
         pa_az = np.asarray(az_all[pa_start : pa_end + 1])
-        pa_time = np.asarray(radar.time["data"][pa_start : pa_end + 1])
 
         max_min_diff = 0.0
         for az in rs_az:
