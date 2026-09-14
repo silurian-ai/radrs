@@ -1,0 +1,1501 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Fast NEXRAD Level 2 processing for Python.">
+      
+      
+      
+        <link rel="canonical" href="https://silurian-ai.github.io/radrs/0.4/changelog/">
+      
+      
+        <link rel="prev" href="../reference/viz/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/radrs-glyph.png">
+      <meta name="generator" content="zensical-0.0.60">
+    
+    
+      
+        <title>Changelog - radrs</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.ce62732f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.812a03bb.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=IBM+Plex+Sans:300,300i,400,400i,500,500i,700,700i%7CIBM+Plex+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"IBM Plex Sans";--md-code-font:"IBM Plex Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/silurian.css">
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="radrs" class="md-header__button md-logo" aria-label="radrs" data-md-component="logo">
+      
+  <img src="../assets/radrs-glyph.png" alt="radrs">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            radrs
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/silurian-ai/radrs" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    silurian-ai/radrs
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="radrs" class="md-nav__button md-logo" aria-label="radrs" data-md-component="logo">
+      
+  <img src="../assets/radrs-glyph.png" alt="radrs">
+
+    </a>
+    radrs
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/silurian-ai/radrs" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    silurian-ai/radrs
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Install
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Guides
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Guides
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Quickstart
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/raystack-format/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Raystack format
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/batching/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Batch iteration and folding
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/qc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Quality control
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/xradar-interop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  xradar interop
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/visualization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Visualization
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  API reference
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/radrs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  radrs
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/xradar/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  radrs.xradar
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/raystack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  radrs.raystack
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/qc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  radrs.qc
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/ops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  radrs.ops
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/viz/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  radrs.viz
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Changelog
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Changelog
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#040-2026-09-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.4.0 (2026-09-14)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.0 (2026-09-14)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#breaking-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ⚠ BREAKING CHANGES
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#code-refactoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Code Refactoring
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#037-2026-04-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.7 (2026-04-27)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.7 (2026-04-27)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#036-2026-04-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.6 (2026-04-27)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.6 (2026-04-27)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#035-2026-04-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.5 (2026-04-24)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.5 (2026-04-24)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-improvements" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Performance Improvements
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#035-2026-04-24_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.5 (2026-04-24)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.5 (2026-04-24)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#034-2026-04-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.4 (2026-04-24)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.4 (2026-04-24)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#040-2026-09-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.4.0 (2026-09-14)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.4.0 (2026-09-14)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#breaking-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        ⚠ BREAKING CHANGES
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#code-refactoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Code Refactoring
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#037-2026-04-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.7 (2026-04-27)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.7 (2026-04-27)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#036-2026-04-27" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.6 (2026-04-27)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.6 (2026-04-27)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#035-2026-04-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.5 (2026-04-24)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.5 (2026-04-24)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-improvements" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Performance Improvements
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#035-2026-04-24_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.5 (2026-04-24)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.5 (2026-04-24)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#034-2026-04-24" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0.3.4 (2026-04-24)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="0.3.4 (2026-04-24)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#features_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+  
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="040-2026-09-14"><a href="https://github.com/silurian-ai/radrs/compare/radrs-v0.3.7...radrs-v0.4.0">0.4.0</a> (2026-09-14)<a class="headerlink" href="#040-2026-09-14" title="Permanent link">&para;</a></h2>
+<h3 id="breaking-changes">⚠ BREAKING CHANGES<a class="headerlink" href="#breaking-changes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>remove abandoned parsing and streaming scaffolding (<a href="https://github.com/silurian-ai/radrs/issues/65">#65</a>)</li>
+</ul>
+<h3 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h3>
+<ul>
+<li>add explicit radrs xarray backends (<a href="https://github.com/silurian-ai/radrs/issues/18">#18</a>) (<a href="https://github.com/silurian-ai/radrs/commit/19971f761033149e7b8f32ab1135b78645a747d7">19971f7</a>)</li>
+<li>Cleanup for release (<a href="https://github.com/silurian-ai/radrs/issues/44">#44</a>) (<a href="https://github.com/silurian-ai/radrs/commit/255d5122f852aaea8c101a7bc91fa49194cc24cf">255d512</a>)</li>
+<li>Run Clippy and Add to PR (<a href="https://github.com/silurian-ai/radrs/issues/43">#43</a>) (<a href="https://github.com/silurian-ai/radrs/commit/70840d93031f8db542d60f41534f7fbad100aec3">70840d9</a>)</li>
+</ul>
+<h3 id="bug-fixes">Bug Fixes<a class="headerlink" href="#bug-fixes" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>ci:</strong> fetch history for push change detection (<a href="https://github.com/silurian-ai/radrs/issues/66">#66</a>) (<a href="https://github.com/silurian-ai/radrs/commit/b36c4d42be158191f34cfa84340c7fac2fbf955b">b36c4d4</a>)</li>
+<li><strong>docs:</strong> align README links with mike deployment (<a href="https://github.com/silurian-ai/radrs/issues/41">#41</a>) (<a href="https://github.com/silurian-ai/radrs/commit/828b2f2089b3a53c4870de7820a3c753138bb275">828b2f2</a>)</li>
+<li>include materialization in radar loading benchmark (<a href="https://github.com/silurian-ai/radrs/issues/60">#60</a>) (<a href="https://github.com/silurian-ai/radrs/commit/ee5709e41286e0b0656fdd43fe3ce47702841f7d">ee5709e</a>)</li>
+<li>require xarray with DataTree support (<a href="https://github.com/silurian-ai/radrs/issues/45">#45</a>) (<a href="https://github.com/silurian-ai/radrs/commit/9f5eb0d0c8b1b56cf2f4df9d4cea01cd08f270db">9f5eb0d</a>)</li>
+</ul>
+<h3 id="code-refactoring">Code Refactoring<a class="headerlink" href="#code-refactoring" title="Permanent link">&para;</a></h3>
+<ul>
+<li>remove abandoned parsing and streaming scaffolding (<a href="https://github.com/silurian-ai/radrs/issues/65">#65</a>) (<a href="https://github.com/silurian-ai/radrs/commit/a6891e77618fcda8f315e84528ecfae304afe0e1">a6891e7</a>)</li>
+</ul>
+<h2 id="037-2026-04-27"><a href="https://github.com/silurian-ai/radrs/compare/radrs-v0.3.6...radrs-v0.3.7">0.3.7</a> (2026-04-27)<a class="headerlink" href="#037-2026-04-27" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fixes_1">Bug Fixes<a class="headerlink" href="#bug-fixes_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Update source URL in quick start (<a href="https://github.com/silurian-ai/radrs/issues/39">#39</a>) (<a href="https://github.com/silurian-ai/radrs/commit/c4812d7633447031ef78e6ea780871d7f93d9f26">c4812d7</a>)</li>
+</ul>
+<h2 id="036-2026-04-27"><a href="https://github.com/silurian-ai/radrs/compare/radrs-v0.3.5...radrs-v0.3.6">0.3.6</a> (2026-04-27)<a class="headerlink" href="#036-2026-04-27" title="Permanent link">&para;</a></h2>
+<h3 id="features_1">Features<a class="headerlink" href="#features_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li>accept gs:// and az:// URIs in open_datatree (<a href="https://github.com/silurian-ai/radrs/issues/31">#31</a>) (<a href="https://github.com/silurian-ai/radrs/commit/bd878ef1f4412a9266a7590237d64e8777811f51">bd878ef</a>)</li>
+</ul>
+<h2 id="035-2026-04-24"><a href="https://github.com/silurian-ai/radrs/compare/radrs-v0.3.4...radrs-v0.3.5">0.3.5</a> (2026-04-24)<a class="headerlink" href="#035-2026-04-24" title="Permanent link">&para;</a></h2>
+<h3 id="features_2">Features<a class="headerlink" href="#features_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add batched raystack loader and time-based iter (<a href="https://github.com/silurian-ai/radrs/commit/1076bc0ec8e160c8b4562ec20f164669e3ba9169">1076bc0</a>)</li>
+<li>add instrument_name (<a href="https://github.com/silurian-ai/radrs/commit/49bacdc4fff976cfcd4851e9c3f581caffa5b25c">49bacdc</a>)</li>
+<li>Add license and update publish action (<a href="https://github.com/silurian-ai/radrs/issues/21">#21</a>) (<a href="https://github.com/silurian-ai/radrs/commit/941ec3a0604486fa35d27deae87d0519685f782d">941ec3a</a>)</li>
+<li>Add metadata-only batch functionality (with peek) (<a href="https://github.com/silurian-ai/radrs/issues/9">#9</a>) (<a href="https://github.com/silurian-ai/radrs/commit/6d6e87fd487fc5dbed2fe380968fcd96b2e9be7d">6d6e87f</a>)</li>
+<li>add raystack quicklook anywidget app (<a href="https://github.com/silurian-ai/radrs/issues/13">#13</a>) (<a href="https://github.com/silurian-ai/radrs/commit/677fe845dfa177bc07a96c6f091de826beb9e6e3">677fe84</a>)</li>
+<li>add root metadata and use azimuth as primary dimension (<a href="https://github.com/silurian-ai/radrs/issues/2">#2</a>) (<a href="https://github.com/silurian-ai/radrs/commit/6afb25d1240a2da88b6ece3822c05fc68bd1b06b">6afb25d</a>)</li>
+<li>allow rust lib logging for debugging (<a href="https://github.com/silurian-ai/radrs/commit/95e3e2ce8181417b10bd0dc62f8a0ef373747c6a">95e3e2c</a>)</li>
+<li>be more robust against bad data in archive (<a href="https://github.com/silurian-ai/radrs/commit/cf36a059ccab10fcca65247af0047db93cfe4dc0">cf36a05</a>)</li>
+<li>faster filtering and other analysis tools (<a href="https://github.com/silurian-ai/radrs/issues/1">#1</a>) (<a href="https://github.com/silurian-ai/radrs/commit/ac5794db3b4e7c42f638e0dbd6dd5f50f3043ae3">ac5794d</a>)</li>
+<li>Folding logic for batched raystacks (<a href="https://github.com/silurian-ai/radrs/issues/8">#8</a>) (<a href="https://github.com/silurian-ai/radrs/commit/c2516dd90ad9db963575e4d7e55747e792305979">c2516dd</a>)</li>
+<li>high-performance S3 fetch with connection pooling and prefetch (<a href="https://github.com/silurian-ai/radrs/commit/687d8b4051561951cc8cc28c18c85676e3851611">687d8b4</a>)</li>
+<li>Make radrs compatible with current silurian library versions (<a href="https://github.com/silurian-ai/radrs/issues/14">#14</a>) (<a href="https://github.com/silurian-ai/radrs/commit/de2dc369c5d07eeba19a4d87a4bdb5076256149f">de2dc36</a>)</li>
+<li>Modify Build/Package Setup (<a href="https://github.com/silurian-ai/radrs/issues/10">#10</a>) (<a href="https://github.com/silurian-ai/radrs/commit/4a06326534181d73c86a80d43f24a9fa9ce0b6c1">4a06326</a>)</li>
+<li>prepare for release (<a href="https://github.com/silurian-ai/radrs/commit/7b505832a18af5839014fd244905293f0959264e">7b50583</a>)</li>
+<li><strong>qc:</strong> add VRADH winding number for velocity dealiasing (<a href="https://github.com/silurian-ai/radrs/commit/b044a5705a094289f14a040200b3adca0b2ea8ac">b044a57</a>)</li>
+<li>some useful scripts and analysis notebooks (<a href="https://github.com/silurian-ai/radrs/issues/3">#3</a>) (<a href="https://github.com/silurian-ai/radrs/commit/192e7c16ec214037120aae0edefdf3bb2d444034">192e7c1</a>)</li>
+<li>wire QC support into volume iterators (<a href="https://github.com/silurian-ai/radrs/commit/7c8514d349ea8e01904646b809d0f9a521296f34">7c8514d</a>)</li>
+</ul>
+<h3 id="bug-fixes_2">Bug Fixes<a class="headerlink" href="#bug-fixes_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>adapt to upstream refactor (<a href="https://github.com/silurian-ai/radrs/issues/17">#17</a>) (<a href="https://github.com/silurian-ai/radrs/commit/b6c33af5fd5e9ee3fd81526ed50049cb0859c1cf">b6c33af</a>)</li>
+<li>Add fix and test for exact-boundary edge case (<a href="https://github.com/silurian-ai/radrs/issues/16">#16</a>) (<a href="https://github.com/silurian-ai/radrs/commit/89986d381f45ad4fb4d8c538aba34e564e047e80">89986d3</a>)</li>
+<li>bump version to 0.3.4 (<a href="https://github.com/silurian-ai/radrs/commit/856ed57be071b2837b274e91140754422b06771c">856ed57</a>)</li>
+<li>clearer function names (<a href="https://github.com/silurian-ai/radrs/commit/a260ae15512bf633888d1ad0f2edf15865824ac8">a260ae1</a>)</li>
+<li>correct rust setup (<a href="https://github.com/silurian-ai/radrs/commit/dbbc013a97c05937b05573bfeaf18cef917b89e8">dbbc013</a>)</li>
+<li>enough tests to know things are working decently (<a href="https://github.com/silurian-ai/radrs/commit/ddf6054de7aac7dafb75fde8d7fd297af2a1db6d">ddf6054</a>)</li>
+<li>introduce volumesource to allow later extension to alternative sources of radar data (<a href="https://github.com/silurian-ai/radrs/commit/3c3acd1c5a26fc8a42e919a1e376f4a2c170394c">3c3acd1</a>)</li>
+<li>issue with pyart parity testing (<a href="https://github.com/silurian-ai/radrs/commit/ab63e6c68225bf4b398509c0457442281e5273b7">ab63e6c</a>)</li>
+<li>keep ordering when in parallel (<a href="https://github.com/silurian-ai/radrs/commit/5b5019e834c217530f34f750c44dbc00b362ecd7">5b5019e</a>)</li>
+<li>update release config, add CI caching, and update nexrad dependencies (<a href="https://github.com/silurian-ai/radrs/issues/23">#23</a>) (<a href="https://github.com/silurian-ai/radrs/commit/02cfe65820e4614a95681ba4bda19b920717953a">02cfe65</a>)</li>
+<li>use generic updater for Cargo.toml in release-please (<a href="https://github.com/silurian-ai/radrs/issues/25">#25</a>) (<a href="https://github.com/silurian-ai/radrs/commit/d963fd94212ca26346fc5ddd20e08ca8c72c97d1">d963fd9</a>)</li>
+<li>use rust release type for release-please (<a href="https://github.com/silurian-ai/radrs/commit/610f63822e98900ac639fb2875d67d40ec7fbcd5">610f638</a>)</li>
+</ul>
+<h3 id="performance-improvements">Performance Improvements<a class="headerlink" href="#performance-improvements" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>qc:</strong> parallelize vradh winding texture computation (<a href="https://github.com/silurian-ai/radrs/commit/f76636b832d57ea503829a39c5f11222c4dc7ac6">f76636b</a>)</li>
+</ul>
+<h2 id="035-2026-04-24_1"><a href="https://github.com/silurian-ai/radrs/compare/v0.3.4...v0.3.5">0.3.5</a> (2026-04-24)<a class="headerlink" href="#035-2026-04-24_1" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fixes_3">Bug Fixes<a class="headerlink" href="#bug-fixes_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>use generic updater for Cargo.toml in release-please (<a href="https://github.com/silurian-ai/radrs/issues/25">#25</a>) (<a href="https://github.com/silurian-ai/radrs/commit/d963fd94212ca26346fc5ddd20e08ca8c72c97d1">d963fd9</a>)</li>
+</ul>
+<h2 id="034-2026-04-24"><a href="https://github.com/silurian-ai/radrs/compare/v0.3.3...v0.3.4">0.3.4</a> (2026-04-24)<a class="headerlink" href="#034-2026-04-24" title="Permanent link">&para;</a></h2>
+<h3 id="features_3">Features<a class="headerlink" href="#features_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add license and update publish action (<a href="https://github.com/silurian-ai/radrs/issues/21">#21</a>) (<a href="https://github.com/silurian-ai/radrs/commit/941ec3a0604486fa35d27deae87d0519685f782d">941ec3a</a>)</li>
+</ul>
+<h3 id="bug-fixes_4">Bug Fixes<a class="headerlink" href="#bug-fixes_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li>adapt to upstream refactor (<a href="https://github.com/silurian-ai/radrs/issues/17">#17</a>) (<a href="https://github.com/silurian-ai/radrs/commit/b6c33af5fd5e9ee3fd81526ed50049cb0859c1cf">b6c33af</a>)</li>
+<li>update release config, add CI caching, and update nexrad dependencies (<a href="https://github.com/silurian-ai/radrs/issues/23">#23</a>) (<a href="https://github.com/silurian-ai/radrs/commit/02cfe65820e4614a95681ba4bda19b920717953a">02cfe65</a>)</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 <a href="https://silurian.ai">Silurian AI Inc.</a>
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["navigation.instant","navigation.tracking","navigation.indexes","navigation.top","search.suggest","search.highlight","content.tabs.link","content.code.copy","content.code.annotate","toc.follow"],"search":"../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"default":"latest","provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.88ee1349.min.js"></script>
+      
+    
+  </body>
+</html>
