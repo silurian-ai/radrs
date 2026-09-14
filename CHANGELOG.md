@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.4.0](https://github.com/silurian-ai/radrs/compare/radrs-v0.3.7...radrs-v0.4.0) (2026-09-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove abandoned parsing and streaming scaffolding ([#65](https://github.com/silurian-ai/radrs/issues/65))
+
+### Features
+
+* add explicit radrs xarray backends ([#18](https://github.com/silurian-ai/radrs/issues/18)) ([19971f7](https://github.com/silurian-ai/radrs/commit/19971f761033149e7b8f32ab1135b78645a747d7))
+* Cleanup for release ([#44](https://github.com/silurian-ai/radrs/issues/44)) ([255d512](https://github.com/silurian-ai/radrs/commit/255d5122f852aaea8c101a7bc91fa49194cc24cf))
+* Run Clippy and Add to PR ([#43](https://github.com/silurian-ai/radrs/issues/43)) ([70840d9](https://github.com/silurian-ai/radrs/commit/70840d93031f8db542d60f41534f7fbad100aec3))
+
+
+### Bug Fixes
+
+* **ci:** fetch history for push change detection ([#66](https://github.com/silurian-ai/radrs/issues/66)) ([b36c4d4](https://github.com/silurian-ai/radrs/commit/b36c4d42be158191f34cfa84340c7fac2fbf955b))
+* **docs:** align README links with mike deployment ([#41](https://github.com/silurian-ai/radrs/issues/41)) ([828b2f2](https://github.com/silurian-ai/radrs/commit/828b2f2089b3a53c4870de7820a3c753138bb275))
+* include materialization in radar loading benchmark ([#60](https://github.com/silurian-ai/radrs/issues/60)) ([ee5709e](https://github.com/silurian-ai/radrs/commit/ee5709e41286e0b0656fdd43fe3ce47702841f7d))
+* require xarray with DataTree support ([#45](https://github.com/silurian-ai/radrs/issues/45)) ([9f5eb0d](https://github.com/silurian-ai/radrs/commit/9f5eb0d0c8b1b56cf2f4df9d4cea01cd08f270db))
+
+
+### Code Refactoring
+
+* remove abandoned parsing and streaming scaffolding ([#65](https://github.com/silurian-ai/radrs/issues/65)) ([a6891e7](https://github.com/silurian-ai/radrs/commit/a6891e77618fcda8f315e84528ecfae304afe0e1))
+
 ## [0.3.7](https://github.com/silurian-ai/radrs/compare/radrs-v0.3.6...radrs-v0.3.7) (2026-04-27)
 
 
