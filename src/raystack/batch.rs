@@ -9,6 +9,7 @@ use crate::fetch::RUNTIME;
 use crate::iter::{PEEK_SCAN_MAX, VolumeMeta as PeekVolumeMeta, peek_volume_bytes};
 use crate::metadata::extract_scan_meta;
 use crate::qc;
+use crate::range::{RangeGeometry, canonical_lattice, geometry, map_gate_to_lattice};
 use crate::raystack::QcOp;
 use crate::raystack::parse::DEFAULT_FOLD_SIZE;
 use crate::raystack::parse::QcArray;
@@ -16,9 +17,7 @@ use crate::raystack::parse::VolumeMeta;
 use crate::raystack::parse::collect_metadata;
 use crate::raystack::parse::ungzip_if_needed;
 use nexrad_data::volume::File as VolumeFile;
-use nexrad_model::data::{
-    CFPMomentData, CFPMomentValue, DataMoment, MomentData, MomentValue, Radial, Scan,
-};
+use nexrad_model::data::{CFPMomentData, CFPMomentValue, MomentData, MomentValue, Radial, Scan};
 use numpy::ndarray::Array2;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
@@ -28,46 +27,16 @@ use tokio::task::JoinHandle;
 const PEEK_SCAN_LATLON: usize = PEEK_SCAN_MAX / 2;
 type VolumeFetchHandle = JoinHandle<Result<(Vec<u8>, u64)>>;
 
-// Asserts that a value is the same as another and returns the value
-#[macro_export]
-macro_rules! ensure_eq {
-    ($left:expr, $right:expr) => {{
-        let left_val = $left;
-        let right_val = $right;
-        if left_val != right_val {
-            panic!(
-                "assertion failed: `(left == right)`\n  left: `{:?}`,\n right: `{:?}`",
-                left_val, right_val
-            );
-        }
-        left_val
-    }};
-}
-
 enum MomentRef<'a> {
     Standard(&'a MomentData),
     Cfp(&'a CFPMomentData),
 }
 
 impl MomentRef<'_> {
-    fn gate_count(&self) -> u16 {
+    fn geometry(&self) -> Result<RangeGeometry> {
         match self {
-            Self::Standard(moment) => moment.gate_count(),
-            Self::Cfp(moment) => moment.gate_count(),
-        }
-    }
-
-    fn first_gate_range_km(&self) -> f64 {
-        match self {
-            Self::Standard(moment) => moment.first_gate_range_km(),
-            Self::Cfp(moment) => moment.first_gate_range_km(),
-        }
-    }
-
-    fn gate_interval_km(&self) -> f64 {
-        match self {
-            Self::Standard(moment) => moment.gate_interval_km(),
-            Self::Cfp(moment) => moment.gate_interval_km(),
+            Self::Standard(moment) => geometry(*moment),
+            Self::Cfp(moment) => geometry(*moment),
         }
     }
 
@@ -287,7 +256,7 @@ pub fn parse_single_volume(data: &[u8], fold_size: usize) -> Result<RaystackBatc
     let volume = VolumeFile::new(data.into_owned());
     let scan_meta = extract_scan_meta(&volume);
     let scan = volume.scan()?;
-    let vol_meta = collect_metadata(&scan);
+    let vol_meta = collect_metadata(&scan)?;
 
     let max_sweeps = vol_meta.sweeps.len().max(1);
     let max_returns: usize = vol_meta
@@ -636,7 +605,7 @@ impl RaystackBatchData {
         let volume = VolumeFile::new(data.into_owned());
         let scan_meta = extract_scan_meta(&volume);
         let scan: Scan = volume.scan()?;
-        let vol_meta = collect_metadata(&scan);
+        let vol_meta = collect_metadata(&scan)?;
 
         self.add_scan(&volume, &scan, &scan_meta, &vol_meta)
     }
@@ -1062,40 +1031,44 @@ impl RaystackBatchData {
             // Returns
             //
 
+            let sweep_grid = canonical_lattice(
+                &sweep
+                    .radials()
+                    .iter()
+                    .flat_map(|radial| get_moment_datas(radial).into_iter().flatten())
+                    .map(|moment| moment.geometry())
+                    .collect::<Result<Vec<_>>>()?,
+            )?
+            .ok_or_else(|| RadrsError::MissingData("sweep has no moment data".into()))?;
+
             // Values are computed so stored once for multiple folds
             let mut moment_values: [Option<Vec<f32>>; 7] = [const { None }; 7];
 
             for radial in sweep.radials() {
-                let mut rad_max_gates = 0u16;
-                let mut rad_first_gate_km = 0.0f32;
-                let mut rad_gate_step_km = 0.0f32;
+                let mut rad_max_gates = 0usize;
                 let moment_datas = get_moment_datas(radial);
 
                 // First pass: compute radial metadata and cache moment values
+                let mut moment_geometries: [Option<RangeGeometry>; 7] = [const { None }; 7];
                 for (m_idx, maybe_m) in moment_datas.iter().enumerate() {
                     if let Some(m) = maybe_m {
-                        rad_max_gates = rad_max_gates.max(m.gate_count());
-                        rad_first_gate_km = if rad_first_gate_km == 0.0 {
-                            m.first_gate_range_km() as f32
-                        } else {
-                            ensure_eq!(rad_first_gate_km, m.first_gate_range_km() as f32)
-                        };
-                        rad_gate_step_km = if rad_gate_step_km == 0.0 {
-                            m.gate_interval_km() as f32
-                        } else {
-                            ensure_eq!(rad_gate_step_km, m.gate_interval_km() as f32)
-                        };
+                        let source_geometry = m.geometry()?;
+                        let last_gate = source_geometry.gate_count.saturating_sub(1);
+                        let last_output_gate =
+                            map_gate_to_lattice(source_geometry, last_gate, sweep_grid)?;
+                        rad_max_gates = rad_max_gates.max(last_output_gate + 1);
+                        moment_geometries[m_idx] = Some(source_geometry);
                         moment_values[m_idx] = Some(m.values());
                     } else {
+                        moment_geometries[m_idx] = None;
                         moment_values[m_idx] = None;
                     }
                 }
 
                 // // ceil int division
-                let n_folds = (rad_max_gates as usize).div_ceil(self.fold_size);
+                let n_folds = rad_max_gates.div_ceil(self.fold_size);
                 for f in 0..n_folds {
                     let base_gate = f * self.fold_size;
-                    let start_m_val_idx = base_gate;
                     let end_m_val_idx = base_gate + self.fold_size;
                     let start_m_out_idx = self.n_returns * self.fold_size;
                     let end_m_out_idx = start_m_out_idx + self.fold_size;
@@ -1103,7 +1076,7 @@ impl RaystackBatchData {
                     let mut n_finite_values = 0usize;
 
                     // Second pass: fill moment data into output vectors
-                    for (m_idx, maybe_m) in moment_datas.iter().enumerate() {
+                    for (m_idx, _) in moment_datas.iter().enumerate() {
                         let m_out = self.get_moment_vectors(m_idx);
                         assert_eq!(
                             start_m_out_idx,
@@ -1114,18 +1087,19 @@ impl RaystackBatchData {
                         );
                         m_out.resize(end_m_out_idx, f32::NAN);
 
-                        if maybe_m.is_some() {
-                            let m_vals = moment_values[m_idx].as_ref().unwrap();
+                        if let (Some(source_geometry), Some(m_vals)) =
+                            (moment_geometries[m_idx], moment_values[m_idx].as_ref())
+                        {
+                            for (source_gate, value) in m_vals.iter().enumerate() {
+                                let output_gate =
+                                    map_gate_to_lattice(source_geometry, source_gate, sweep_grid)?;
+                                if output_gate < base_gate || output_gate >= end_m_val_idx {
+                                    continue;
+                                }
+                                let output_offset = output_gate - base_gate;
+                                m_out[start_m_out_idx + output_offset] = *value;
 
-                            let trunc_m_val_idx = end_m_val_idx.min(m_vals.len());
-                            if trunc_m_val_idx <= start_m_val_idx {
-                                continue;
-                            };
-
-                            for i in 0..(trunc_m_val_idx - start_m_val_idx) {
-                                m_out[start_m_out_idx + i] = m_vals[start_m_val_idx + i];
-
-                                if m_out[start_m_out_idx + i].is_finite() {
+                                if value.is_finite() {
                                     n_finite_values += 1;
                                 }
                             }
@@ -1151,9 +1125,11 @@ impl RaystackBatchData {
                     self.return_elevation.push(radial.elevation_angle_degrees());
 
                     self.return_base_range_m.push(
-                        (rad_first_gate_km + (rad_gate_step_km * (base_gate as f32))) * 1000.0,
+                        sweep_grid.first_gate_m as f32
+                            + sweep_grid.gate_spacing_m as f32 * base_gate as f32,
                     );
-                    self.return_range_step_m.push(rad_gate_step_km * 1000.0);
+                    self.return_range_step_m
+                        .push(sweep_grid.gate_spacing_m as f32);
 
                     self.n_returns += 1;
                 }
