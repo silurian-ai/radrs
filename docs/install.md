@@ -1,6 +1,6 @@
 # Install
 
-radrs ships as a precompiled wheel on PyPI. Python 3.11+ is required.
+radrs ships as a precompiled wheel on PyPI. Python 3.12+ is required.
 
 === "uv"
 
