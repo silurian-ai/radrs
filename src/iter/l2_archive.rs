@@ -24,7 +24,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Metadata extracted from a NEXRAD L2 filename
-#[pyclass(skip_from_py_object, module = "radrs._radrs")]
+#[pyclass(module = "radrs._radrs")]
 #[derive(Clone, Debug)]
 pub struct NexradL2ArchiveInfo {
     /// Full URI to the volume file
