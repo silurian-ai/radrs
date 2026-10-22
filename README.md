@@ -22,7 +22,7 @@ or a flattened "raystack" xarray DataTree optimized for ML pipelines.
 uv add radrs
 ```
 
-Or with pip: `pip install radrs`. Requires Python 3.11+.
+Or with pip: `pip install radrs`. Requires Python 3.12+.
 
 ## Quick start
 

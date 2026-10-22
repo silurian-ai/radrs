@@ -17,7 +17,7 @@ environment to a working `open_datatree` call against a public S3 file.
     pip install radrs
     ```
 
-Python 3.11+ is required. See [Install](../install.md) for source builds and
+Python 3.12+ is required. See [Install](../install.md) for source builds and
 platform notes.
 
 ## Open a volume as an xradar DataTree
