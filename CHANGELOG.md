@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0](https://github.com/silurian-ai/radrs/compare/radrs-v0.4.0...radrs-v0.5.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* require Python 3.12 and upgrade PyO3 bindings ([#67](https://github.com/silurian-ai/radrs/issues/67))
+
+### Features
+
+* require Python 3.12 and upgrade PyO3 bindings ([#67](https://github.com/silurian-ai/radrs/issues/67)) ([934cf9e](https://github.com/silurian-ai/radrs/commit/934cf9ea8bb3b77335e265109dffaf7d2585a48f))
+
+
+### Bug Fixes
+
+* accept gzip-wrapped volumes in the xradar path ([#69](https://github.com/silurian-ai/radrs/issues/69)) ([1529484](https://github.com/silurian-ai/radrs/commit/15294840d0042acebcb7212af246e20d5e656f68))
+
 ## [0.4.0](https://github.com/silurian-ai/radrs/compare/radrs-v0.3.7...radrs-v0.4.0) (2026-09-14)
 
 
