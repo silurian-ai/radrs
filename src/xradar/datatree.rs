@@ -1,6 +1,7 @@
 //! DataTree conversion for xradar compatibility
 
 use crate::constants::XRADAR_MOMENT_NAMES;
+use crate::decode::scan_volume;
 use crate::error::{RadrsError, Result};
 use crate::fetch::{RUNTIME, default_open_datatree_storage_options, fetch_bytes_from_url};
 use crate::metadata::{ScanMeta, extract_scan_meta};
@@ -102,7 +103,7 @@ fn parse_nexrad_data(data: Vec<u8>) -> Result<(Scan, ScanMeta)> {
     let data = ungzip_owned(data)?;
     let volume = VolumeFile::new(data);
     let meta = extract_scan_meta(&volume);
-    let scan = volume.scan().map_err(|err| {
+    let scan = scan_volume(&volume).map_err(|err| {
         tracing::warn!(
             target: "radrs::parse",
             format = "xradar",

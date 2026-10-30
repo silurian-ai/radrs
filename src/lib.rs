@@ -43,6 +43,7 @@ pub mod error;
 pub mod fetch;
 pub mod iter;
 pub mod constants;
+pub mod decode;
 pub mod metadata;
 pub mod metadata_build;
 pub mod ops;

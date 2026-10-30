@@ -26,6 +26,15 @@ nexrad-data = { version = "1.0.0", default-features = false, features = ["model"
 nexrad-decode = "1.0.0"
 nexrad-model = "1.0.0"
 
+# Pure-Rust bzip2 decoder for LDM records, used by `src/decode.rs` in place of
+# the `bzip2` crate (libbz2-rs-sys) behind nexrad-data's `File::scan` /
+# `Record::decompress`; ~2x faster single-threaded, identical output. Git
+# dependency: the crate is not on crates.io. It declares rust-version 1.94
+# (CI's stable is fine; locally `cargo +1.99.1`). Upstream nexrad-data declined
+# to vendor it (danielway/nexrad#218); an optional dependency there becomes
+# possible if the crate is published.
+recast-radar-bzip2 = { git = "https://github.com/recastsystems/recast-radar-tools", rev = "c206a2495c36341caa2a62ff7be3025320dbb028", package = "recast-radar-bzip2" }
+
 # Cloud storage access (S3, GCS, Azure, local)
 object_store = { version = "0.14.2", features = ["aws", "gcp", "azure"] }
 bytes = "1"

@@ -3,6 +3,7 @@
 //! This module provides fast header-only parsing of NEXRAD volumes
 //! to extract metadata without downloading/parsing the full file.
 
+use crate::decode::decompress_record;
 use crate::error::{RadrsError, Result};
 use crate::fetch::{FETCH_SEMAPHORE, RUNTIME, store_for_bucket};
 use chrono::{DateTime, Utc};
@@ -189,7 +190,7 @@ fn scan_record_for_extras(
     extras: &mut PeekExtras,
 ) -> bool {
     let decompressed = if record.compressed() {
-        match record.decompress() {
+        match decompress_record(record) {
             Ok(r) => r,
             Err(e) => {
                 tracing::debug!("Failed to decompress record {}: {}", record_index, e);
