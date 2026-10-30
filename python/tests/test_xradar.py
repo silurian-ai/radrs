@@ -80,6 +80,30 @@ class TestOpenDatatree:
         sweep_keys = [k for k in dt.children.keys() if k.startswith("sweep_")]
         assert len(sweep_keys) > 0
 
+    def test_open_datatree_from_gzip_bytes(self, test_file_bytes):
+        """gzip-wrapped volumes (as the public archive stores older files) open."""
+        import gzip
+
+        raw = rxr.open_datatree(test_file_bytes)
+        gz = rxr.open_datatree(gzip.compress(test_file_bytes))
+
+        raw_sweeps = sorted(k for k in raw.children if k.startswith("sweep_"))
+        gz_sweeps = sorted(k for k in gz.children if k.startswith("sweep_"))
+        assert gz_sweeps == raw_sweeps
+        np.testing.assert_array_equal(
+            gz[raw_sweeps[0]]["azimuth"].values,
+            raw[raw_sweeps[0]]["azimuth"].values,
+        )
+
+    def test_open_datatree_from_gzip_path(self, test_file_bytes, tmp_path):
+        import gzip
+
+        gz_path = tmp_path / "volume.gz"
+        gz_path.write_bytes(gzip.compress(test_file_bytes))
+
+        dt = rxr.open_datatree(str(gz_path))
+        assert any(k.startswith("sweep_") for k in dt.children)
+
     def test_open_datatree_invalid_format(self):
         with pytest.raises(ValueError, match="Supported formats: nexrad-level2"):
             rxr.open_datatree(b"", format="odim")

@@ -21,6 +21,16 @@ pub const DEFAULT_FOLD_SIZE: usize = 128;
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
+/// Decompress outer gzip if present, taking ownership so the non-gzip case
+/// returns the buffer unchanged without copying it.
+pub(crate) fn ungzip_owned(data: Vec<u8>) -> Result<Vec<u8>> {
+    if data.starts_with(&GZIP_MAGIC) {
+        Ok(ungzip_if_needed(&data)?.into_owned())
+    } else {
+        Ok(data)
+    }
+}
+
 /// Decompress outer gzip if present. Uses Cow to avoid allocation when not gzipped.
 pub(crate) fn ungzip_if_needed(data: &[u8]) -> Result<Cow<'_, [u8]>> {
     if data.starts_with(&GZIP_MAGIC) {

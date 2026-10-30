@@ -9,6 +9,7 @@ mod parse;
 
 pub use batch::{RaystackBatchData, parse_single_volume};
 pub use parse::{DEFAULT_FOLD_SIZE, QcArray, QcOp, SweepMeta, VolumeMeta, collect_metadata};
+pub(crate) use parse::ungzip_owned;
 
 use pyo3::prelude::*;
 
