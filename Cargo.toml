@@ -22,9 +22,14 @@ pyo3 = { version = "0.30.1" }
 numpy = "0.30"
 
 # NEXRAD parsing
-nexrad-data = { version = "1.0.0", default-features = false, features = ["model", "parallel"] }
-nexrad-decode = "1.0.0"
-nexrad-model = "1.0.0"
+# Git dependencies on our nexrad fork while the `recast-bzip2` feature (vendored
+# pure-Rust bzip2 decoder for LDM records, ~2x faster single-threaded than
+# libbz2-rs-sys) is upstreamed; see https://github.com/danielway/nexrad/pull/218.
+# All three crates must come from the same rev because nexrad-data depends on
+# the others by path.
+nexrad-data = { git = "https://github.com/silurian-ai/nexrad", rev = "25bf6983843e6aae8cc790a95e763d48a7f65acf", default-features = false, features = ["model", "parallel", "recast-bzip2"] }
+nexrad-decode = { git = "https://github.com/silurian-ai/nexrad", rev = "25bf6983843e6aae8cc790a95e763d48a7f65acf" }
+nexrad-model = { git = "https://github.com/silurian-ai/nexrad", rev = "25bf6983843e6aae8cc790a95e763d48a7f65acf" }
 
 # Cloud storage access (S3, GCS, Azure, local)
 object_store = { version = "0.14.2", features = ["aws", "gcp", "azure"] }

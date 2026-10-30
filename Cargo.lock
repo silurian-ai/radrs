@@ -106,15 +106,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "bzip2"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3a53fac24f34a81bc9954b5d6cfce0c21e18ec6959f44f56e8e90e4bb7c346c"
-dependencies = [
- "libbz2-rs-sys",
-]
-
-[[package]]
 name = "cc"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -872,12 +863,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20870f649af7073d53e38067b2a84312175d56ea15217e1b15bc83506ec50afb"
 
 [[package]]
-name = "libbz2-rs-sys"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32f454fd6831a29c0e827ed075bca2a15be201bd57f4168f0fd1041124eab17e"
-
-[[package]]
 name = "libc"
 version = "0.2.191"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1002,10 +987,8 @@ dependencies = [
 [[package]]
 name = "nexrad-data"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95c40741725cf341ff402b09a42b07b374e8ffdd4e8929925a11f860f74aaf37"
+source = "git+https://github.com/silurian-ai/nexrad?rev=25bf6983843e6aae8cc790a95e763d48a7f65acf#25bf6983843e6aae8cc790a95e763d48a7f65acf"
 dependencies = [
- "bzip2",
  "chrono",
  "flate2",
  "log",
@@ -1019,8 +1002,7 @@ dependencies = [
 [[package]]
 name = "nexrad-decode"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "813407aa160db09c2791475be9e3c858b27a20003deed79f1cb8a29c2895beb9"
+source = "git+https://github.com/silurian-ai/nexrad?rev=25bf6983843e6aae8cc790a95e763d48a7f65acf#25bf6983843e6aae8cc790a95e763d48a7f65acf"
 dependencies = [
  "chrono",
  "nexrad-model",
@@ -1031,8 +1013,7 @@ dependencies = [
 [[package]]
 name = "nexrad-model"
 version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "839900e0114b83998488e4669e0563178cc1d7d07f8c2a1b58ac3922e9063613"
+source = "git+https://github.com/silurian-ai/nexrad?rev=25bf6983843e6aae8cc790a95e763d48a7f65acf#25bf6983843e6aae8cc790a95e763d48a7f65acf"
 dependencies = [
  "thiserror",
 ]
