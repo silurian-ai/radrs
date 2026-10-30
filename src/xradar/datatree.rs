@@ -5,12 +5,10 @@ use crate::error::{RadrsError, Result};
 use crate::fetch::{RUNTIME, default_open_datatree_storage_options, fetch_bytes_from_url};
 use crate::metadata::{ScanMeta, extract_scan_meta};
 use crate::metadata_build::{build_root_attrs, build_root_vars, set_sweep_mode_scalars};
+use crate::raystack::batch::moment_values_f32;
 use crate::raystack::ungzip_owned;
 use nexrad_data::volume::File as VolumeFile;
-use nexrad_model::data::{
-    CFPMomentData, CFPMomentValue, DataMoment, ElevationCut, MomentData, MomentValue, Radial, Scan,
-    Sweep,
-};
+use nexrad_model::data::{ElevationCut, Scan, Sweep};
 use numpy::IntoPyArray;
 use pyo3::PyErr;
 use pyo3::prelude::*;
@@ -82,7 +80,8 @@ pub fn open_datatree_async_py(
             .await
             .map_err(|e| RadrsError::Python(format!("Parse task failed: {}", e)))??;
 
-        Python::attach(|py| scan_to_datatree(py, &scan, &meta, sort_by_azimuth))})?;
+        Python::attach(|py| scan_to_datatree(py, &scan, &meta, sort_by_azimuth))
+    })?;
 
     Ok(awaitable.into())
 }
@@ -193,7 +192,10 @@ pub(crate) fn scan_to_datatree(
     tree_dict.set_item("/", root_ds)?;
 
     // Nominal sweep angles live in the VCP's elevation-cut table, not in the radials
-    let elevation_cuts = scan.coverage_pattern().elevation_cuts();
+    let elevation_cuts = scan
+        .coverage_pattern()
+        .map(|vcp| vcp.elevation_cuts())
+        .unwrap_or_default();
 
     // Add sweep datasets
     for (sweep_idx, sweep) in scan.sweeps().iter().enumerate() {
@@ -232,7 +234,7 @@ fn compute_time_coverage(scan: &Scan) -> (Option<i64>, Option<i64>) {
 
     for sweep in scan.sweeps() {
         for radial in sweep.radials() {
-            let ts = radial.collection_timestamp();
+            let ts = radial.collection_timestamp_millis();
             min_ts = Some(min_ts.map_or(ts, |m| m.min(ts)));
             max_ts = Some(max_ts.map_or(ts, |m| m.max(ts)));
         }
@@ -301,9 +303,9 @@ fn sweep_to_dataset<'py>(
     let mut max_range_info: Option<(f64, f64)> = None;
 
     for radial in radials {
-        for (moment_getter, cf_name) in &XRADAR_MOMENT_NAMES {
-            if let Some(moment) = get_moment_data(radial, moment_getter) {
-                let n_gates = moment.gate_count() as usize;
+        for (product, cf_name) in &XRADAR_MOMENT_NAMES {
+            if let Some(moment) = radial.moment(*product) {
+                let n_gates = moment.gate_count();
                 let first_range = moment.first_gate_range_km();
                 let gate_interval = moment.gate_interval_km();
 
@@ -339,7 +341,7 @@ fn sweep_to_dataset<'py>(
         let radial = &radials[idx];
         azimuth_data.push(radial.azimuth_angle_degrees());
         elevation_data.push(radial.elevation_angle_degrees());
-        time_data.push(radial.collection_timestamp());
+        time_data.push(radial.collection_timestamp_millis());
     }
 
     // Create data variables dict
@@ -382,15 +384,15 @@ fn sweep_to_dataset<'py>(
     }
 
     // Process each moment type - pad all to max_n_gates
-    for (moment_getter, cf_name) in &XRADAR_MOMENT_NAMES {
+    for (product, cf_name) in &XRADAR_MOMENT_NAMES {
         if moment_info.contains_key(*cf_name) {
             // Create 2D data array (time, range) filled with NaN, padded to max_n_gates
             let mut moment_data: Vec<f32> = vec![f32::NAN; n_rays * max_n_gates];
 
             for (out_idx, &radial_idx) in sorted_indices.iter().enumerate() {
                 let radial = &radials[radial_idx];
-                if let Some(moment) = get_moment_data(radial, moment_getter) {
-                    let values = moment.values_f32();
+                if let Some(moment) = radial.moment(*product) {
+                    let values = moment_values_f32(moment);
                     for (gate_idx, value) in values.iter().enumerate() {
                         if gate_idx >= max_n_gates {
                             break;
@@ -418,7 +420,7 @@ fn sweep_to_dataset<'py>(
     let elevation_number = sweep.elevation_number() as usize;
     let nominal_angle = elevation_cuts
         .get(elevation_number.wrapping_sub(1))
-        .map(|cut| cut.elevation_angle_degrees() as f32);
+        .map(|cut| cut.elevation_angle_degrees());
     if let Some(angle) =
         nominal_angle.or_else(|| radials.first().map(|r| r.elevation_angle_degrees()))
     {
@@ -435,77 +437,4 @@ fn sweep_to_dataset<'py>(
     let dataset = xr.call_method("Dataset", (), Some(&kwargs))?;
 
     Ok(dataset)
-}
-
-enum MomentRef<'a> {
-    Standard(&'a MomentData),
-    Cfp(&'a CFPMomentData),
-}
-
-impl MomentRef<'_> {
-    fn gate_count(&self) -> u16 {
-        match self {
-            Self::Standard(moment) => moment.gate_count(),
-            Self::Cfp(moment) => moment.gate_count(),
-        }
-    }
-
-    fn first_gate_range_km(&self) -> f64 {
-        match self {
-            Self::Standard(moment) => moment.first_gate_range_km(),
-            Self::Cfp(moment) => moment.first_gate_range_km(),
-        }
-    }
-
-    fn gate_interval_km(&self) -> f64 {
-        match self {
-            Self::Standard(moment) => moment.gate_interval_km(),
-            Self::Cfp(moment) => moment.gate_interval_km(),
-        }
-    }
-
-    fn values_f32(&self) -> Vec<f32> {
-        match self {
-            Self::Standard(moment) => moment
-                .values()
-                .into_iter()
-                .map(|value| match value {
-                    MomentValue::Value(v) => v,
-                    MomentValue::BelowThreshold | MomentValue::RangeFolded => f32::NAN,
-                })
-                .collect(),
-            Self::Cfp(moment) => moment
-                .values()
-                .into_iter()
-                .map(|value| match value {
-                    CFPMomentValue::Value(v) => v,
-                    CFPMomentValue::Status(_) => f32::NAN,
-                })
-                .collect(),
-        }
-    }
-}
-
-/// Helper to get moment data from a radial by name
-fn get_moment_data<'a>(radial: &'a Radial, moment_name: &str) -> Option<MomentRef<'a>> {
-    match moment_name {
-        name if name == XRADAR_MOMENT_NAMES[0].0 => radial.reflectivity().map(MomentRef::Standard),
-        name if name == XRADAR_MOMENT_NAMES[1].0 => radial.velocity().map(MomentRef::Standard),
-        name if name == XRADAR_MOMENT_NAMES[2].0 => {
-            radial.spectrum_width().map(MomentRef::Standard)
-        }
-        name if name == XRADAR_MOMENT_NAMES[3].0 => {
-            radial.differential_reflectivity().map(MomentRef::Standard)
-        }
-        name if name == XRADAR_MOMENT_NAMES[4].0 => {
-            radial.differential_phase().map(MomentRef::Standard)
-        }
-        name if name == XRADAR_MOMENT_NAMES[5].0 => {
-            radial.correlation_coefficient().map(MomentRef::Standard)
-        }
-        name if name == XRADAR_MOMENT_NAMES[6].0 => {
-            radial.clutter_filter_power().map(MomentRef::Cfp)
-        }
-        _ => None,
-    }
 }

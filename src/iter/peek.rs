@@ -7,7 +7,7 @@ use crate::error::{RadrsError, Result};
 use crate::fetch::{FETCH_SEMAPHORE, RUNTIME, store_for_bucket};
 use chrono::{DateTime, Utc};
 use flate2::read::GzDecoder;
-use nexrad_data::volume::{Header, Record};
+use nexrad_data::volume::{File as VolumeFile, Header, Record};
 use nexrad_decode::messages::MessageContents;
 use object_store::path::Path as ObjectPath;
 use object_store::{GetOptions, GetRange, ObjectStore, ObjectStoreExt};
@@ -15,10 +15,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyDateTime;
 use std::io::Read;
 use std::sync::Arc;
-use zerocopy::Ref;
 
 /// Volume header size in bytes
-pub const VOLUME_HEADER_SIZE: usize = std::mem::size_of::<Header>();
+pub const VOLUME_HEADER_SIZE: usize = Header::SIZE;
 
 /// Initial scan size for fast peek (favor fewer round-trips)
 pub const PEEK_FAST_INITIAL: usize = 256 * 1024;
@@ -127,13 +126,13 @@ fn parse_volume_header(data: &[u8]) -> Result<(String, DateTime<Utc>, String)> {
         )));
     }
 
-    // Use the same approach as nexrad-data's File::header()
-    let (header_ref, _rest) = Ref::<_, Header>::from_prefix(data)
-        .map_err(|e| RadrsError::Parse(format!("Failed to parse volume header: {:?}", e)))?;
-    let header: &Header = Ref::into_ref(header_ref);
+    let header = VolumeFile::new(data[..VOLUME_HEADER_SIZE].to_vec())
+        .header()
+        .ok_or_else(|| RadrsError::Parse("Failed to parse volume header".to_string()))?;
 
     let site = header
         .icao_of_radar()
+        .map(str::to_string)
         .ok_or_else(|| RadrsError::Parse("Invalid ICAO in header".to_string()))?;
 
     let datetime = header
@@ -143,7 +142,7 @@ fn parse_volume_header(data: &[u8]) -> Result<(String, DateTime<Utc>, String)> {
     // Extract version from tape_filename (e.g., "AR2V0006." -> "V06")
     let version = header
         .tape_filename()
-        .and_then(|s: String| {
+        .and_then(|s: &str| {
             // Format is "AR2V00xx." where xx is the version
             if s.len() >= 8 {
                 Some(format!("V{}", &s[6..8]))
@@ -215,27 +214,27 @@ fn scan_record_for_extras(
 
     for msg in messages {
         match msg.into_contents() {
-            MessageContents::VolumeCoveragePattern(vcp_msg) => {
-                extras.vcp = Some(vcp_msg.header().pattern_number());
+            MessageContents::RdaVolumeCoveragePattern(vcp_msg) => {
+                extras.vcp = Some(vcp_msg.header().vcp_number_raw());
             }
             MessageContents::DigitalRadarData(drd) => {
                 if let Some(vol_block) = drd.volume_data_block() {
                     if extras.vcp.is_none() {
-                        extras.vcp = Some(vol_block.volume_coverage_pattern_number());
+                        extras.vcp = Some(vol_block.inner().vcp_number_raw());
                     }
                     if extras.latitude.is_none() {
-                        extras.latitude = Some(vol_block.latitude_raw());
+                        extras.latitude = Some(vol_block.inner().latitude_degrees());
                     }
                     if extras.longitude.is_none() {
-                        extras.longitude = Some(vol_block.longitude_raw());
+                        extras.longitude = Some(vol_block.inner().longitude_degrees());
                     }
                     if extras.altitude.is_none() {
-                        extras.altitude = Some(vol_block.site_height_raw() as f32);
+                        extras.altitude = Some(vol_block.inner().site_height_meters() as f32);
                     }
                 }
 
                 if extras.first_elevation.is_none() {
-                    extras.first_elevation = Some(drd.header().elevation_angle_raw());
+                    extras.first_elevation = Some(drd.header().elevation_angle_degrees());
                 }
 
                 if extras.moments.is_none() {
@@ -270,7 +269,11 @@ fn scan_record_for_extras(
         }
 
         // Stop early once we know the VCP and position, other fields are best-effort.
-        if extras.vcp.is_some() && extras.latitude.is_some() && extras.longitude.is_some() && extras.altitude.is_some() {
+        if extras.vcp.is_some()
+            && extras.latitude.is_some()
+            && extras.longitude.is_some()
+            && extras.altitude.is_some()
+        {
             return true;
         }
     }
