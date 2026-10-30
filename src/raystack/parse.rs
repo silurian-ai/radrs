@@ -3,10 +3,11 @@
 //! Single-volume parsing now delegates to `RaystackBatchData` so all
 //! raystack outputs share one chunked return representation.
 
+use crate::constants::XRADAR_MOMENT_NAMES;
 use crate::error::{RadrsError, Result};
 use crate::fetch::{RUNTIME, default_open_datatree_storage_options, fetch_bytes_from_url};
 use crate::raystack::batch::{add_activity_to_dict, compute_batch_activity, parse_single_volume};
-use nexrad_model::data::{DataMoment, Scan};
+use nexrad_model::data::{MomentData, Scan};
 use pyo3::PyErr;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict, PyList};
@@ -306,14 +307,14 @@ fn qc_op_from_name(
     }
 }
 
-fn update_grid_from_moment<M: DataMoment>(
-    moment: Option<&M>,
+fn update_grid_from_moment(
+    moment: Option<&MomentData>,
     max_gates: &mut usize,
     range_first_km: &mut f64,
     gate_interval_km: &mut f64,
 ) {
     if let Some(moment) = moment {
-        let gates = moment.gate_count() as usize;
+        let gates = moment.gate_count();
         if gates > *max_gates {
             *max_gates = gates;
             *range_first_km = moment.first_gate_range_km();
@@ -345,53 +346,19 @@ pub fn collect_metadata(scan: &Scan) -> VolumeMeta {
         let mut gate_interval_km = 0.0f64;
 
         for radial in radials {
-            update_grid_from_moment(
-                radial.reflectivity(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.velocity(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.spectrum_width(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.differential_reflectivity(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.differential_phase(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.correlation_coefficient(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
-            update_grid_from_moment(
-                radial.clutter_filter_power(),
-                &mut max_gates,
-                &mut range_first_km,
-                &mut gate_interval_km,
-            );
+            for (product, _) in XRADAR_MOMENT_NAMES {
+                update_grid_from_moment(
+                    radial.moment(product),
+                    &mut max_gates,
+                    &mut range_first_km,
+                    &mut gate_interval_km,
+                );
+            }
 
-            vcp_min_time = vcp_min_time.min(radial.collection_timestamp());
-            vcp_max_time = vcp_max_time.max(radial.collection_timestamp());
-            sweep_min_time = sweep_min_time.min(radial.collection_timestamp());
-            sweep_max_time = sweep_max_time.max(radial.collection_timestamp());
+            vcp_min_time = vcp_min_time.min(radial.collection_timestamp_millis());
+            vcp_max_time = vcp_max_time.max(radial.collection_timestamp_millis());
+            sweep_min_time = sweep_min_time.min(radial.collection_timestamp_millis());
+            sweep_max_time = sweep_max_time.max(radial.collection_timestamp_millis());
         }
 
         sweeps.push(SweepMeta {
@@ -574,7 +541,8 @@ pub fn open_raystack_datatree_async_py<'py>(
         Python::attach(|py| {
             let dict = finalize_batch_to_dict(py, batch, &qc_ops, include_activity)?;
             crate::raystack::convert::to_raystack_datatree_py(py, dict.bind(py))
-        })})?;
+        })
+    })?;
 
     Ok(awaitable.into())
 }

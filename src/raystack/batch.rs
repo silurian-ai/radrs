@@ -3,7 +3,7 @@
 //! Pre-allocates flat arrays for P patterns, S sweeps, and R returns,
 //! then fills incrementally from volume Scans (not dicts).
 
-use crate::constants::MOMENT_NAMES;
+use crate::constants::{MOMENT_NAMES, XRADAR_MOMENT_NAMES};
 use crate::error::{RadrsError, Result};
 use crate::fetch::RUNTIME;
 use crate::iter::{PEEK_SCAN_MAX, VolumeMeta as PeekVolumeMeta, peek_volume_bytes};
@@ -16,9 +16,7 @@ use crate::raystack::parse::VolumeMeta;
 use crate::raystack::parse::collect_metadata;
 use crate::raystack::parse::ungzip_if_needed;
 use nexrad_data::volume::File as VolumeFile;
-use nexrad_model::data::{
-    CFPMomentData, CFPMomentValue, DataMoment, MomentData, MomentValue, Radial, Scan,
-};
+use nexrad_model::data::{MomentData, MomentValue, Radial, Scan};
 use numpy::ndarray::Array2;
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
@@ -44,65 +42,21 @@ macro_rules! ensure_eq {
     }};
 }
 
-enum MomentRef<'a> {
-    Standard(&'a MomentData),
-    Cfp(&'a CFPMomentData),
+/// Decodes a moment's gates, mapping every non-value status to NaN.
+pub(crate) fn moment_values_f32(moment: &MomentData) -> Vec<f32> {
+    moment
+        .iter()
+        .map(|value| match value {
+            MomentValue::Value(v) => v,
+            MomentValue::BelowThreshold | MomentValue::RangeFolded | MomentValue::CfpStatus(_) => {
+                f32::NAN
+            }
+        })
+        .collect()
 }
 
-impl MomentRef<'_> {
-    fn gate_count(&self) -> u16 {
-        match self {
-            Self::Standard(moment) => moment.gate_count(),
-            Self::Cfp(moment) => moment.gate_count(),
-        }
-    }
-
-    fn first_gate_range_km(&self) -> f64 {
-        match self {
-            Self::Standard(moment) => moment.first_gate_range_km(),
-            Self::Cfp(moment) => moment.first_gate_range_km(),
-        }
-    }
-
-    fn gate_interval_km(&self) -> f64 {
-        match self {
-            Self::Standard(moment) => moment.gate_interval_km(),
-            Self::Cfp(moment) => moment.gate_interval_km(),
-        }
-    }
-
-    fn values(&self) -> Vec<f32> {
-        match self {
-            Self::Standard(moment) => moment
-                .values()
-                .into_iter()
-                .map(|value| match value {
-                    MomentValue::Value(v) => v,
-                    MomentValue::BelowThreshold | MomentValue::RangeFolded => f32::NAN,
-                })
-                .collect(),
-            Self::Cfp(moment) => moment
-                .values()
-                .into_iter()
-                .map(|value| match value {
-                    CFPMomentValue::Value(v) => v,
-                    CFPMomentValue::Status(_) => f32::NAN,
-                })
-                .collect(),
-        }
-    }
-}
-
-fn get_moment_datas(r: &Radial) -> [Option<MomentRef<'_>>; 7] {
-    [
-        r.reflectivity().map(MomentRef::Standard),
-        r.velocity().map(MomentRef::Standard),
-        r.spectrum_width().map(MomentRef::Standard),
-        r.differential_reflectivity().map(MomentRef::Standard),
-        r.differential_phase().map(MomentRef::Standard),
-        r.correlation_coefficient().map(MomentRef::Standard),
-        r.clutter_filter_power().map(MomentRef::Cfp),
-    ]
+fn get_moment_datas(r: &Radial) -> [Option<&MomentData>; 7] {
+    XRADAR_MOMENT_NAMES.map(|(product, _)| r.moment(product))
 }
 
 pub(crate) struct ActivityData {
@@ -958,7 +912,10 @@ impl RaystackBatchData {
             )));
         }
 
-        let elevation_cuts = scan.coverage_pattern().elevation_cuts();
+        let elevation_cuts = scan
+            .coverage_pattern()
+            .map(|vcp| vcp.elevation_cuts())
+            .unwrap_or_default();
 
         //
         // VCP
@@ -1033,7 +990,7 @@ impl RaystackBatchData {
             self.sweep_elevation_angle.push(
                 if (sweep_meta.elevation_number as usize) <= elevation_cuts.len() {
                     elevation_cuts[(sweep_meta.elevation_number - 1) as usize]
-                        .elevation_angle_degrees() as f32
+                        .elevation_angle_degrees()
                 } else {
                     sweep_meta.elevation_angle
                 },
@@ -1066,7 +1023,7 @@ impl RaystackBatchData {
             let mut moment_values: [Option<Vec<f32>>; 7] = [const { None }; 7];
 
             for radial in sweep.radials() {
-                let mut rad_max_gates = 0u16;
+                let mut rad_max_gates = 0usize;
                 let mut rad_first_gate_km = 0.0f32;
                 let mut rad_gate_step_km = 0.0f32;
                 let moment_datas = get_moment_datas(radial);
@@ -1085,14 +1042,14 @@ impl RaystackBatchData {
                         } else {
                             ensure_eq!(rad_gate_step_km, m.gate_interval_km() as f32)
                         };
-                        moment_values[m_idx] = Some(m.values());
+                        moment_values[m_idx] = Some(moment_values_f32(m));
                     } else {
                         moment_values[m_idx] = None;
                     }
                 }
 
                 // // ceil int division
-                let n_folds = (rad_max_gates as usize).div_ceil(self.fold_size);
+                let n_folds = rad_max_gates.div_ceil(self.fold_size);
                 for f in 0..n_folds {
                     let base_gate = f * self.fold_size;
                     let start_m_val_idx = base_gate;
@@ -1146,7 +1103,7 @@ impl RaystackBatchData {
                     self.return_sweep_number.push(sweep_idx as u32);
                     self.return_sweep_time.push(sweep_time);
 
-                    self.return_time.push(radial.collection_timestamp());
+                    self.return_time.push(radial.collection_timestamp_millis());
                     self.return_azimuth.push(radial.azimuth_angle_degrees());
                     self.return_elevation.push(radial.elevation_angle_degrees());
 
