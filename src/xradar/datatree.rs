@@ -5,6 +5,7 @@ use crate::error::{RadrsError, Result};
 use crate::fetch::{RUNTIME, default_open_datatree_storage_options, fetch_bytes_from_url};
 use crate::metadata::{ScanMeta, extract_scan_meta};
 use crate::metadata_build::{build_root_attrs, build_root_vars, set_sweep_mode_scalars};
+use crate::raystack::ungzip_owned;
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_model::data::{
     CFPMomentData, CFPMomentValue, DataMoment, ElevationCut, MomentData, MomentValue, Radial, Scan,
@@ -91,10 +92,15 @@ pub fn open_datatree(source: Vec<u8>) -> Result<(Scan, ScanMeta)> {
     parse_nexrad_data(source)
 }
 
-/// Parse raw NEXRAD data into a Scan
+/// Parse raw NEXRAD data into a Scan.
+///
+/// Accepts the same inputs as the raystack path: an uncompressed or
+/// LDM-compressed Archive II volume, optionally wrapped in gzip (as the
+/// public archive stores pre-2008 volumes and some later ones).
 fn parse_nexrad_data(data: Vec<u8>) -> Result<(Scan, ScanMeta)> {
     let bytes_len = data.len();
     let start = Instant::now();
+    let data = ungzip_owned(data)?;
     let volume = VolumeFile::new(data);
     let meta = extract_scan_meta(&volume);
     let scan = volume.scan().map_err(|err| {
