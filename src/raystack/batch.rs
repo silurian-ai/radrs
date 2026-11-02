@@ -4,6 +4,7 @@
 //! then fills incrementally from volume Scans (not dicts).
 
 use crate::constants::{MOMENT_NAMES, XRADAR_MOMENT_NAMES};
+use crate::decode::scan_volume;
 use crate::error::{RadrsError, Result};
 use crate::fetch::RUNTIME;
 use crate::iter::{PEEK_SCAN_MAX, VolumeMeta as PeekVolumeMeta, peek_volume_bytes};
@@ -240,7 +241,7 @@ pub fn parse_single_volume(data: &[u8], fold_size: usize) -> Result<RaystackBatc
     let data = ungzip_if_needed(data)?;
     let volume = VolumeFile::new(data.into_owned());
     let scan_meta = extract_scan_meta(&volume);
-    let scan = volume.scan()?;
+    let scan = scan_volume(&volume)?;
     let vol_meta = collect_metadata(&scan);
 
     let max_sweeps = vol_meta.sweeps.len().max(1);
@@ -589,7 +590,7 @@ impl RaystackBatchData {
         // Parse volume file
         let volume = VolumeFile::new(data.into_owned());
         let scan_meta = extract_scan_meta(&volume);
-        let scan: Scan = volume.scan()?;
+        let scan: Scan = scan_volume(&volume)?;
         let vol_meta = collect_metadata(&scan);
 
         self.add_scan(&volume, &scan, &scan_meta, &vol_meta)

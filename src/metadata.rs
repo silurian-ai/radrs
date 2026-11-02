@@ -1,5 +1,6 @@
 //! Shared metadata extraction for NEXRAD volumes.
 
+use crate::decode::decompress_record;
 use nexrad_data::volume::File as VolumeFile;
 use nexrad_decode::messages::MessageContents;
 
@@ -36,7 +37,7 @@ pub fn extract_scan_meta(volume: &VolumeFile) -> ScanMeta {
 
     for record in records {
         let record = if record.compressed() {
-            match record.decompress() {
+            match decompress_record(&record) {
                 Ok(decompressed) => decompressed,
                 Err(err) => {
                     tracing::warn!("Failed to decompress record for metadata: {}", err);

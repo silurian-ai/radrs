@@ -19,6 +19,9 @@ pub enum RadrsError {
     #[error("NEXRAD decode error: {0}")]
     NexradDecode(#[from] nexrad_decode::result::Error),
 
+    #[error("LDM record decompression error: {0}")]
+    Bzip2(#[from] recast_radar_bzip2::Error),
+
     #[error("Invalid path: {0}")]
     InvalidPath(String),
 
